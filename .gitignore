@@ -1,5 +1,8 @@
 /target
 /out
 
+# longtail objects
+dist-win32-x64
+
 # editor
 .idea
