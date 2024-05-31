@@ -3,6 +3,7 @@
 
 # longtail objects
 dist-win32-x64
+dist-linux-x64
 
 # editor
 .idea

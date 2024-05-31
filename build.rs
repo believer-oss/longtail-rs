@@ -1,7 +1,8 @@
 use std::env;
 use std::path::PathBuf;
 
-fn main() {
+#[allow(dead_code)]
+fn setup_windows() -> PathBuf {
     // This is the directory where the `c` library is located.
     let libdir_path = PathBuf::from("dist-win32-x64/include/src")
         // Canonicalize the path as `rustc-link-search` requires an absolute
@@ -9,7 +10,41 @@ fn main() {
         .canonicalize()
         .expect("cannot canonicalize path");
 
-    println!("{:?}", libdir_path);
+    // Tell cargo to look for shared libraries in the specified directory
+    println!("cargo:rustc-link-search=dist-win32-x64");
+
+    // Tell cargo to tell rustc to link the system bzip2
+    // shared library.
+    println!("cargo:rustc-link-lib=static=longtail_win32_x64");
+
+    libdir_path
+}
+
+#[allow(dead_code)]
+fn setup_linux() -> PathBuf {
+    // This is the directory where the `c` library is located.
+    let libdir_path = PathBuf::from("dist-linux-x64/include/src")
+        // Canonicalize the path as `rustc-link-search` requires an absolute
+        // path.
+        .canonicalize()
+        .expect("cannot canonicalize path");
+
+    // Tell cargo to look for shared libraries in the specified directory
+    println!("cargo:rustc-link-search=dist-linux-x64");
+
+    // Tell cargo to tell rustc to link the system bzip2
+    // shared library.
+    println!("cargo:rustc-link-lib=static=longtail_linux_x64");
+
+    libdir_path
+}
+
+fn main() {
+    #[cfg(target_os = "windows")]
+    let libdir_path = setup_windows();
+
+    #[cfg(target_os = "linux")]
+    let libdir_path = setup_linux();
 
     // This is the path to the `c` headers file.
     let headers_path = libdir_path.join("longtail.h");
