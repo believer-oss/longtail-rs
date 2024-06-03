@@ -34,7 +34,21 @@ fn setup_linux() -> PathBuf {
 
     // Tell cargo to tell rustc to link the system bzip2
     // shared library.
-    println!("cargo:rustc-link-lib=static=longtail_linux_x64");
+    println!("cargo:rustc-link-lib=static=longtail_linux_x64_debug");
+
+    libdir_path
+}
+
+#[allow(dead_code)]
+fn setup_linux_debug() -> PathBuf {
+    let libdir_path = PathBuf::from("longtail/src")
+        // Canonicalize the path as `rustc-link-search` requires an absolute
+        // path.
+        .canonicalize()
+        .expect("cannot canonicalize path");
+
+    println!("cargo:rustc-link-search=longtail/build/linux_x64/longtail_static/debug");
+    println!("cargo:rustc-link-lib=static=longtail_static");
 
     libdir_path
 }
@@ -44,7 +58,8 @@ fn main() {
     let libdir_path = setup_windows();
 
     #[cfg(target_os = "linux")]
-    let libdir_path = setup_linux();
+    let libdir_path = setup_linux_debug();
+    // let libdir_path = setup_linux();
 
     // This is the path to the `c` headers file.
     let headers_path = libdir_path.join("longtail.h");
@@ -57,6 +72,7 @@ fn main() {
         // The input header we would like to generate
         // bindings for.
         .header(headers_path_str)
+        // .no_debug("Longtail_VersionIndex")
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
