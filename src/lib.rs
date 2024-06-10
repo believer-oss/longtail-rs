@@ -2,6 +2,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use strum::{EnumString, FromRepr};
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 pub fn logcontext(log_context: Longtail_LogContext) {
@@ -34,6 +36,87 @@ unsafe extern "C" fn log_callback(
     let context = unsafe { *context };
     logcontext(context);
     println!("Log: {}", log.to_str().unwrap());
+}
+
+// Redefining these consts here because enum values need to be const, and the
+// longtail headers are exporting the underlying defines as functions.
+// Another approach was attempted where we could copy the existing defines into header_contents
+// blocks in build.rs, but that is blocked by:
+// https://github.com/rust-lang/rust-bindgen/pull/2369
+const LONGTAIL_BROTLI_COMPRESSION_TYPE: usize =
+    (('b' as usize) << 24) + (('t' as usize) << 16) + (('l' as usize) << 8);
+const LONGTAIL_BROTLI_GENERIC_MIN_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('0' as usize);
+const LONGTAIL_BROTLI_GENERIC_DEFAULT_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('1' as usize);
+const LONGTAIL_BROTLI_GENERIC_MAX_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('2' as usize);
+const LONGTAIL_BROTLI_TEXT_MIN_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('a' as usize);
+const LONGTAIL_BROTLI_TEXT_DEFAULT_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('b' as usize);
+const LONGTAIL_BROTLI_TEXT_MAX_QUALITY_TYPE: usize =
+    LONGTAIL_BROTLI_COMPRESSION_TYPE + ('c' as usize);
+
+const LONGTAIL_LZ4_DEFAULT_COMPRESSION_TYPE: usize =
+    (('l' as usize) << 24) + (('z' as usize) << 16) + (('4' as usize) << 8) + ('2' as usize);
+
+const LONGTAIL_ZSTD_COMPRESSION_TYPE: usize =
+    (('z' as usize) << 24) + (('t' as usize) << 16) + (('d' as usize) << 8);
+const LONGTAIL_ZSTD_MIN_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('1' as usize);
+const LONGTAIL_ZSTD_DEFAULT_COMPRESSION_TYPE: usize =
+    LONGTAIL_ZSTD_COMPRESSION_TYPE + ('2' as usize);
+const LONGTAIL_ZSTD_MAX_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('3' as usize);
+const LONGTAIL_ZSTD_HIGH_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('4' as usize);
+const LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('5' as usize);
+
+const LONGTAIL_MEOW_HASH_TYPE: usize =
+    (('m' as usize) << 24) + (('e' as usize) << 16) + (('o' as usize) << 8) + ('w' as usize);
+const LONGTAIL_BLAKE2_HASH_TYPE: usize =
+    (('b' as usize) << 24) + (('l' as usize) << 16) + (('k' as usize) << 8) + ('2' as usize);
+const LONGTAIL_BLAKE3_HASH_TYPE: usize =
+    (('b' as usize) << 24) + (('l' as usize) << 16) + (('k' as usize) << 8) + ('3' as usize);
+
+#[derive(EnumString, FromRepr, Debug, PartialEq)]
+#[repr(usize)]
+enum CompressionType {
+    #[strum(serialize = "none")]
+    None = 0,
+    #[strum(serialize = "brotli")]
+    Brotli = LONGTAIL_BROTLI_GENERIC_DEFAULT_QUALITY_TYPE,
+    #[strum(serialize = "brotli_min")]
+    BrotliMin = LONGTAIL_BROTLI_GENERIC_MIN_QUALITY_TYPE,
+    #[strum(serialize = "brotli_max")]
+    BrotliMax = LONGTAIL_BROTLI_GENERIC_MAX_QUALITY_TYPE,
+    #[strum(serialize = "brotli_text")]
+    BrotliText = LONGTAIL_BROTLI_TEXT_DEFAULT_QUALITY_TYPE,
+    #[strum(serialize = "brotli_text_min")]
+    BrotliTextMin = LONGTAIL_BROTLI_TEXT_MIN_QUALITY_TYPE,
+    #[strum(serialize = "brotli_text_max")]
+    BrotliTextMax = LONGTAIL_BROTLI_TEXT_MAX_QUALITY_TYPE,
+    #[strum(serialize = "lz4")]
+    Lz4 = LONGTAIL_LZ4_DEFAULT_COMPRESSION_TYPE,
+    #[strum(serialize = "zstd")]
+    Zstd = LONGTAIL_ZSTD_DEFAULT_COMPRESSION_TYPE,
+    #[strum(serialize = "zstd_min")]
+    ZstdMin = LONGTAIL_ZSTD_MIN_COMPRESSION_TYPE,
+    #[strum(serialize = "zstd_max")]
+    ZstdMax = LONGTAIL_ZSTD_MAX_COMPRESSION_TYPE,
+    #[strum(serialize = "zstd_high")]
+    ZstdHigh = LONGTAIL_ZSTD_HIGH_COMPRESSION_TYPE,
+    #[strum(serialize = "zstd_low")]
+    ZstdLow = LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE,
+}
+
+#[derive(EnumString, FromRepr, Debug, PartialEq)]
+#[repr(usize)]
+enum HashType {
+    #[strum(serialize = "meow")]
+    Meow = LONGTAIL_MEOW_HASH_TYPE,
+    #[strum(serialize = "blake2")]
+    Blake2 = LONGTAIL_BLAKE2_HASH_TYPE,
+    #[strum(serialize = "blake3")]
+    Blake3 = LONGTAIL_BLAKE3_HASH_TYPE,
 }
 
 #[repr(C)]
