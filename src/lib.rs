@@ -20,9 +20,9 @@ pub fn logcontext(log_context: Longtail_LogContext) {
     }
 }
 
-pub fn setup_logging() {
+pub fn setup_logging(level: u32) {
     unsafe {
-        Longtail_SetLogLevel(0);
+        Longtail_SetLogLevel(level as i32);
         Longtail_SetLog(Some(log_callback), std::ptr::null_mut());
     }
     println!("Log Level: {0}", unsafe { Longtail_GetLogLevel() });
@@ -319,7 +319,7 @@ mod tests {
         // let result = read_version_index_from_buffer(&mut buffer);
         // assert_eq!(result, Err(9)); // Empty buffer
 
-        setup_logging();
+        setup_logging(LONGTAIL_LOG_LEVEL_DEBUG);
 
         let mut f = std::fs::File::open("test-data/storage/testdir/store.lsi").unwrap();
         let metadata = f.metadata().unwrap();
