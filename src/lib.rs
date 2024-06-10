@@ -303,13 +303,15 @@ impl VersionIndex {
             unsafe { std::slice::from_raw_parts((*self.version_index).m_Permissions, count) };
         permissions.to_vec()
     }
-    pub fn get_name_data(&self) -> String {
+    pub fn get_name_data(&self) -> Vec<String> {
         let size = self.get_name_data_size() as usize;
         let name_data: &[u8] = unsafe {
             std::slice::from_raw_parts((*self.version_index).m_NameData as *const u8, size)
         };
-        let name = std::str::from_utf8(name_data).unwrap();
-        name.to_string()
+        name_data
+            .split(|&c| c == 0)
+            .map(|s| String::from_utf8(s.to_vec()).unwrap())
+            .collect()
     }
 }
 
