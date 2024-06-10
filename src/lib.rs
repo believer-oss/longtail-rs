@@ -125,6 +125,22 @@ pub struct VersionIndex {
     _pin: std::marker::PhantomPinned,
 }
 
+// This would be better as field_with, but it's not stable yet.
+// https://doc.rust-lang.org/std/fmt/struct.DebugStruct.html#method.field_with
+fn display_x<T>(i: usize, v: &[T], continuation: bool) -> String
+where
+    T: std::fmt::Debug + std::string::ToString,
+{
+    let end = if continuation { ", ...]" } else { "]" };
+    String::from("[")
+        + &v.iter()
+            .take(i)
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join(", ")
+        + end
+}
+
 impl Drop for VersionIndex {
     fn drop(&mut self) {
         let version_index_ptr = self.version_index as *mut _ as *mut std::ffi::c_void;
@@ -135,32 +151,83 @@ impl Drop for VersionIndex {
 
 impl std::fmt::Debug for VersionIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let m_Version = self.get_version();
+        let m_hash_identifier = self.get_hash_identifier();
+        let m_target_chunk_size = self.get_target_chunk_size();
+        let m_asset_count = self.get_asset_count();
+        let m_chunk_count = self.get_chunk_count();
+        let m_asset_chunk_index_count = self.get_asset_chunk_index_count();
+        let m_name_data_size = self.get_name_data_size();
+        let (asset_to_show, asset_cont) = if m_asset_count > 5 {
+            (5_usize, true)
+        } else {
+            (m_asset_count as usize, false)
+        };
+
+        let m_path_hashes = display_x(asset_to_show, &self.get_path_hashes(), asset_cont);
+        let m_content_hashes = display_x(asset_to_show, &self.get_asset_hashes(), asset_cont);
+        let m_asset_sizes = display_x(asset_to_show, &self.get_asset_sizes(), asset_cont);
+        let m_asset_chunk_counts =
+            display_x(asset_to_show, &self.get_asset_chunk_counts(), asset_cont);
+        let m_name_offsets = display_x(asset_to_show, &self.get_name_offsets(), asset_cont);
+        let m_permissions = display_x(asset_to_show, &self.get_permissions(), asset_cont);
+        let m_name_data = display_x(asset_to_show, &self.get_name_data(), asset_cont);
+        let m_asset_chunk_index_starts = display_x(
+            asset_to_show,
+            &self.get_asset_chunk_index_starts(),
+            asset_cont,
+        );
+
+        let (chunk_index_to_show, chunk_index_cont) = if m_asset_chunk_index_count > 5 {
+            (5_usize, true)
+        } else {
+            (m_asset_chunk_index_count as usize, false)
+        };
+        let m_asset_chunk_indexes = display_x(
+            chunk_index_to_show,
+            &self.get_asset_chunk_indexes(),
+            chunk_index_cont,
+        );
+
+        let (chunk_to_show, chunk_cont) = if m_chunk_count > 5 {
+            (5_usize, true)
+        } else {
+            (m_chunk_count as usize, false)
+        };
+        // Fixed? get_chunk_hashes() works now, but do other accessors need to be fixed?
+        // This accessor triggers UB in a test file, but it seems like it could be any of
+        // the slice::from_raw_parts calls.
+        // unsafe precondition(s) violated: slice::from_raw_parts requires the pointer to be
+        // aligned and non-null, and the total size of the slice not to exceed `isize::MAX`
+        //
+        let m_chunk_hashes = display_x(chunk_to_show, &self.get_chunk_hashes(), chunk_cont);
+        let m_chunk_sizes = display_x(chunk_to_show, &self.get_chunk_sizes(), chunk_cont);
+        let m_chunk_tags = display_x(chunk_to_show, &self.get_chunk_tags(), chunk_cont);
+
         f.debug_struct("VersionIndex")
-            .field("Raw pointer", &self.version_index)
-            .field("m_Version", &self.get_version())
-            .field("m_HashIdentifier", &self.get_hash_identifier())
-            .field("m_TargetChunkSize", &self.get_target_chunk_size())
-            .field("m_AssetCount", &self.get_asset_count())
-            .field("m_ChunkCount", &self.get_chunk_count())
-            .field("m_AssetChunkCounts", &self.get_asset_chunk_counts())
-            .field("m_PathHashes", &self.get_path_hashes())
-            .field("m_ContentHashes", &self.get_asset_hashes())
-            .field("m_AssetSizes", &self.get_asset_sizes())
-            .field("m_AssetChunkCounts", &self.get_asset_chunk_counts())
+            .field("m_Version", &m_Version)
+            .field("m_HashIdentifier", &m_hash_identifier)
             .field(
-                "m_AssetChunkIndexStarts",
-                &self.get_asset_chunk_index_starts(),
+                "m_HashIdentifier",
+                &HashType::from_repr(m_hash_identifier as usize).unwrap(),
             )
-            .field("m_AssetChunkIndexes", &self.get_asset_chunk_indexes())
-            // TODO(cm): Not sure why, but this one errors out
-            // unsafe precondition(s) violated: slice::from_raw_parts requires the pointer to be aligned and non-null, and the total size of the slice not to exceed `isize::MAX`
-            // .field("m_ChunkHashes", &self.get_chunk_hashes())
-            .field("m_ChunkSizes", &self.get_chunk_sizes())
-            .field("m_ChunkTags", &self.get_chunk_tags())
-            .field("m_NameOffsets", &self.get_name_offsets())
-            .field("m_NameDataSize", &self.get_name_data_size())
-            .field("m_Permissions", &self.get_permissions())
-            .field("m_NameData", &self.get_name_data())
+            .field("m_TargetChunkSize", &m_target_chunk_size)
+            .field("m_AssetCount", &m_asset_count)
+            .field("m_ChunkCount", &m_chunk_count)
+            .field("m_AssetChunkIndexCount", &m_asset_chunk_index_count)
+            .field("m_PathHashes", &m_path_hashes)
+            .field("m_ContentHashes", &m_content_hashes)
+            .field("m_AssetSizes", &m_asset_sizes)
+            .field("m_AssetChunkCounts", &m_asset_chunk_counts)
+            .field("m_AssetChunkIndexStarts", &m_asset_chunk_index_starts)
+            .field("m_AssetChunkIndexes", &m_asset_chunk_indexes)
+            .field("m_ChunkHashes", &m_chunk_hashes)
+            .field("m_ChunkSizes", &m_chunk_sizes)
+            .field("m_ChunkTags", &m_chunk_tags)
+            .field("m_NameOffsets", &m_name_offsets)
+            .field("m_NameDataSize", &m_name_data_size)
+            .field("m_Permissions", &m_permissions)
+            .field("m_NameData", &m_name_data)
             .finish()
     }
 }
