@@ -252,10 +252,15 @@ impl VersionIndex {
         unsafe { *(*self.version_index).m_ChunkCount }
     }
     pub fn get_chunk_hashes(&self) -> Vec<u64> {
-        let count = unsafe { *(*self.version_index).m_ChunkCount } as usize;
-        let hashes =
-            unsafe { std::slice::from_raw_parts((*self.version_index).m_ChunkHashes, count) };
-        hashes.to_vec()
+        let count = unsafe { *(*self.version_index).m_ChunkCount } as isize;
+        // This prevents unaligned access to the chunk hashes.
+        let unaligned = unsafe { (*self.version_index).m_ChunkHashes } as *const u64;
+        let mut hashes = Vec::with_capacity(count.try_into().unwrap());
+        for i in 0..count {
+            let hash = unsafe { std::ptr::read_unaligned(unaligned.offset(i)) };
+            hashes.push(hash);
+        }
+        hashes
     }
     pub fn get_chunk_sizes(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_ChunkCount } as usize;
