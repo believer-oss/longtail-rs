@@ -1,17 +1,43 @@
 use crate::*;
+use tracing::Level;
 
-pub fn logcontext(log_context: Longtail_LogContext) {
+// https://github.com/tokio-rs/tracing/issues/2730#issuecomment-1943022805
+#[macro_export]
+macro_rules! dyn_event {
+    ($lvl:ident, $($arg:tt)+) => {
+        match $lvl {
+            ::tracing::Level::TRACE => ::tracing::trace!($($arg)+),
+            ::tracing::Level::DEBUG => ::tracing::debug!($($arg)+),
+            ::tracing::Level::INFO => ::tracing::info!($($arg)+),
+            ::tracing::Level::WARN => ::tracing::warn!($($arg)+),
+            ::tracing::Level::ERROR => ::tracing::error!($($arg)+),
+        }
+    };
+}
+
+pub fn logcontext(log_context: Longtail_LogContext, context: &str) {
     let file = unsafe { std::ffi::CStr::from_ptr(log_context.file) };
     let function = unsafe { std::ffi::CStr::from_ptr(log_context.function) };
-    println!("LogContext: {:?}", log_context);
-    println!("LogContext.File: {:?}", file);
-    println!("LogContext.Function: {:?}", function);
+    let level = match log_context.level as u32 {
+        LONGTAIL_LOG_LEVEL_DEBUG => Level::DEBUG,
+        LONGTAIL_LOG_LEVEL_INFO => Level::INFO,
+        LONGTAIL_LOG_LEVEL_WARNING => Level::WARN,
+        LONGTAIL_LOG_LEVEL_ERROR => Level::ERROR,
+        _ => Level::TRACE,
+    };
+    let mut fields = Vec::with_capacity(log_context.field_count as usize);
     for n in 1..=log_context.field_count as isize {
         let field = unsafe { *log_context.fields.offset(n - 1) };
-        let name = unsafe { std::ffi::CStr::from_ptr(field.name) };
-        let value = unsafe { std::ffi::CStr::from_ptr(field.value) };
-        println!("Field {:?}: {:?}", name, value);
+        fields.push(tracing::field::display(field));
     }
+    dyn_event!(
+        level,
+        context,
+        file = file.to_str().unwrap(),
+        function = function.to_str().unwrap(),
+        line = log_context.line,
+        fields = ?fields,
+    );
 }
 
 pub fn setup_logging(level: u32) {
@@ -20,6 +46,9 @@ pub fn setup_logging(level: u32) {
         Longtail_SetLog(Some(log_callback), std::ptr::null_mut());
     }
     println!("Log Level: {0}", unsafe { Longtail_GetLogLevel() });
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 }
 
 unsafe extern "C" fn log_callback(
@@ -28,6 +57,5 @@ unsafe extern "C" fn log_callback(
 ) {
     let log = unsafe { std::ffi::CStr::from_ptr(log) };
     let context = unsafe { *context };
-    logcontext(context);
-    println!("Log: {}", log.to_str().unwrap());
+    logcontext(context, log.to_str().unwrap());
 }

@@ -1,10 +1,24 @@
 use crate::hash::HashType;
 use crate::*;
+use std::ops::{Deref, DerefMut};
 
 #[repr(C)]
 pub struct VersionIndex {
     pub version_index: *mut Longtail_VersionIndex,
     _pin: std::marker::PhantomPinned,
+}
+
+impl Deref for VersionIndex {
+    type Target = *mut Longtail_VersionIndex;
+    fn deref(&self) -> &Self::Target {
+        &self.version_index
+    }
+}
+
+impl DerefMut for VersionIndex {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.version_index
+    }
 }
 
 // This would be better as field_with, but it's not stable yet.
@@ -26,7 +40,6 @@ where
 impl Drop for VersionIndex {
     fn drop(&mut self) {
         let version_index_ptr = self.version_index as *mut _ as *mut std::ffi::c_void;
-        println!("Freeing VersionIndex: {:?}", version_index_ptr);
         unsafe { Longtail_Free(version_index_ptr) }
     }
 }
@@ -131,7 +144,6 @@ impl VersionIndex {
     pub fn read_version_index_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
         let buffer_size = buffer.len();
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
-        println!("Buffer address: {:p}", buffer.as_ptr());
         let result = unsafe {
             Longtail_ReadVersionIndexFromBuffer(
                 buffer.as_ptr().cast(),
@@ -139,8 +151,6 @@ impl VersionIndex {
                 &mut version_index,
             )
         };
-        println!("Result: {}", result);
-        println!("Version Index: {:?}", version_index);
         if result != 0 {
             return Err(result);
         }

@@ -49,6 +49,9 @@ fn setup_linux_debug() -> PathBuf {
 
     println!("cargo:rustc-link-search=longtail/build/linux_x64/longtail_static/debug");
     println!("cargo:rustc-link-lib=static=longtail_static");
+    // Neither of these worked, ended up making a .cargo/config.toml file
+    // println!("cargo:rustc-codegen=relocation-model=dynamic-no-pic");
+    // println!("cargo::rustc-env=CARGO_ENCODED_RUSTFLAGS=-C relocation-model=dynamic-no-pic");
 
     libdir_path
 }
