@@ -40,15 +40,12 @@ pub fn logcontext(log_context: Longtail_LogContext, context: &str) {
     );
 }
 
-pub fn setup_logging(level: u32) {
+pub fn set_longtail_loglevel(level: u32) {
     unsafe {
         Longtail_SetLogLevel(level as i32);
         Longtail_SetLog(Some(log_callback), std::ptr::null_mut());
     }
-    println!("Log Level: {0}", unsafe { Longtail_GetLogLevel() });
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+    // println!("Log Level: {0}", unsafe { Longtail_GetLogLevel() });
 }
 
 unsafe extern "C" fn log_callback(

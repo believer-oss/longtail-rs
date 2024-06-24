@@ -161,6 +161,13 @@ impl VersionIndex {
         })
     }
 
+    pub fn from_longtail_versionindex(version_index: *mut Longtail_VersionIndex) -> VersionIndex {
+        VersionIndex {
+            version_index,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+
     pub fn get_version(&self) -> u32 {
         unsafe { *(*self.version_index).m_Version }
     }
@@ -299,7 +306,7 @@ mod tests {
         // let result = read_version_index_from_buffer(&mut buffer);
         // assert_eq!(result, Err(9)); // Empty buffer
 
-        setup_logging(LONGTAIL_LOG_LEVEL_DEBUG);
+        set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
 
         let mut f = std::fs::File::open("test-data/target-path/testdir.lvi").unwrap();
         let metadata = f.metadata().unwrap();

@@ -137,6 +137,13 @@ impl DerefMut for StorageAPI {
 }
 
 impl StorageAPI {
+    pub fn new_from_api(storage_api: *mut Longtail_StorageAPI) -> StorageAPI {
+        StorageAPI {
+            storage_api,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+
     pub fn new_fs() -> StorageAPI {
         let storage_api = unsafe { Longtail_CreateFSStorageAPI() };
         StorageAPI {
@@ -206,6 +213,36 @@ impl StorageAPI {
             storage_api: self.storage_api,
             open_file: c_open_file,
         })
+    }
+
+    pub fn read_version_index(&self, path: &str) -> Result<VersionIndex, i32> {
+        let c_path = std::ffi::CString::new(path).unwrap();
+        let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
+        let result = unsafe {
+            Longtail_ReadVersionIndex(
+                self.storage_api,
+                c_path.as_ptr(),
+                &mut version_index as *mut *mut Longtail_VersionIndex,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(VersionIndex::from_longtail_versionindex(version_index))
+    }
+
+    pub fn file_exists(&self, path: &str) -> bool {
+        let c_path = std::ffi::CString::new(path).unwrap();
+        unsafe { Longtail_Storage_IsFile(self.storage_api, c_path.as_ptr()) == 1 }
+    }
+
+    pub fn delete_file(&self, path: &str) -> Result<(), i32> {
+        let c_path = std::ffi::CString::new(path).unwrap();
+        let result = unsafe { Longtail_Storage_RemoveFile(self.storage_api, c_path.as_ptr()) };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(())
     }
 
     // TODO: Not sure this belongs here, because we have COpenFile, but modeling golongtail for
@@ -294,159 +331,5 @@ impl StorageAPI {
             return Err(result);
         }
         Ok(properties)
-    }
-}
-
-#[repr(C)]
-pub struct BlockstoreAPI {
-    pub blockstore_api: *mut Longtail_BlockStoreAPI,
-    _pin: std::marker::PhantomPinned,
-}
-
-impl Drop for BlockstoreAPI {
-    fn drop(&mut self) {
-        unsafe { Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut Longtail_API) };
-    }
-}
-
-impl Deref for BlockstoreAPI {
-    type Target = *mut Longtail_BlockStoreAPI;
-    fn deref(&self) -> &Self::Target {
-        &self.blockstore_api
-    }
-}
-
-impl DerefMut for BlockstoreAPI {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.blockstore_api
-    }
-}
-
-impl BlockstoreAPI {
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_fs(
-        jobs: *mut Longtail_JobAPI,
-        storage_api: *mut Longtail_StorageAPI,
-        contentPath: &str,
-        block_extension: Option<&str>,
-        enable_file_mapping: bool,
-    ) -> BlockstoreAPI {
-        let c_content_path = std::ffi::CString::new(contentPath).unwrap();
-        let c_block_extension = if let Some(block_extension) = block_extension {
-            std::ffi::CString::new(block_extension).unwrap()
-        } else {
-            std::ffi::CString::new("").unwrap()
-        };
-        let blockstore_api = unsafe {
-            Longtail_CreateFSBlockStoreAPI(
-                jobs,
-                storage_api,
-                c_content_path.as_ptr(),
-                c_block_extension.as_ptr(),
-                enable_file_mapping as i32,
-            )
-        };
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_cached(
-        jobs: *mut Longtail_JobAPI,
-        cache_blockstore: *mut Longtail_BlockStoreAPI,
-        persistent_blockstore: *mut Longtail_BlockStoreAPI,
-    ) -> BlockstoreAPI {
-        let blockstore_api =
-            Longtail_CreateCacheBlockStoreAPI(jobs, cache_blockstore, persistent_blockstore);
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_compressed(
-        backing_blockstore: *mut Longtail_BlockStoreAPI,
-        compression_api: *mut Longtail_CompressionRegistryAPI,
-    ) -> BlockstoreAPI {
-        let blockstore_api =
-            Longtail_CreateCompressBlockStoreAPI(backing_blockstore, compression_api);
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_share(backing_blockstore: *mut Longtail_BlockStoreAPI) -> BlockstoreAPI {
-        let blockstore_api = Longtail_CreateShareBlockStoreAPI(backing_blockstore);
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_lru(
-        backing_blockstore: *mut Longtail_BlockStoreAPI,
-        max_cache_size: u32,
-    ) -> BlockstoreAPI {
-        let blockstore_api = Longtail_CreateLRUBlockStoreAPI(backing_blockstore, max_cache_size);
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_archive(
-        storage_api: *mut Longtail_StorageAPI,
-        archive_path: &str,
-        archive_index: *mut Longtail_ArchiveIndex,
-        enable_write: bool,
-        enable_file_mapping: bool,
-    ) -> BlockstoreAPI {
-        let c_archive_path = std::ffi::CString::new(archive_path).unwrap();
-        let blockstore_api = Longtail_CreateArchiveBlockStore(
-            storage_api,
-            c_archive_path.as_ptr(),
-            archive_index,
-            enable_write as i32,
-            enable_file_mapping as i32,
-        );
-        BlockstoreAPI {
-            blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
-    }
-
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_block_store(
-        hash_api: *mut Longtail_HashAPI,
-        job_api: *mut Longtail_JobAPI,
-        block_store: *mut Longtail_BlockStoreAPI,
-        store_index: *mut Longtail_StoreIndex,
-        version_index: *mut Longtail_VersionIndex,
-    ) -> StorageAPI {
-        let blockstore_api = Longtail_CreateBlockStoreStorageAPI(
-            hash_api,
-            job_api,
-            block_store,
-            store_index,
-            version_index,
-        );
-        StorageAPI {
-            storage_api: blockstore_api,
-            _pin: std::marker::PhantomPinned,
-        }
     }
 }

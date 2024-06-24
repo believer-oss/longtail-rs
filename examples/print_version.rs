@@ -1,17 +1,10 @@
 use longtail::*;
-use std::io::Read;
 
-fn read_version_index_file(filename: &str) -> VersionIndex {
-    let mut f = std::fs::File::open(filename).unwrap();
-    let metadata = f.metadata().unwrap();
-    let mut buffer = vec![0u8; metadata.len() as usize];
-    f.read_exact(&mut buffer).unwrap();
-    let result = VersionIndex::read_version_index_from_buffer(&mut buffer);
-    result.unwrap()
-}
+mod common;
+use common::version_index_from_file;
 
 fn display_file(filename: &str) {
-    let version_index = read_version_index_file(filename);
+    let version_index = version_index_from_file(filename);
     let chunk_sizes = version_index.get_chunk_sizes();
     let larget_chunk_size = chunk_sizes.iter().max().unwrap();
     let smallest_chunk_size = chunk_sizes.iter().min().unwrap();
@@ -40,7 +33,10 @@ fn display_file(filename: &str) {
 }
 
 fn main() {
-    setup_logging(LONGTAIL_LOG_LEVEL_INFO);
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+    set_longtail_loglevel(LONGTAIL_LOG_LEVEL_INFO);
 
     let file = std::env::args().nth(1).expect("No file provided");
     display_file(&file);

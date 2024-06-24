@@ -5,6 +5,7 @@ use std::{
 };
 
 #[repr(C)]
+#[derive(Debug, Clone)]
 pub struct StoreIndex {
     pub store_index: *mut Longtail_StoreIndex,
     _pin: std::marker::PhantomPinned,
@@ -30,9 +31,16 @@ impl DerefMut for StoreIndex {
 }
 
 impl StoreIndex {
+    pub fn new(store_index: *mut Longtail_StoreIndex) -> StoreIndex {
+        StoreIndex {
+            store_index,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+
     /// # Safety
     /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new(
+    pub unsafe fn new_from_version_index(
         hash_api: *mut Longtail_HashAPI,
         version_index: *const VersionIndex,
         max_block_size: u32,
@@ -59,6 +67,33 @@ impl StoreIndex {
             store_index,
             _pin: std::marker::PhantomPinned,
         })
+    }
+
+    // TODO: Add async...
+    pub fn get_existing_store_index(
+        index_store: &BlockstoreAPI,
+        chunk_hashes: Vec<u64>,
+        min_block_usage_percent: u32,
+    ) -> Result<StoreIndex, i32> {
+        let api = Box::<GetExistingContentCompletion>::default();
+        let completion = AsyncGetExistingContentAPIProxy::new(api);
+        unsafe {
+            index_store.get_existing_content(
+                chunk_hashes,
+                min_block_usage_percent,
+                &completion as *const _ as *mut Longtail_AsyncGetExistingContentAPI,
+            )?
+        };
+        // TODO: This is terrible
+        loop {
+            let store_index = unsafe { completion.get_store_index() };
+            match store_index {
+                Ok(Some(store_index)) => return Ok(store_index),
+                Err(err) => return Err(err),
+                _ => {}
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     // TODO: Need BlockIndex struct

@@ -12,7 +12,7 @@ const LONGTAIL_BLAKE2_HASH_TYPE: usize =
 const LONGTAIL_BLAKE3_HASH_TYPE: usize =
     (('b' as usize) << 24) + (('l' as usize) << 16) + (('k' as usize) << 8) + ('3' as usize);
 
-#[derive(EnumString, FromRepr, Debug, PartialEq)]
+#[derive(EnumString, FromRepr, Debug, PartialEq, Copy, Clone)]
 #[repr(usize)]
 pub enum HashType {
     #[strum(serialize = "meow")]

@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
@@ -31,6 +33,8 @@ const LONGTAIL_ZSTD_DEFAULT_COMPRESSION_TYPE: usize =
 const LONGTAIL_ZSTD_MAX_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('3' as usize);
 const LONGTAIL_ZSTD_HIGH_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('4' as usize);
 const LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE + ('5' as usize);
+
+pub const LONGTAIL_NO_COMPRESSION_TYPE: u32 = 0;
 
 #[derive(EnumString, FromRepr, Debug, PartialEq)]
 #[repr(usize)]
@@ -83,6 +87,19 @@ impl Default for CompressionRegistry {
     }
 }
 
+impl Deref for CompressionRegistry {
+    type Target = *mut Longtail_CompressionRegistryAPI;
+    fn deref(&self) -> &Self::Target {
+        &self.compression_registry
+    }
+}
+
+impl DerefMut for CompressionRegistry {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.compression_registry
+    }
+}
+
 impl CompressionRegistry {
     pub fn new() -> CompressionRegistry {
         let compression_registry = unsafe { Longtail_CreateFullCompressionRegistry() };
@@ -110,5 +127,12 @@ impl CompressionRegistry {
             return Err(result);
         }
         Ok(compression_api)
+    }
+
+    pub fn create_full_compression_registry() -> CompressionRegistry {
+        CompressionRegistry {
+            compression_registry: unsafe { Longtail_CreateFullCompressionRegistry() },
+            _pin: std::marker::PhantomPinned,
+        }
     }
 }

@@ -1,9 +1,14 @@
+mod common;
+
+use common::version_index_from_file;
 use itertools::izip;
 use longtail::*;
-use std::io::Read;
 
 fn main() {
-    setup_logging(LONGTAIL_LOG_LEVEL_DEBUG);
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+    set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
 
     // Setup the longtail environment
     let jobs = BikeshedJobAPI::new(1, 1);
@@ -12,13 +17,8 @@ fn main() {
     // Read the version index from the file
     // let file = "test-data/target-path/testdir.lvi";
     let file = std::env::args().nth(1).expect("No file provided");
-    let mut f = std::fs::File::open(file).unwrap();
-    let metadata = f.metadata().unwrap();
-    let mut buffer = vec![0u8; metadata.len() as usize];
-    f.read_exact(&mut buffer).unwrap();
 
-    let version_index = VersionIndex::read_version_index_from_buffer(&mut buffer)
-        .expect("Failed to read version index from buffer");
+    let version_index = version_index_from_file(&file);
     let hash_id = HashType::from_repr(version_index.get_hash_identifier() as usize)
         .expect("Failed to get hash type");
     let hash = hash_registry
@@ -35,7 +35,13 @@ fn main() {
     let max_chunks_per_block = 1024;
 
     let store_index = unsafe {
-        StoreIndex::new(hash, &version_index, max_block_size, max_chunks_per_block).unwrap()
+        StoreIndex::new_from_version_index(
+            hash,
+            &version_index,
+            max_block_size,
+            max_chunks_per_block,
+        )
+        .unwrap()
     };
     let block_store = unsafe {
         BlockstoreAPI::new_block_store(hash, *jobs, *fake_block_store, *store_index, *version_index)
