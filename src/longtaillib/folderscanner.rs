@@ -1,32 +1,46 @@
 use tracing::info;
 
 use crate::{
-    ChunkerAPI, HashRegistry, HashType, Longtail_GetFilesRecursively2, Longtail_ProgressAPI,
-    ProgressAPI, ProgressAPIProxy, VersionIndex,
+    BikeshedJobAPI, ChunkerAPI, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
+    Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy, ProgressAPI,
+    ProgressAPIProxy, StorageAPI, VersionIndex,
 };
-use crate::{Longtail_FileInfos, Longtail_JobAPI, PathFilterAPIProxy, StorageAPI};
-use std::io::Read;
-use std::ptr::null_mut;
+use std::{io::Read, ptr::null_mut};
 
 impl Longtail_FileInfos {
     pub fn get_file_count(&self) -> u32 {
         self.m_Count
     }
+    fn get_path_start_offsets(&self, index: u32) -> u32 {
+        // The index should be less than the file count
+        assert!(index < self.m_Count);
+        let index = isize::try_from(index).expect("Failed to convert index to isize");
+        unsafe { *self.m_PathStartOffsets.offset(index) }
+    }
     pub fn get_file_path(&self, index: u32) -> String {
-        let offset = unsafe { self.m_PathStartOffsets.offset(index as isize) };
-        assert!(unsafe { *offset < self.m_PathDataSize });
-        let data = unsafe { self.m_PathData.add(*offset as usize) };
+        let offset = self.get_path_start_offsets(index);
+
+        // The offset should be less than the path data size
+        assert!(offset < self.m_PathDataSize);
+        let offset = usize::try_from(offset).expect("Failed to convert offset to usize");
         unsafe {
+            let data = self.m_PathData.add(offset);
             std::ffi::CStr::from_ptr(data)
                 .to_string_lossy()
                 .into_owned()
         }
     }
     pub fn get_file_size(&self, index: u32) -> u64 {
-        unsafe { *self.m_Sizes.offset(index as isize) }
+        // The index should be less than the file count
+        assert!(index < self.m_Count);
+        let index = isize::try_from(index).expect("Failed to convert index to isize");
+        unsafe { *self.m_Sizes.offset(index) }
     }
     pub fn get_file_permissions(&self, index: u32) -> u16 {
-        unsafe { *self.m_Permissions.offset(index as isize) }
+        // The index should be less than the file count
+        assert!(index < self.m_Count);
+        let index = isize::try_from(index).expect("Failed to convert index to isize");
+        unsafe { *self.m_Permissions.offset(index) }
     }
     pub fn iter(&self) -> FileInfosIterator {
         FileInfosIterator {
@@ -35,8 +49,11 @@ impl Longtail_FileInfos {
         }
     }
     pub fn get_compression_types_for_files(&self, compression_type: u32) -> *const u32 {
-        let len: u32 = self.get_file_count();
-        vec![compression_type; len as usize].as_ptr()
+        let len = self
+            .get_file_count()
+            .try_into()
+            .expect("Failed to convert usize to u32");
+        vec![compression_type; len].as_ptr()
     }
 }
 
@@ -79,8 +96,8 @@ impl Default for FolderScanner {
 /// This function is unsafe because it dereferences a raw pointer.
 pub unsafe fn get_files_recursively(
     storage_api: &StorageAPI,
-    job_api: *mut Longtail_JobAPI,
-    path_filter: *mut PathFilterAPIProxy,
+    job_api: &BikeshedJobAPI,
+    path_filter: &PathFilterAPIProxy,
     root_path: &str,
 ) -> Result<*mut Longtail_FileInfos, i32> {
     let c_root_path = std::ffi::CString::new(root_path).unwrap();
@@ -88,8 +105,8 @@ pub unsafe fn get_files_recursively(
     let result = unsafe {
         Longtail_GetFilesRecursively2(
             storage_api.storage_api,
-            job_api,
-            path_filter as *mut _,
+            job_api.job_api,
+            path_filter.as_ptr(),
             // (*path_filter).api.as_mut().unwrap(),
             // null_mut(),
             null_mut(),
@@ -124,12 +141,12 @@ impl FolderScanner {
 
     /// # Safety
     /// This function is unsafe because it dereferences `fs` and `jobs`.
-    pub unsafe fn scan(
+    pub fn scan(
         &mut self,
         root_path: &str,
-        path_filter: *mut PathFilterAPIProxy,
+        path_filter: &PathFilterAPIProxy,
         fs: &StorageAPI,
-        jobs: *mut Longtail_JobAPI,
+        jobs: &BikeshedJobAPI,
     ) {
         let start = std::time::Instant::now();
         let file_infos =
@@ -144,7 +161,7 @@ impl FolderScanner {
 #[derive(Debug)]
 pub struct VersionIndexReader {
     pub version_index: VersionIndex,
-    pub hash_api: *mut crate::Longtail_HashAPI,
+    pub hash_api: HashAPI,
     // pub elapsed: std::time::Duration,
     // pub error: *const std::os::raw::c_char,
 }
@@ -190,15 +207,15 @@ impl VersionIndexReader {
     /// # Safety
     /// This function is unsafe because it dereferences a raw pointer.
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn get_folder_index(
+    pub fn get_folder_index(
         source_folder_path: &str,
         source_index_path: &str,
         target_chunk_size: u32,
         compression_type: u32,
         hash_id: u32,
-        _path_filter: *mut PathFilterAPIProxy,
+        _path_filter: &PathFilterAPIProxy,
         storage_api: &StorageAPI,
-        job_api: *mut Longtail_JobAPI,
+        job_api: &BikeshedJobAPI,
         hash_registry: &HashRegistry,
         enable_file_mappping: bool,
         scanner: &FolderScanner,
@@ -228,7 +245,7 @@ impl VersionIndexReader {
                     storage_api.storage_api,
                     hash,
                     chunker.get_chunker_api(),
-                    job_api,
+                    job_api.job_api,
                     &progress as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
@@ -245,7 +262,7 @@ impl VersionIndexReader {
             }
             Ok(VersionIndexReader {
                 version_index: VersionIndex::from_longtail_versionindex(vindex),
-                hash_api: hash,
+                hash_api: HashAPI::new(hash),
             })
         } else {
             let mut f = std::fs::File::open(source_index_path).unwrap();
@@ -260,7 +277,7 @@ impl VersionIndexReader {
                 .unwrap();
             Ok(VersionIndexReader {
                 version_index: result.unwrap(),
-                hash_api,
+                hash_api: HashAPI::new(hash_api),
             })
         }
     }
@@ -298,9 +315,10 @@ mod tests {
         let fs = StorageAPI::new_fs();
         let pf = Box::new(TestPathFilter {});
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(pf);
+        let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
         let mut scanner = FolderScanner::new();
         let root_path = "test-data";
-        unsafe { scanner.scan(root_path, path_filter, &fs, *jobs) };
+        scanner.scan(root_path, path_filter, &fs, &jobs);
         let file_infos = unsafe { &*scanner.file_infos };
         assert_eq!(file_infos.get_file_count(), 14);
         for (path, size, permissions) in file_infos.iter() {
@@ -314,31 +332,30 @@ mod tests {
         let fs = StorageAPI::new_fs();
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
+        let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
         let mut scanner = FolderScanner::new();
         let root_path = "test-data";
-        unsafe { scanner.scan(root_path, path_filter, &fs, *jobs) };
+        scanner.scan(root_path, path_filter, &fs, &jobs);
         let source_folder_path = "test-data";
         let source_index_path = "";
         let target_chunk_size = 64 * 1024;
         let compression_type = 0;
         let hash_id = HashType::Blake3 as u32;
         let enable_file_mappping = false;
-        let version_index_reader = unsafe {
-            VersionIndexReader::get_folder_index(
-                source_folder_path,
-                source_index_path,
-                target_chunk_size,
-                compression_type,
-                hash_id,
-                path_filter,
-                &fs,
-                *jobs,
-                &hash_registry,
-                enable_file_mappping,
-                &scanner,
-            )
-            .unwrap()
-        };
+        let version_index_reader = VersionIndexReader::get_folder_index(
+            source_folder_path,
+            source_index_path,
+            target_chunk_size,
+            compression_type,
+            hash_id,
+            path_filter,
+            &fs,
+            &jobs,
+            &hash_registry,
+            enable_file_mappping,
+            &scanner,
+        )
+        .unwrap();
         let version_index = version_index_reader.version_index;
         assert_eq!(version_index.get_asset_count(), 14);
     }

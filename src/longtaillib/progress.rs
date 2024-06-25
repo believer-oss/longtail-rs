@@ -21,18 +21,12 @@ impl Drop for ProgressAPIProxy {
 
 impl ProgressAPIProxy {
     pub fn new(progress: Box<dyn ProgressAPI>) -> ProgressAPIProxy {
-        // let api = Box::into_raw(Box::new(Longtail_ProgressAPI {
-        //     m_API: Longtail_API {
-        //         Dispose: Some(progress_api_dispose),
-        //     },
-        //     OnProgress: Some(progress_api_on_progress),
-        // }));
         ProgressAPIProxy {
-            api: Longtail_ProgressAPI { 
-                m_API: Longtail_API { 
-                    Dispose: Some(progress_api_dispose)
-                }, 
-                OnProgress: Some(progress_api_on_progress) 
+            api: Longtail_ProgressAPI {
+                m_API: Longtail_API {
+                    Dispose: Some(progress_api_dispose),
+                },
+                OnProgress: Some(progress_api_on_progress),
             },
             context: Box::into_raw(Box::new(progress)) as *mut std::os::raw::c_void,
             _pin: std::marker::PhantomPinned,

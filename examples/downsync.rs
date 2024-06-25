@@ -1,11 +1,9 @@
 mod common;
 
-use std::ptr::null_mut;
-
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
-use tracing::{debug, info};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -115,7 +113,7 @@ pub fn downsync(
             err
         })
         .unwrap();
-    let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(regex_path_filter));
+    let path_filter = PathFilterAPIProxy::new(Box::new(regex_path_filter));
 
     // TODO: Fixup target-path
     // if targetFolderPath == "" {
@@ -158,9 +156,8 @@ pub fn downsync(
         target_index_path
     };
 
-    // TODO: Hide this unsafe block
     let mut target_path_scanner = FolderScanner::new();
-    unsafe { target_path_scanner.scan(resolved_target_folder_path, path_filter, &fs, *jobs) };
+    target_path_scanner.scan(resolved_target_folder_path, &path_filter, &fs, &jobs);
 
     let hash_registry = HashRegistry::new();
 
@@ -194,22 +191,20 @@ pub fn downsync(
         .expect("Failed to get hash type");
     let target_chunk_size = source_version_index.get_target_chunk_size();
 
-    let target_index_reader = unsafe {
-        VersionIndexReader::get_folder_index(
-            resolved_target_folder_path,
-            target_index_path,
-            target_chunk_size,
-            LONGTAIL_NO_COMPRESSION_TYPE,
-            hash_id as u32,
-            path_filter,
-            &fs,
-            *jobs,
-            &hash_registry,
-            enable_file_mapping,
-            &target_path_scanner,
-        )
-        .unwrap()
-    };
+    let target_index_reader = VersionIndexReader::get_folder_index(
+        resolved_target_folder_path,
+        target_index_path,
+        target_chunk_size,
+        LONGTAIL_NO_COMPRESSION_TYPE,
+        hash_id as u32,
+        &path_filter,
+        &fs,
+        &jobs,
+        &hash_registry,
+        enable_file_mapping,
+        &target_path_scanner,
+    )
+    .unwrap();
     info!("target_index_reader: {:?}", target_index_reader);
 
     let creg = CompressionRegistry::create_full_compression_registry();
@@ -220,34 +215,24 @@ pub fn downsync(
     //  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
     // defer remoteIndexStore.Dispose()
-    let fake_remotefs = unsafe {
-        BlockstoreAPI::new_fs(
-            jobs.job_api,
-            localfs.storage_api,
-            storage_uri,
-            Some(".lsb"),
-            enable_file_mapping,
-        )
-    };
+    let fake_remotefs = BlockstoreAPI::new_fs(
+        &jobs,
+        &localfs,
+        storage_uri,
+        Some(".lsb"),
+        enable_file_mapping,
+    );
 
     let (compress_block_store, cache_block_store, local_index_store) = match cache_path.is_empty() {
         true => {
-            let block_store = unsafe { BlockstoreAPI::new_compressed(*fake_remotefs, *creg) };
+            let block_store = BlockstoreAPI::new_compressed(&fake_remotefs, &creg);
             (block_store, None, None)
         }
         false => {
-            let local_index_store = unsafe {
-                BlockstoreAPI::new_fs(
-                    jobs.job_api,
-                    localfs.storage_api,
-                    cache_path,
-                    Some(""),
-                    enable_file_mapping,
-                )
-            };
-            let cache_block_store =
-                unsafe { BlockstoreAPI::new_compressed(*local_index_store, *creg) };
-            let block_store = unsafe { BlockstoreAPI::new_compressed(*cache_block_store, *creg) };
+            let local_index_store =
+                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
+            let cache_block_store = BlockstoreAPI::new_compressed(&local_index_store, &creg);
+            let block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
             (
                 block_store,
                 Some(cache_block_store),
@@ -257,27 +242,19 @@ pub fn downsync(
     };
 
     // Assuming we're not using legacy writes here.
-    let lru_block_store = unsafe { BlockstoreAPI::new_lru(*compress_block_store, 32) };
-    let index_store = unsafe { BlockstoreAPI::new_share(*lru_block_store) };
+    let lru_block_store = BlockstoreAPI::new_lru(&compress_block_store, 32);
+    let index_store = BlockstoreAPI::new_share(&lru_block_store);
 
     // this appears to just be validating that we can get the hash id
     let _hash = hash_registry
         .get_hash_api(hash_id)
         .expect("Failed to get hash API");
 
-    info!("_hash: {:?}", _hash);
     let target_index_version = target_index_reader.version_index;
     let target_hash = target_index_reader.hash_api;
-    info!("hash: {:?}", target_hash);
-    let version_diff = unsafe {
-        VersionDiff::diff(
-            target_hash,
-            *target_index_version,
-            source_version_index.version_index,
-        )
-    }
-    .expect("Failed to diff versions");
-    info!("version_diff: {:?}", version_diff);
+    let version_diff =
+        VersionDiff::diff(&target_hash, &target_index_version, &source_version_index)
+            .expect("Failed to diff versions");
 
     let chunk_hashes = version_diff
         .get_required_chunk_hashes(&source_version_index)
@@ -305,26 +282,22 @@ pub fn downsync(
         resolved_target_folder_path,
     );
 
-    let resolved_target_folder_path_ptr =
-        std::ffi::CString::new(resolved_target_folder_path).unwrap();
-    let result = unsafe {
-        Longtail_ChangeVersion2(
-            *index_store,
-            *localfs,
-            *concurrent_chunk_write_api,
-            target_hash,
-            *jobs,
-            &progress as *const _ as *mut Longtail_ProgressAPI,
-            null_mut::<Longtail_CancelAPI>(),
-            null_mut::<Longtail_CancelAPI_CancelToken>(),
-            *retargetted_version_store_index,
-            *target_index_version,
-            *source_version_index,
-            *version_diff,
-            resolved_target_folder_path_ptr.as_ptr(),
-            true as i32,
-        )
-    };
+    index_store.change_version(
+        &localfs,
+        &concurrent_chunk_write_api,
+        &target_hash,
+        &jobs,
+        &progress,
+        &retargetted_version_store_index,
+        &target_index_version,
+        &source_version_index,
+        &version_diff,
+        resolved_target_folder_path,
+        true,
+    )?;
+
+    // TODO: Handle validate
+    // TODO: Handle cache_target_index
 
     Ok(())
 }

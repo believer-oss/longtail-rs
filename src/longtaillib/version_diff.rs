@@ -1,6 +1,6 @@
 use crate::{
-    Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_HashAPI,
-    Longtail_VersionDiff, Longtail_VersionIndex, VersionIndex,
+    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
+    VersionIndex,
 };
 use std::ops::{Deref, DerefMut};
 
@@ -11,11 +11,11 @@ pub struct VersionDiff {
     _pin: std::marker::PhantomPinned,
 }
 
-impl Drop for VersionDiff {
-    fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut Longtail_API) };
-    }
-}
+// impl Drop for VersionDiff {
+//     fn drop(&mut self) {
+//         // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut Longtail_API) };
+//     }
+// }
 impl Deref for VersionDiff {
     type Target = *mut Longtail_VersionDiff;
     fn deref(&self) -> &Self::Target {
@@ -30,19 +30,17 @@ impl DerefMut for VersionDiff {
 }
 
 impl VersionDiff {
-    /// # Safety
-    /// This function is unsafe because it creates a raw pointer to a `Longtail_VersionDiff`.
-    pub unsafe fn diff(
-        hash: *mut Longtail_HashAPI,
-        source_version_index: *mut Longtail_VersionIndex,
-        target_version_index: *mut Longtail_VersionIndex,
+    pub fn diff(
+        hash: &HashAPI,
+        source_version_index: &VersionIndex,
+        target_version_index: &VersionIndex,
     ) -> Result<VersionDiff, i32> {
         let mut version_diff = std::ptr::null_mut();
         let result = unsafe {
             Longtail_CreateVersionDiff(
-                hash,
-                source_version_index,
-                target_version_index,
+                **hash,
+                **source_version_index,
+                **target_version_index,
                 &mut version_diff,
             )
         };

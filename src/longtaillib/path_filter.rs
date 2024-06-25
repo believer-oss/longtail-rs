@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 #[allow(unused_imports)]
 use crate::{
     Longtail_API, Longtail_Alloc, Longtail_Free, Longtail_MakePathFilterAPI, Longtail_PathFilterAPI,
@@ -23,6 +25,19 @@ pub struct PathFilterAPIProxy {
     pub api: Longtail_PathFilterAPI,
     pub context: *mut std::ffi::c_void,
     _pin: std::marker::PhantomPinned,
+}
+
+impl Deref for PathFilterAPIProxy {
+    type Target = Longtail_PathFilterAPI;
+    fn deref(&self) -> &Self::Target {
+        &self.api
+    }
+}
+
+impl DerefMut for PathFilterAPIProxy {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.api
+    }
 }
 
 // TODO: Unused, since we're relying on the dispose function to handle it
@@ -64,8 +79,23 @@ impl PathFilterAPIProxy {
         assert_eq!(api as *mut std::ffi::c_void, api_mem);
         proxy
     }
+    pub fn new(path_filter: Box<dyn PathFilterAPI>) -> Self {
+        PathFilterAPIProxy {
+            api: Longtail_PathFilterAPI {
+                m_API: Longtail_API {
+                    Dispose: Some(path_filter_dispose),
+                },
+                Include: Some(path_filter_include),
+            },
+            context: Box::into_raw(Box::new(path_filter)) as *mut std::ffi::c_void,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
     pub fn get_context(&self) -> *mut std::ffi::c_void {
         self.context
+    }
+    pub fn as_ptr(&self) -> *mut Longtail_PathFilterAPI {
+        &self.api as *const Longtail_PathFilterAPI as *mut Longtail_PathFilterAPI
     }
 }
 

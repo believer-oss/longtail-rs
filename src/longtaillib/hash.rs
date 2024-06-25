@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
@@ -11,6 +13,35 @@ const LONGTAIL_BLAKE2_HASH_TYPE: usize =
     (('b' as usize) << 24) + (('l' as usize) << 16) + (('k' as usize) << 8) + ('2' as usize);
 const LONGTAIL_BLAKE3_HASH_TYPE: usize =
     (('b' as usize) << 24) + (('l' as usize) << 16) + (('k' as usize) << 8) + ('3' as usize);
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct HashAPI {
+    pub hash_api: *mut Longtail_HashAPI,
+    _pin: std::marker::PhantomPinned,
+}
+
+impl Deref for HashAPI {
+    type Target = *mut Longtail_HashAPI;
+    fn deref(&self) -> &Self::Target {
+        &self.hash_api
+    }
+}
+
+impl DerefMut for HashAPI {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.hash_api
+    }
+}
+
+impl HashAPI {
+    pub fn new(hash_api: *mut Longtail_HashAPI) -> HashAPI {
+        HashAPI {
+            hash_api,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+}
 
 #[derive(EnumString, FromRepr, Debug, PartialEq, Copy, Clone)]
 #[repr(usize)]
