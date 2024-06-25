@@ -5,9 +5,8 @@ use crate::{
     Longtail_ChangeVersion2, Longtail_CreateArchiveBlockStore, Longtail_CreateBlockStoreStorageAPI,
     Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
     Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
-    Longtail_CreateShareBlockStoreAPI, Longtail_DisposeAPI, Longtail_HashAPI, Longtail_JobAPI,
-    Longtail_ProgressAPI, Longtail_StorageAPI, Longtail_StoreIndex, Longtail_VersionIndex,
-    ProgressAPIProxy, StorageAPI, StoreIndex, VersionDiff, VersionIndex,
+    Longtail_CreateShareBlockStoreAPI, Longtail_DisposeAPI, Longtail_ProgressAPI,
+    Longtail_StorageAPI, ProgressAPIProxy, StorageAPI, StoreIndex, VersionDiff, VersionIndex,
 };
 use std::{
     ops::{Deref, DerefMut},
@@ -139,22 +138,22 @@ impl BlockstoreAPI {
         }
     }
 
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_block_store(
-        hash_api: *mut Longtail_HashAPI,
-        job_api: *mut Longtail_JobAPI,
-        block_store: *mut Longtail_BlockStoreAPI,
-        store_index: *mut Longtail_StoreIndex,
-        version_index: *mut Longtail_VersionIndex,
+    pub fn new_block_store(
+        hash_api: &HashAPI,
+        job_api: &BikeshedJobAPI,
+        block_store: &BlockstoreAPI,
+        store_index: &StoreIndex,
+        version_index: &VersionIndex,
     ) -> StorageAPI {
-        let blockstore_api = Longtail_CreateBlockStoreStorageAPI(
-            hash_api,
-            job_api,
-            block_store,
-            store_index,
-            version_index,
-        );
+        let blockstore_api = unsafe {
+            Longtail_CreateBlockStoreStorageAPI(
+                **hash_api,
+                **job_api,
+                **block_store,
+                **store_index,
+                **version_index,
+            )
+        };
         StorageAPI::new_from_api(blockstore_api)
     }
 
@@ -181,6 +180,8 @@ impl BlockstoreAPI {
         Ok(())
     }
 
+    // TODO: All of these functions that take many arguments would probably benefit from a builder
+    // or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
     pub fn change_version(
         &self,

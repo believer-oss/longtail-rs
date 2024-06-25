@@ -33,19 +33,24 @@ fn main() {
     let max_block_size = 1024 * 1024 * 1024;
     let max_chunks_per_block = 1024;
 
-    let store_index = unsafe {
-        StoreIndex::new_from_version_index(
-            hash,
-            &version_index,
-            max_block_size,
-            max_chunks_per_block,
-        )
-        .unwrap()
-    };
-    let block_store = unsafe {
-        BlockstoreAPI::new_block_store(hash, *jobs, *fake_block_store, *store_index, *version_index)
-    };
+    let store_index = StoreIndex::new_from_version_index(
+        &hash,
+        &version_index,
+        max_block_size,
+        max_chunks_per_block,
+    )
+    .unwrap();
+    let store_index = store_index;
+    let block_store = BlockstoreAPI::new_block_store(
+        &hash,
+        &jobs,
+        &fake_block_store,
+        &store_index,
+        &version_index,
+    );
 
+    // TODO: Need to understand if the blockstore should be recursing here... Leaving unsafe for
+    // now.
     // This is the implementation of the ls command ported from golongtail. It doesn't recurse, and
     // I'm not sure why? It is/may be important because it loops through the blockstore layer.
     // The golongtail binary exhibits the same behavior.

@@ -38,19 +38,16 @@ impl StoreIndex {
         }
     }
 
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new_from_version_index(
-        hash_api: *mut Longtail_HashAPI,
-        version_index: *const VersionIndex,
+    pub fn new_from_version_index(
+        hash_api: &HashAPI,
+        version_index: &VersionIndex,
         max_block_size: u32,
         max_chunks_per_block: u32,
     ) -> Result<StoreIndex, i32> {
         let mut store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
-        let version_index = &*version_index;
         let result = unsafe {
             Longtail_CreateStoreIndex(
-                hash_api,
+                **hash_api,
                 version_index.get_chunk_count(),
                 version_index.get_chunk_hashes().as_ptr(),
                 version_index.get_chunk_sizes().as_ptr(),
@@ -108,32 +105,4 @@ impl StoreIndex {
     //         _pin: std::marker::PhantomPinned,
     //     })
     // }
-
-    pub fn copy() {
-        todo!()
-    }
-    pub fn is_valid() {
-        todo!()
-    }
-    pub fn get_version() {
-        todo!()
-    }
-    pub fn get_hash_identifier() {
-        todo!()
-    }
-    pub fn get_block_count() {
-        todo!()
-    }
-    pub fn get_chunk_count() {
-        todo!()
-    }
-    pub fn get_block_hashes() {
-        todo!()
-    }
-    pub fn get_chunk_hashes() {
-        todo!()
-    }
-    pub fn get_chunk_sizes() {
-        todo!()
-    }
 }

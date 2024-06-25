@@ -94,7 +94,7 @@ impl Default for FolderScanner {
 // TODO: Async?
 /// # Safety
 /// This function is unsafe because it dereferences a raw pointer.
-pub unsafe fn get_files_recursively(
+pub fn get_files_recursively(
     storage_api: &StorageAPI,
     job_api: &BikeshedJobAPI,
     path_filter: &PathFilterAPIProxy,
@@ -139,8 +139,6 @@ impl FolderScanner {
         self.error
     }
 
-    /// # Safety
-    /// This function is unsafe because it dereferences `fs` and `jobs`.
     pub fn scan(
         &mut self,
         root_path: &str,
@@ -149,8 +147,7 @@ impl FolderScanner {
         jobs: &BikeshedJobAPI,
     ) {
         let start = std::time::Instant::now();
-        let file_infos =
-            unsafe { get_files_recursively(fs, jobs, path_filter, root_path).unwrap() };
+        let file_infos = get_files_recursively(fs, jobs, path_filter, root_path).unwrap();
         let elapsed = start.elapsed();
         self.file_infos = file_infos;
         self.elapsed = elapsed;
@@ -243,7 +240,7 @@ impl VersionIndexReader {
             let result = unsafe {
                 crate::Longtail_CreateVersionIndex(
                     storage_api.storage_api,
-                    hash,
+                    *hash,
                     chunker.get_chunker_api(),
                     job_api.job_api,
                     &progress as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
@@ -262,7 +259,7 @@ impl VersionIndexReader {
             }
             Ok(VersionIndexReader {
                 version_index: VersionIndex::from_longtail_versionindex(vindex),
-                hash_api: HashAPI::new(hash),
+                hash_api: hash,
             })
         } else {
             let mut f = std::fs::File::open(source_index_path).unwrap();
@@ -277,7 +274,7 @@ impl VersionIndexReader {
                 .unwrap();
             Ok(VersionIndexReader {
                 version_index: result.unwrap(),
-                hash_api: HashAPI::new(hash_api),
+                hash_api,
             })
         }
     }

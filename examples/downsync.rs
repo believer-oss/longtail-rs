@@ -107,6 +107,8 @@ pub fn downsync(
     //  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
 
+    // This creates a callback function that is used to check if a given file should be included or
+    // excluded from the recursive file scan.
     let regex_path_filter = RegexPathFilter::new(include_filter_regex, exclude_filter_regex)
         .map_err(|err| {
             let err = format!("failed to create regex path filter: {}", err);
@@ -134,6 +136,7 @@ pub fn downsync(
 
     let fs = StorageAPI::new_fs();
 
+    // TODO: This is ugly
     let cache_target_index = if !target_index_path.is_empty() {
         false
     } else {
@@ -145,7 +148,7 @@ pub fn downsync(
         resolved_target_folder_path.to_owned() + "/.longtail.index.cache.lvi",
     );
 
-    // TODO: This is ugly
+    // TODO: This is ugly, and I'm not sure why this is needed
     let target_index_path = if cache_target_index {
         if fs.file_exists(&cache_target_index_path) {
             &cache_target_index_path
@@ -156,8 +159,14 @@ pub fn downsync(
         target_index_path
     };
 
+    info!(
+        "Resolved target folder path: {}",
+        resolved_target_folder_path
+    );
+    // Recursively scan the target folder. TODO: This is async in golongtail
     let mut target_path_scanner = FolderScanner::new();
     target_path_scanner.scan(resolved_target_folder_path, &path_filter, &fs, &jobs);
+    info!("Scanned target path");
 
     let hash_registry = HashRegistry::new();
 
@@ -185,12 +194,18 @@ pub fn downsync(
     //  sourceVersionIndex = mergedVersionIndex
     // }
     // defer sourceVersionIndex.Dispose()
-    let source_version_index = version_index_from_file(source_paths.first().unwrap());
+    let source_filename = source_paths.first().unwrap();
+    info!("Reading version index from file: {}", source_filename);
+    let source_version_index = version_index_from_file(source_filename);
 
+    // Find the hash type and target chunk size of the source version index
     let hash_id = HashType::from_repr(source_version_index.get_hash_identifier() as usize)
         .expect("Failed to get hash type");
     let target_chunk_size = source_version_index.get_target_chunk_size();
 
+    // This builds an index of the current target directory, which is used to compare against the
+    // source version index.
+    info!("Building target index");
     let target_index_reader = VersionIndexReader::get_folder_index(
         resolved_target_folder_path,
         target_index_path,
@@ -205,8 +220,9 @@ pub fn downsync(
         &target_path_scanner,
     )
     .unwrap();
-    info!("target_index_reader: {:?}", target_index_reader);
 
+    // Setup prerequisites for local file writing
+    info!("Setting up local file writing");
     let creg = CompressionRegistry::create_full_compression_registry();
     let localfs = StorageAPI::new_fs();
     // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the remote index settings
@@ -250,6 +266,8 @@ pub fn downsync(
         .get_hash_api(hash_id)
         .expect("Failed to get hash API");
 
+    // Use the computed index to diff against the source index
+    info!("Diffing source and target indexes");
     let target_index_version = target_index_reader.version_index;
     let target_hash = target_index_reader.hash_api;
     let version_diff =
@@ -267,10 +285,12 @@ pub fn downsync(
         localfs.delete_file(&cache_target_index_path)?;
     }
 
+    // Setup prerequisites for writing to the target folder
+    info!("Setting up target folder writing");
     struct ProgressHandler {}
     impl ProgressAPI for ProgressHandler {
         fn on_progress(&self, _total_count: u32, _done_count: u32) {
-            println!("Downsync Progress: {}/{}", _done_count, _total_count);
+            info!("Downsync Progress: {}/{}", _done_count, _total_count);
         }
     }
     let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
@@ -282,6 +302,7 @@ pub fn downsync(
         resolved_target_folder_path,
     );
 
+    info!("Writing to target folder");
     index_store.change_version(
         &localfs,
         &concurrent_chunk_write_api,
@@ -299,6 +320,7 @@ pub fn downsync(
     // TODO: Handle validate
     // TODO: Handle cache_target_index
 
+    info!("Downsync complete");
     Ok(())
 }
 

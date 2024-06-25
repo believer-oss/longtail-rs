@@ -1,6 +1,8 @@
 use crate::*;
 use std::ops::{Deref, DerefMut};
 
+// If we want to implement our own job api, we'll need some changes here...
+
 #[repr(C)]
 pub struct BikeshedJobAPI {
     pub job_api: *mut Longtail_JobAPI,

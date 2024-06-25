@@ -1,6 +1,7 @@
 use crate::*;
 use tracing::Level;
 
+// This is a macro that allows us to log dynamically based on the log level provided by longtail.
 // https://github.com/tokio-rs/tracing/issues/2730#issuecomment-1943022805
 #[macro_export]
 macro_rules! dyn_event {
