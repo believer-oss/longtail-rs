@@ -57,3 +57,13 @@ unsafe extern "C" fn log_callback(
     let context = unsafe { *context };
     logcontext(context, log.to_str().unwrap());
 }
+
+#[cfg(test)]
+pub(crate) fn init_logging() -> Result<tracing::subscriber::DefaultGuard, Box<dyn std::error::Error>>
+{
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .finish();
+    crate::set_longtail_loglevel(crate::LONGTAIL_LOG_LEVEL_DEBUG);
+    Ok(tracing::subscriber::set_default(subscriber))
+}

@@ -5,6 +5,7 @@ use std::{
 };
 
 #[repr(C)]
+#[derive(Debug, Clone)]
 pub struct CFullPath {
     pub full_path: *const c_char,
 }
@@ -48,19 +49,23 @@ impl CFullPath {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone)]
 pub struct COpenFile {
     pub storage_api: *mut Longtail_StorageAPI,
-    pub open_file: *mut Longtail_StorageAPI_HOpenFile,
+    pub open_file: Longtail_StorageAPI_HOpenFile,
 }
 
 impl Drop for COpenFile {
     fn drop(&mut self) {
-        unsafe { Longtail_Storage_CloseFile(self.storage_api, *self.open_file) };
+        println!("Dropping {:?}", self);
+        unsafe { Longtail_Storage_CloseFile(self.storage_api, self.open_file) };
+        let open_file = unsafe { Box::from_raw(self.open_file) };
+        drop(open_file)
     }
 }
 
 impl Deref for COpenFile {
-    type Target = *mut Longtail_StorageAPI_HOpenFile;
+    type Target = *mut Longtail_StorageAPI_OpenFile;
     fn deref(&self) -> &Self::Target {
         &self.open_file
     }
@@ -75,21 +80,49 @@ impl DerefMut for COpenFile {
 impl COpenFile {
     /// # Safety
     /// This function is unsafe because it dereferences a raw pointer.
-    pub unsafe fn new(
+    pub unsafe fn new_for_write(
         storage_api: *mut Longtail_StorageAPI,
         c_full_path: *const c_char,
         block_size: u64,
     ) -> Result<COpenFile, i32> {
-        let open_file = std::ptr::null_mut::<Longtail_StorageAPI_HOpenFile>();
+        let open_file_h = Box::into_raw(Box::new(0 as Longtail_StorageAPI_HOpenFile));
         let result = unsafe {
-            Longtail_Storage_OpenWriteFile(storage_api, c_full_path, block_size, open_file)
+            Longtail_Storage_OpenWriteFile(
+                storage_api,
+                c_full_path,
+                block_size,
+                open_file_h as *mut Longtail_StorageAPI_HOpenFile,
+            )
         };
         if result != 0 {
             return Err(result);
         }
         Ok(COpenFile {
             storage_api,
-            open_file,
+            open_file: *open_file_h,
+        })
+    }
+
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
+    pub unsafe fn new_for_read(
+        storage_api: *mut Longtail_StorageAPI,
+        c_full_path: *const c_char,
+    ) -> Result<COpenFile, i32> {
+        let open_file_h = Box::into_raw(Box::new(0 as Longtail_StorageAPI_HOpenFile));
+        let result = unsafe {
+            Longtail_Storage_OpenReadFile(
+                storage_api,
+                c_full_path,
+                open_file_h as *mut Longtail_StorageAPI_HOpenFile,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(COpenFile {
+            storage_api,
+            open_file: *open_file_h,
         })
     }
 
@@ -98,7 +131,7 @@ impl COpenFile {
         let result = unsafe {
             Longtail_Storage_Read(
                 self.storage_api,
-                *self.open_file,
+                self.open_file,
                 offset,
                 size,
                 buffer.as_mut_ptr() as *mut std::ffi::c_void,
@@ -162,10 +195,10 @@ impl StorageAPI {
 
     pub fn read_from_storage(&self, root_path: &str, path: &str) -> Result<Vec<u8>, i32> {
         let c_full_path = unsafe { CFullPath::new(self.storage_api, root_path, path) };
-        let c_open_file = unsafe { COpenFile::new(self.storage_api, *c_full_path, 0)? };
+        let c_open_file = unsafe { COpenFile::new_for_read(self.storage_api, *c_full_path)? };
         let mut file_size = 0;
         let result = unsafe {
-            Longtail_Storage_GetSize(self.storage_api, **c_open_file, &mut file_size as *mut u64)
+            Longtail_Storage_GetSize(self.storage_api, *c_open_file, &mut file_size as *mut u64)
         };
         if result != 0 {
             return Err(result);
@@ -182,12 +215,13 @@ impl StorageAPI {
         }
         let block_size = buffer.len() as u64;
 
-        let c_open_file = unsafe { COpenFile::new(self.storage_api, *c_full_path, 0)? };
+        let c_open_file =
+            unsafe { COpenFile::new_for_write(self.storage_api, *c_full_path, block_size)? };
         if block_size > 0 {
             let result = unsafe {
                 Longtail_Storage_Write(
                     self.storage_api,
-                    **c_open_file,
+                    *c_open_file,
                     0,
                     block_size,
                     buffer.as_ptr() as *const std::ffi::c_void,
@@ -198,21 +232,6 @@ impl StorageAPI {
             }
         }
         Ok(())
-    }
-
-    pub fn open_read_file(&self, path: &str) -> Result<COpenFile, i32> {
-        let c_path = std::ffi::CString::new(path).unwrap();
-        let c_open_file = std::ptr::null_mut::<Longtail_StorageAPI_HOpenFile>();
-        let result = unsafe {
-            Longtail_Storage_OpenReadFile(self.storage_api, c_path.as_ptr(), c_open_file)
-        };
-        if result != 0 {
-            return Err(result);
-        }
-        Ok(COpenFile {
-            storage_api: self.storage_api,
-            open_file: c_open_file,
-        })
     }
 
     pub fn read_version_index(&self, path: &str) -> Result<VersionIndex, i32> {
@@ -249,7 +268,7 @@ impl StorageAPI {
     // now.
     pub fn get_size(&self, f: COpenFile) -> Result<u64, i32> {
         let mut size = 0;
-        let result = unsafe { Longtail_Storage_GetSize(self.storage_api, *f.open_file, &mut size) };
+        let result = unsafe { Longtail_Storage_GetSize(self.storage_api, f.open_file, &mut size) };
         if result != 0 {
             return Err(result);
         }
@@ -261,7 +280,7 @@ impl StorageAPI {
         let result = unsafe {
             Longtail_Storage_Read(
                 self.storage_api,
-                *f.open_file,
+                f.open_file,
                 offset,
                 size,
                 buffer.as_mut_ptr() as *mut std::ffi::c_void,
@@ -275,7 +294,7 @@ impl StorageAPI {
 
     // TODO: This shouldn't be needed, since RAII on COpenFile should handle this.
     pub fn close_file(&self, f: COpenFile) {
-        unsafe { Longtail_Storage_CloseFile(self.storage_api, *f.open_file) };
+        unsafe { Longtail_Storage_CloseFile(self.storage_api, f.open_file) };
     }
 
     pub fn start_find(&self, path: &str) -> Result<*mut Longtail_StorageAPI_Iterator, i32> {
@@ -331,5 +350,36 @@ impl StorageAPI {
             return Err(result);
         }
         Ok(properties)
+    }
+
+    pub fn write_version_index(&self, version_index: &VersionIndex, path: &str) -> Result<(), i32> {
+        let c_path = std::ffi::CString::new(path).unwrap();
+        let result = unsafe {
+            Longtail_WriteVersionIndex(
+                self.storage_api,
+                version_index.version_index,
+                c_path.as_ptr(),
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_in_mem_storage() {
+        let _guard = crate::init_logging().unwrap();
+        let storage_api = crate::StorageAPI::new_inmem();
+        let buffer = vec![1; 1024 * 1024];
+        let result = storage_api.write_to_storage("folder", "file", buffer.as_slice());
+        if result.is_err() {
+            panic!("Failed to write to storage {:?}", result)
+        }
+        let read_buffer = storage_api.read_from_storage("folder", "file").unwrap();
+        assert_eq!(buffer, read_buffer);
     }
 }

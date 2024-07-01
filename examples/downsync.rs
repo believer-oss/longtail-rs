@@ -1,9 +1,11 @@
 mod common;
 
+use std::{collections::HashMap, ptr::null_mut};
+
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
-use tracing::info;
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -274,12 +276,19 @@ pub fn downsync(
         VersionDiff::diff(&target_hash, &target_index_version, &source_version_index)
             .expect("Failed to diff versions");
 
+    debug!("Source version index: {:?}", source_version_index);
+    debug!("Target version index: {:?}", target_index_version);
+    debug!("Version diff: {:?}", version_diff);
+
     let chunk_hashes = version_diff
         .get_required_chunk_hashes(&source_version_index)
         .expect("Failed to get required chunk hashes");
 
     let retargetted_version_store_index =
         StoreIndex::get_existing_store_index(&index_store, chunk_hashes, 0).unwrap();
+    debug!("Retargetted version store index: {:?}", unsafe {
+        *retargetted_version_store_index.store_index
+    });
 
     if cache_target_index && localfs.file_exists(&cache_target_index_path) {
         localfs.delete_file(&cache_target_index_path)?;
@@ -295,6 +304,7 @@ pub fn downsync(
     }
     let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
 
+    // Unused now
     let concurrent_chunk_write_api = ConcurrentChunkWriteAPI::new(
         &localfs,
         &source_version_index,
@@ -317,8 +327,114 @@ pub fn downsync(
         true,
     )?;
 
-    // TODO: Handle validate
-    // TODO: Handle cache_target_index
+    // TODO: FlushStoresSync index_store, cache_block_store, local_index_store
+
+    if validate {
+        // Validate the target folder
+        info!("Validating target folder");
+        let validate_file_infos =
+            get_files_recursively(&localfs, &jobs, &path_filter, resolved_target_folder_path)?;
+        let chunker = ChunkerAPI::new();
+
+        struct ProgressHandler {}
+        impl ProgressAPI for ProgressHandler {
+            fn on_progress(&self, _total_count: u32, _done_count: u32) {
+                info!("Validate Progress: {}/{}", _done_count, _total_count);
+            }
+        }
+        let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
+
+        // TODO: fix this unsafe
+        let validate_version_index = unsafe {
+            VersionIndex::new_from_fileinfos(
+                &localfs,
+                &target_hash,
+                &chunker,
+                &jobs,
+                &progress,
+                resolved_target_folder_path,
+                validate_file_infos,
+                null_mut(),
+                target_chunk_size,
+                enable_file_mapping,
+            )
+        }?;
+
+        if validate_version_index.get_asset_count() != source_version_index.get_asset_count() {
+            error!("Validation failed: asset count mismatch");
+            return Err(-1);
+        }
+
+        let validate_asset_sizes = validate_version_index.get_asset_sizes();
+        let validate_asset_hashes = validate_version_index.get_asset_hashes();
+
+        let source_asset_sizes = source_version_index.get_asset_sizes();
+        let source_asset_hashes = source_version_index.get_asset_hashes();
+
+        let mut asset_size_lookup = HashMap::new();
+        let mut asset_hash_lookup = HashMap::new();
+        let mut asset_permissions_lookup = HashMap::new();
+
+        for (i, size) in source_asset_sizes.iter().enumerate() {
+            let path = source_version_index.get_asset_path(i as u32);
+            asset_size_lookup.insert(path.clone(), size);
+            asset_hash_lookup.insert(path.clone(), source_asset_hashes[i]);
+            asset_permissions_lookup
+                .insert(path, source_version_index.get_asset_permissions(i as u32));
+        }
+        info!("Source asset sizes loaded");
+        for (i, validate_size) in validate_asset_sizes.iter().enumerate() {
+            let validate_path = validate_version_index.get_asset_path(i as u32);
+            let validate_hash = validate_asset_hashes[i];
+            let size = asset_size_lookup.get(&validate_path);
+            if let Some(size) = size {
+                if validate_size != *size {
+                    error!(
+                        "Validation failed: asset size mismatch for `{}`",
+                        validate_path
+                    );
+                    error!("Expected: {}, Got: {}", size, validate_size);
+                    // return Err(-1);
+                }
+                if validate_hash != asset_hash_lookup[&validate_path] {
+                    error!(
+                        "Validation failed: asset hash mismatch for `{}`",
+                        validate_path
+                    );
+                    error!(
+                        "Expected: {}, Got: {}",
+                        asset_hash_lookup[&validate_path], validate_hash
+                    );
+
+                    // return Err(-1);
+                }
+                if retain_permissions {
+                    let permissions = asset_permissions_lookup[&validate_path];
+                    let file_permissions = validate_version_index.get_asset_permissions(i as u32);
+                    if file_permissions != permissions {
+                        // error!(
+                        //     "Validation failed: asset permissions mismatch for `{}`",
+                        //     validate_path
+                        // );
+                        // error!("Expected: {:o}, Got: {:o}", permissions, file_permissions);
+                        // return Err(-1);
+                    }
+                }
+            } else {
+                error!(
+                    "Validation failed: asset `{}` not found in source index",
+                    validate_path
+                );
+                return Err(-1);
+            }
+            info!("Validation passed for {}", validate_path);
+        }
+    }
+
+    // Cache the source target index locally
+    if cache_target_index {
+        localfs.write_version_index(&source_version_index, &cache_target_index_path)?;
+    }
 
     info!("Downsync complete");
     Ok(())

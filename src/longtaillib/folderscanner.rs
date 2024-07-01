@@ -283,8 +283,8 @@ impl VersionIndexReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PathFilterAPI;
     use crate::{BikeshedJobAPI, HashRegistry, HashType, PathFilterAPIProxy, StorageAPI};
-    use crate::{PathFilterAPI, LONGTAIL_LOG_LEVEL_DEBUG};
     #[derive(Debug)]
     struct TestPathFilter {}
     impl PathFilterAPI for TestPathFilter {
@@ -304,10 +304,7 @@ mod tests {
     #[test]
     // #[ignore]
     fn test_folder_scanner() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
-        crate::set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
+        let _guard = crate::init_logging().unwrap();
         let jobs = BikeshedJobAPI::new(1, 1);
         let fs = StorageAPI::new_fs();
         let pf = Box::new(TestPathFilter {});
@@ -317,13 +314,14 @@ mod tests {
         let root_path = "test-data";
         scanner.scan(root_path, path_filter, &fs, &jobs);
         let file_infos = unsafe { &*scanner.file_infos };
-        assert_eq!(file_infos.get_file_count(), 14);
+        assert_eq!(file_infos.get_file_count(), 20);
         for (path, size, permissions) in file_infos.iter() {
             println!("{} {} {:o}", path, size, permissions);
         }
     }
     #[test]
     fn test_version_index_reader() {
+        let _guard = crate::init_logging().unwrap();
         let jobs = BikeshedJobAPI::new(1, 1);
         let hash_registry = HashRegistry::new();
         let fs = StorageAPI::new_fs();
@@ -354,6 +352,6 @@ mod tests {
         )
         .unwrap();
         let version_index = version_index_reader.version_index;
-        assert_eq!(version_index.get_asset_count(), 14);
+        assert_eq!(version_index.get_asset_count(), 20);
     }
 }

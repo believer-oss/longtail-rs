@@ -1,6 +1,6 @@
 // use crate::*;
 
-const UNCPrefix: &str = "\\\\?\\";
+pub const UNCPrefix: &str = "\\\\?\\";
 const NetworkPrefix: &str = "\\";
 
 // TODO: Not sure if this is the correct implementation...

@@ -82,14 +82,18 @@ impl HashRegistry {
     }
 
     pub fn get_hash_api(&self, hash_type: HashType) -> Result<HashAPI, i32> {
-        let mut hash_api = std::ptr::null_mut::<Longtail_HashAPI>();
+        let mut hash_api_c = std::ptr::null_mut::<Longtail_HashAPI>();
         let result = unsafe {
-            Longtail_GetHashRegistry_GetHashAPI(self.hash_registry, hash_type as u32, &mut hash_api)
+            Longtail_GetHashRegistry_GetHashAPI(
+                self.hash_registry,
+                hash_type as u32,
+                &mut hash_api_c,
+            )
         };
         if result != 0 {
             return Err(result);
         }
-        let hash_api = HashAPI::new(hash_api);
+        let hash_api = HashAPI::new(hash_api_c);
         Ok(hash_api)
     }
 }
