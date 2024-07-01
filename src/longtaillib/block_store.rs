@@ -1,17 +1,71 @@
+use tracing::debug;
+
+#[allow(unused_imports)]
 use crate::{
     BikeshedJobAPI, CompressionRegistry, ConcurrentChunkWriteAPI, HashAPI, Longtail_API,
-    Longtail_ArchiveIndex, Longtail_AsyncGetExistingContentAPI, Longtail_BlockStoreAPI,
-    Longtail_BlockStore_GetExistingContent, Longtail_CancelAPI, Longtail_CancelAPI_CancelToken,
-    Longtail_ChangeVersion2, Longtail_CreateArchiveBlockStore, Longtail_CreateBlockStoreStorageAPI,
+    Longtail_ArchiveIndex, Longtail_AsyncGetExistingContentAPI, Longtail_AsyncGetStoredBlockAPI,
+    Longtail_AsyncPreflightStartedAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_BlockStoreAPI,
+    Longtail_BlockStore_GetExistingContent, Longtail_BlockStore_GetStoredBlock,
+    Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PutStoredBlock, Longtail_CancelAPI,
+    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion, Longtail_ChangeVersion2,
+    Longtail_CreateArchiveBlockStore, Longtail_CreateBlockStoreStorageAPI,
     Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
     Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
-    Longtail_CreateShareBlockStoreAPI, Longtail_DisposeAPI, Longtail_ProgressAPI,
-    Longtail_StorageAPI, ProgressAPIProxy, StorageAPI, StoreIndex, VersionDiff, VersionIndex,
+    Longtail_CreateShareBlockStoreAPI, Longtail_DisposeAPI, Longtail_InitStoredBlockFromData,
+    Longtail_ProgressAPI, Longtail_StorageAPI, Longtail_StoredBlock, ProgressAPIProxy, StorageAPI,
+    StoreIndex, VersionDiff, VersionIndex,
 };
 use std::{
     ops::{Deref, DerefMut},
     ptr::null_mut,
 };
+
+#[repr(C)]
+pub struct StoredBlock {
+    pub stored_block: *mut Longtail_StoredBlock,
+    _pin: std::marker::PhantomPinned,
+}
+
+impl Deref for StoredBlock {
+    type Target = *mut Longtail_StoredBlock;
+    fn deref(&self) -> &Self::Target {
+        &self.stored_block
+    }
+}
+
+impl DerefMut for StoredBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stored_block
+    }
+}
+
+impl StoredBlock {
+    pub fn new(stored_block: *mut Longtail_StoredBlock) -> StoredBlock {
+        StoredBlock {
+            stored_block,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+
+    // Unused? Requires allocated memory for the stored block!
+    pub fn new_from_data(block_data: &mut [u8]) -> Result<Self, i32> {
+        let stored_block = std::ptr::null_mut::<Longtail_StoredBlock>();
+        let result = unsafe {
+            Longtail_InitStoredBlockFromData(
+                stored_block,
+                block_data.as_mut_ptr() as *mut std::ffi::c_void,
+                block_data.len(),
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(StoredBlock {
+            stored_block,
+            _pin: std::marker::PhantomPinned,
+        })
+    }
+}
 
 #[repr(C)]
 pub struct BlockstoreAPI {
@@ -21,6 +75,7 @@ pub struct BlockstoreAPI {
 
 impl Drop for BlockstoreAPI {
     fn drop(&mut self) {
+        debug!("Dropping BlockstoreAPI {:p}", self.blockstore_api);
         unsafe { Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut Longtail_API) };
     }
 }
@@ -180,13 +235,70 @@ impl BlockstoreAPI {
         Ok(())
     }
 
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
+    pub unsafe fn put_stored_block(
+        &self,
+        stored_block: *mut Longtail_StoredBlock,
+        async_complete_api: *mut Longtail_AsyncPutStoredBlockAPI,
+    ) -> Result<(), i32> {
+        let result = unsafe {
+            Longtail_BlockStore_PutStoredBlock(
+                self.blockstore_api,
+                stored_block,
+                async_complete_api,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        };
+        Ok(())
+    }
+
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
+    pub unsafe fn preflight_get(
+        &self,
+        chunk_hashes: Vec<u64>,
+        optional_async_complete_api: *mut Longtail_AsyncPreflightStartedAPI,
+    ) -> Result<(), i32> {
+        let result = unsafe {
+            Longtail_BlockStore_PreflightGet(
+                self.blockstore_api,
+                chunk_hashes.len() as u32,
+                chunk_hashes.as_ptr(),
+                optional_async_complete_api,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        };
+        Ok(())
+    }
+
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
+    pub unsafe fn get_stored_block(
+        &self,
+        block_hash: u64,
+        async_complete_api: *mut Longtail_AsyncGetStoredBlockAPI,
+    ) -> Result<(), i32> {
+        let result = unsafe {
+            Longtail_BlockStore_GetStoredBlock(self.blockstore_api, block_hash, async_complete_api)
+        };
+        if result != 0 {
+            return Err(result);
+        };
+        Ok(())
+    }
+
     // TODO: All of these functions that take many arguments would probably benefit from a builder
     // or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
     pub fn change_version(
         &self,
         version_storage_api: &StorageAPI,
-        concurrent_chunk_write_api: &ConcurrentChunkWriteAPI,
+        _concurrent_chunk_write_api: &ConcurrentChunkWriteAPI,
         hash_api: &HashAPI,
         job_api: &BikeshedJobAPI,
         progress_api: &ProgressAPIProxy,
@@ -199,10 +311,10 @@ impl BlockstoreAPI {
     ) -> Result<(), i32> {
         let version_path = std::ffi::CString::new(version_path).unwrap();
         let result = unsafe {
-            Longtail_ChangeVersion2(
+            Longtail_ChangeVersion(
                 self.blockstore_api,
                 **version_storage_api,
-                **concurrent_chunk_write_api,
+                // **concurrent_chunk_write_api,
                 **hash_api,
                 **job_api,
                 progress_api as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
@@ -222,3 +334,23 @@ impl BlockstoreAPI {
         Ok(())
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use crate::Longtail_StoredBlock;
+//
+//     #[test]
+//     fn test_blockstore_api() {
+//         let jobs = crate::BikeshedJobAPI::new(1, 1);
+//         let storage_api = crate::StorageAPI::new_inmem();
+//         let blockstore_api =
+//             crate::BlockstoreAPI::new_fs(&jobs, &storage_api, "content", None, false);
+//         assert!(!blockstore_api.is_null());
+//
+//         let result = unsafe {
+//             let async_complete_api = std::ptr::null_mut();
+//             blockstore_api.put_stored_block(&mut stored_block, async_complete_api)
+//         };
+//         assert_eq!(result, Ok(()));
+//     }
+// }

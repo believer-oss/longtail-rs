@@ -9,6 +9,12 @@ use strum::{EnumString, FromRepr};
 pub mod longtaillib;
 pub use longtaillib::*;
 
+pub mod longtailstorelib;
+pub use longtailstorelib::*;
+
+pub mod remotestore;
+pub use remotestore::*;
+
 pub mod path_filter;
 pub use path_filter::RegexPathFilter;
 
@@ -53,6 +59,7 @@ impl Display for Longtail_StorageAPI_EntryProperties {
     }
 }
 
+// AsyncGetExistingContentAPI
 // TODO: This needs to be a macro
 pub trait AsyncGetExistingContentAPI: std::fmt::Debug {
     fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32);
