@@ -190,7 +190,7 @@ impl VersionIndex {
         })
     }
 
-    pub fn read_version_index_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
+    pub fn new_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
         let buffer_size = buffer.len();
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
         let result = unsafe {
@@ -349,7 +349,7 @@ mod tests {
         println!("Reading {} bytes", metadata.len());
         f.read_exact(&mut buffer).unwrap();
         println!("Bytes read: {:?}", buffer);
-        let result = VersionIndex::read_version_index_from_buffer(&mut buffer);
+        let result = VersionIndex::new_from_buffer(&mut buffer);
         println!("Result: {:?}", result);
         match result {
             Ok(version_index) => {

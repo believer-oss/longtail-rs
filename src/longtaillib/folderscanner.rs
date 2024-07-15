@@ -266,7 +266,7 @@ impl VersionIndexReader {
             let metadata = f.metadata().unwrap();
             let mut buffer = vec![0u8; metadata.len() as usize];
             f.read_exact(&mut buffer).unwrap();
-            let result = VersionIndex::read_version_index_from_buffer(&mut buffer);
+            let result = VersionIndex::new_from_buffer(&mut buffer);
             let hash_api = hash_registry
                 .get_hash_api(
                     HashType::from_repr(hash_id as usize).expect("Could not find hash type"),

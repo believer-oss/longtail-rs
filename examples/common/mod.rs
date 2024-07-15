@@ -8,6 +8,6 @@ pub fn version_index_from_file(filename: &str) -> VersionIndex {
     let metadata = f.metadata().unwrap();
     let mut buffer = vec![0u8; metadata.len() as usize];
     f.read_exact(&mut buffer).unwrap();
-    let result = VersionIndex::read_version_index_from_buffer(&mut buffer);
+    let result = VersionIndex::new_from_buffer(&mut buffer);
     result.unwrap()
 }

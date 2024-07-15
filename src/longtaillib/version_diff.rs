@@ -149,6 +149,6 @@ mod test {
         let metadata = f.metadata().unwrap();
         let mut buffer = vec![0u8; metadata.len() as usize];
         f.read_exact(&mut buffer).unwrap();
-        VersionIndex::read_version_index_from_buffer(&mut buffer).unwrap()
+        VersionIndex::new_from_buffer(&mut buffer).unwrap()
     }
 }

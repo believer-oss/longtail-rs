@@ -3,7 +3,6 @@ mod common;
 use std::{collections::HashMap, ptr::null_mut};
 
 use clap::Parser;
-use common::version_index_from_file;
 use longtail::*;
 use tracing::{debug, error, info};
 
@@ -15,8 +14,8 @@ struct Args {
     storage_uri: String,
 
     /// Optional URI for S3 endpoint resolver
-    // #[clap(name = "s3-endpoint-resolver-url", long)]
-    // s3_endpoint_resolver_url: Option<String>,
+    #[clap(name = "s3-endpoint-resolver-url", long)]
+    s3_endpoint_resolver_url: Option<String>,
 
     /// Source file uri(s)
     #[clap(name = "source-path", long)]
@@ -73,24 +72,24 @@ struct Args {
     use_legacy_write: bool,
 }
 
-#[allow(unused_variables, clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn downsync(
     workers: usize,
     storage_uri: &str,
-    // s3_endpoint_resolver_url: &str,
+    _s3_endpoint_resolver_url: &str,
     source_paths: &[String],
     target_path: &str,
     target_index_path: &str,
     cache_path: &str,
     retain_permissions: bool,
     validate: bool,
-    version_local_store_index_paths: &[String],
+    _version_local_store_index_paths: &[String],
     include_filter_regex: Option<String>,
     exclude_filter_regex: Option<String>,
-    scan_target: bool,
+    _scan_target: bool,
     cache_target_index: bool,
     enable_file_mapping: bool,
-    use_legacy_write: bool,
+    _use_legacy_write: bool,
 ) -> Result<(), i32> {
     // Setup the longtail environment
     let jobs = BikeshedJobAPI::new(workers as u32, 1);
@@ -119,22 +118,26 @@ pub fn downsync(
         .unwrap();
     let path_filter = PathFilterAPIProxy::new(Box::new(regex_path_filter));
 
-    // TODO: Fixup target-path
-    // if targetFolderPath == "" {
-    //  normalizedSourceFilePath := longtailstorelib.NormalizeFileSystemPath(sourceFilePaths[0])
-    //  normalizedSourceFilePath = strings.ReplaceAll(normalizedSourceFilePath, "\\", "/")
-    //  urlSplit := strings.Split(normalizedSourceFilePath, "/")
-    //  sourceName := urlSplit[len(urlSplit)-1]
-    //  sourceNameSplit := strings.Split(sourceName, ".")
-    //  resolvedTargetFolderPath = sourceNameSplit[0]
-    //  if resolvedTargetFolderPath == "" {
-    //    err = fmt.Errorf("unable to resolve target path using `%s` as base", sourceFilePaths[0])
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
-    //  }
-    // } else {
-    //  resolvedTargetFolderPath = targetFolderPath
-    // }
-    let resolved_target_folder_path = target_path;
+    let resolved_target_folder_path = if target_path.is_empty() {
+        let normalized_source_file_path =
+            NormalizeFileSystemPath(source_paths[0].clone()).replace('\\', "/");
+        let mut source_name_split = normalized_source_file_path
+            .split('/')
+            .last()
+            .unwrap()
+            .split('.');
+        let resolved_target_folder_path = source_name_split.next().unwrap();
+        if resolved_target_folder_path.is_empty() {
+            error!(
+                "Unable to resolve target path using `{}` as base",
+                source_paths[0]
+            );
+            return Err(-1);
+        }
+        resolved_target_folder_path.to_owned()
+    } else {
+        target_path.to_owned()
+    };
 
     let fs = StorageAPI::new_fs();
 
@@ -167,7 +170,7 @@ pub fn downsync(
     );
     // Recursively scan the target folder. TODO: This is async in golongtail
     let mut target_path_scanner = FolderScanner::new();
-    target_path_scanner.scan(resolved_target_folder_path, &path_filter, &fs, &jobs);
+    target_path_scanner.scan(&resolved_target_folder_path, &path_filter, &fs, &jobs);
     info!("Scanned target path");
 
     let hash_registry = HashRegistry::new();
@@ -196,9 +199,27 @@ pub fn downsync(
     //  sourceVersionIndex = mergedVersionIndex
     // }
     // defer sourceVersionIndex.Dispose()
-    let source_filename = source_paths.first().unwrap();
-    info!("Reading version index from file: {}", source_filename);
-    let source_version_index = version_index_from_file(source_filename);
+
+    // Before S3
+    // let source_filename = source_paths.first().unwrap();
+    // info!("Reading version index from file: {}", source_filename);
+    // let source_version_index = version_index_from_file(source_filename);
+    let source_version_index = {
+        // TODO: Handle multiple source paths
+        let uri = source_paths.first().unwrap();
+        info!("Reading version index from object: {}", uri);
+        let mut buf = read_from_uri(uri, None).map_err(|err| {
+            let err = format!("failed to read object: {}", err);
+            error!("{}", err);
+            1
+        })?;
+        VersionIndex::new_from_buffer(&mut buf).map_err(|err| {
+            let err = format!("failed to create version index: {}", err);
+            error!("{}", err);
+            1
+        })?
+    };
+    debug!("Source version index: {:?}", source_version_index);
 
     // Find the hash type and target chunk size of the source version index
     let hash_id = HashType::from_repr(source_version_index.get_hash_identifier() as usize)
@@ -209,7 +230,7 @@ pub fn downsync(
     // source version index.
     info!("Building target index");
     let target_index_reader = VersionIndexReader::get_folder_index(
-        resolved_target_folder_path,
+        &resolved_target_folder_path,
         target_index_path,
         target_chunk_size,
         LONGTAIL_NO_COMPRESSION_TYPE,
@@ -233,36 +254,45 @@ pub fn downsync(
     //  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
     // defer remoteIndexStore.Dispose()
-    let fake_remotefs = BlockstoreAPI::new_fs(
-        &jobs,
-        &localfs,
+    // let fake_remotefs = BlockstoreAPI::new_fs(
+    //     &jobs,
+    //     &localfs,
+    //     storage_uri,
+    //     Some(".lsb"),
+    //     enable_file_mapping,
+    // );
+    // TODO: Handle multiple source paths
+    let remote_index_store = create_block_store_for_uri(
         storage_uri,
-        Some(".lsb"),
+        None,
+        &jobs,
+        1,
+        AccessType::ReadOnly,
         enable_file_mapping,
-    );
+        None,
+    )
+    .map_err(|err| {
+        let err = format!("failed to create block store: {}", err);
+        error!("{}", err);
+        1
+    })?;
 
-    let (compress_block_store, cache_block_store, local_index_store) = match cache_path.is_empty() {
-        true => {
-            let block_store = BlockstoreAPI::new_compressed(&fake_remotefs, &creg);
-            (block_store, None, None)
-        }
+    let compress_block_store = match cache_path.is_empty() {
+        true => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
         false => {
             let local_index_store =
                 BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
-            let cache_block_store = BlockstoreAPI::new_compressed(&local_index_store, &creg);
-            let block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
-            (
-                block_store,
-                Some(cache_block_store),
-                Some(local_index_store),
-            )
+            let cache_block_store =
+                BlockstoreAPI::new_cached(&jobs, &local_index_store, &remote_index_store);
+            BlockstoreAPI::new_compressed(Box::new(cache_block_store), &creg)
         }
     };
 
     // TODO: disabled these for now...
     // // Assuming we're not using legacy writes here.
-    let lru_block_store = BlockstoreAPI::new_lru(&compress_block_store, 32);
-    let index_store = BlockstoreAPI::new_share(&lru_block_store);
+    // let lru_block_store = BlockstoreAPI::new_lru(&compress_block_store, 32);
+    // let index_store = BlockstoreAPI::new_share(&lru_block_store);
+    let index_store = BlockstoreAPI::new_share(&compress_block_store);
     // let index_store = compress_block_store;
 
     // this appears to just be validating that we can get the hash id
@@ -286,8 +316,10 @@ pub fn downsync(
         .get_required_chunk_hashes(&source_version_index)
         .expect("Failed to get required chunk hashes");
 
+    debug!("BEFORE!!!!!!!!");
     let retargetted_version_store_index =
-        StoreIndex::get_existing_store_index(&index_store, chunk_hashes, 0).unwrap();
+        StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).unwrap();
+    debug!("AFTER!!!!!!!!");
     debug!("Retargetted version store index: {:?}", unsafe {
         *retargetted_version_store_index.store_index
     });
@@ -311,7 +343,7 @@ pub fn downsync(
         &localfs,
         &source_version_index,
         &version_diff,
-        resolved_target_folder_path,
+        &resolved_target_folder_path,
     );
 
     info!("Writing to target folder");
@@ -325,7 +357,7 @@ pub fn downsync(
         &target_index_version,
         &source_version_index,
         &version_diff,
-        resolved_target_folder_path,
+        &resolved_target_folder_path,
         true,
     )?;
 
@@ -335,7 +367,7 @@ pub fn downsync(
         // Validate the target folder
         info!("Validating target folder");
         let validate_file_infos =
-            get_files_recursively(&localfs, &jobs, &path_filter, resolved_target_folder_path)?;
+            get_files_recursively(&localfs, &jobs, &path_filter, &resolved_target_folder_path)?;
         let chunker = ChunkerAPI::new();
 
         struct ProgressHandler {}
@@ -354,7 +386,7 @@ pub fn downsync(
                 &chunker,
                 &jobs,
                 &progress,
-                resolved_target_folder_path,
+                &resolved_target_folder_path,
                 validate_file_infos,
                 null_mut(),
                 target_chunk_size,
@@ -452,7 +484,7 @@ fn main() {
     downsync(
         1,
         &args.storage_uri,
-        // &args.s3_endpoint_resolver_url.unwrap_or_default(),
+        &args.s3_endpoint_resolver_url.unwrap_or_default(),
         &args.source_path,
         &args.target_path,
         &args.target_index_path.unwrap_or_default(),

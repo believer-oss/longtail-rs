@@ -1,0 +1,273 @@
+use std::io::Write;
+
+use aws_sdk_s3::Client as S3Client;
+
+use crate::{BlobClient, BlobObject, BlobStore};
+
+#[derive(Debug, Clone)]
+pub struct S3Options {
+    // TODO: Not implemented
+    endpoint_resolver_uri: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct S3BlobStore {
+    bucket_name: String,
+    prefix: String,
+    options: Option<S3Options>,
+}
+
+impl S3BlobStore {
+    pub fn new(bucket_name: &str, prefix: &str, options: Option<S3Options>) -> Self {
+        S3BlobStore {
+            bucket_name: bucket_name.to_string(),
+            prefix: prefix.to_string(),
+            options,
+        }
+    }
+}
+
+impl BlobStore for S3BlobStore {
+    fn new_client<'a>(&self) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error>> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let config = rt.block_on(aws_config::load_from_env());
+        let s3_client = S3Client::new(&config);
+        Ok(Box::new(S3BlobClient {
+            s3_client,
+            store: self.clone(),
+        }))
+    }
+
+    fn get_string(&self) -> String {
+        format!("s3://{0}/{1}", self.bucket_name, self.prefix)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct S3BlobClient {
+    s3_client: S3Client,
+    store: S3BlobStore,
+}
+
+impl BlobClient for S3BlobClient {
+    // New objects are always rooted unter the storages prefix, but allow the prefix to be
+    // stripped if it's passed in.
+    fn new_object(
+        &self,
+        object_key: String,
+    ) -> Result<Box<dyn BlobObject + '_>, Box<dyn std::error::Error>> {
+        if object_key.starts_with(&self.store.prefix) {
+            Ok(Box::new(S3BlobObject {
+                client: self,
+                object_key,
+            }))
+        } else {
+            let object_key = format!("{}/{}", self.store.prefix, object_key);
+            Ok(Box::new(S3BlobObject {
+                client: self,
+                object_key,
+            }))
+        }
+    }
+
+    fn get_objects(
+        &self,
+        path_prefix: String,
+    ) -> Result<Vec<crate::BlobProperties>, Box<dyn std::error::Error>> {
+        let bucket_name = self.store.bucket_name.clone();
+        let path_prefix = format!("{}{}", self.store.prefix.clone(), path_prefix);
+        tracing::debug!("Listing objects: [{}] [{}]", bucket_name, path_prefix);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let inner = rt.block_on(
+            self.s3_client
+                .list_objects_v2()
+                .bucket(bucket_name)
+                .prefix(path_prefix)
+                .send(),
+        )?;
+        let mut ret = Vec::<crate::BlobProperties>::new();
+        for object in inner.contents() {
+            let key = object.key.clone().unwrap_or_default();
+            let size = object.size.unwrap_or_default();
+            ret.push(crate::BlobProperties {
+                size: size as usize,
+                name: key,
+            });
+        }
+        Ok(ret)
+    }
+
+    fn supports_locking(&self) -> bool {
+        false
+    }
+
+    fn get_string(&self) -> String {
+        self.store.get_string()
+    }
+
+    fn close(&self) {}
+}
+
+#[derive(Debug)]
+struct S3BlobObject<'a> {
+    client: &'a S3BlobClient,
+    object_key: String,
+}
+
+impl<'a> BlobObject for S3BlobObject<'a> {
+    fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        let bucket_name = self.client.store.bucket_name.clone();
+        let object_key = self.object_key.clone();
+        tracing::debug!(
+            "Checking object exists: [{}] [{}] [{}]",
+            bucket_name,
+            self.client.store.prefix,
+            object_key
+        );
+
+        let inner = rt.block_on(
+            self.client
+                .s3_client
+                .head_object()
+                .bucket(bucket_name)
+                .key(object_key)
+                .send(),
+        );
+        if let Err(e) = inner {
+            match e.as_service_error() {
+                Some(err) => {
+                    if err.is_not_found() {
+                        return Ok(false);
+                    }
+                }
+                None => {
+                    return Err(Box::new(e));
+                }
+            }
+        }
+        Ok(true)
+    }
+    fn lock_write_version(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(false)
+    }
+    fn read(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        tracing::debug!(
+            "Reading object: [{}] [{}] [{}]",
+            self.client.store.bucket_name,
+            self.client.store.prefix,
+            self.object_key
+        );
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let mut inner = rt
+            .block_on(
+                self.client
+                    .s3_client
+                    .get_object()
+                    .bucket(self.client.store.bucket_name.clone())
+                    .key(self.object_key.clone())
+                    .send(),
+            )
+            .inspect_err(|e| tracing::debug!("Error reading!:{:?}", e))?;
+        let mut buf = Vec::<u8>::new();
+        while let Some(bytes) = rt.block_on(inner.body.try_next())? {
+            buf.write_all(&bytes)?;
+        }
+        Ok(buf)
+    }
+    fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let _inner = rt.block_on(
+            self.client
+                .s3_client
+                .put_object()
+                .bucket(self.client.store.bucket_name.clone())
+                .key(self.object_key.clone())
+                .body(data.to_vec().into())
+                .send(),
+        )?;
+        Ok(())
+    }
+    fn delete(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+
+        let _inner = rt.block_on(
+            self.client
+                .s3_client
+                .delete_object()
+                .bucket(self.client.store.bucket_name.clone())
+                .key(self.object_key.clone())
+                .send(),
+        )?;
+        Ok(())
+    }
+    fn get_string(&self) -> String {
+        format!("{0}/{1}", self.client.get_string(), self.object_key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BlobStore;
+
+    static BUCKET: &str = "build-artifacts20230504001207614000000001";
+    static PREFIX: &str = "cmtest";
+
+    #[test]
+    fn test_blob_store_strings() {
+        let store = S3BlobStore::new("bucket", "prefix", None);
+        let client = store.new_client().unwrap();
+        assert_eq!(client.get_string(), "s3://bucket/prefix");
+        let object = client.new_object("object".to_string()).unwrap();
+        assert_eq!(object.get_string(), "s3://bucket/prefix/object");
+    }
+
+    #[test]
+    fn test_blob_object_exists() {
+        let store = S3BlobStore::new(BUCKET, PREFIX, None);
+        let client = store.new_client().unwrap();
+        let object = client
+            .new_object("game-win64-test.json".to_string())
+            .unwrap();
+        assert!(!object.exists().unwrap());
+        let object = client.new_object("not-exist".to_string()).unwrap();
+        assert!(!object.exists().unwrap());
+    }
+
+    #[test]
+    fn test_blob_object_read_write() {
+        let store = S3BlobStore::new(BUCKET, PREFIX, None);
+        let client = store.new_client().unwrap();
+        let object = client.new_object("testfile".to_string()).unwrap();
+        let data = b"hello world";
+        object.write(data).unwrap();
+        let buf = object.read().unwrap();
+        assert_eq!(&buf, data);
+    }
+
+    #[test]
+    fn test_blob_object_delete() {
+        let store = S3BlobStore::new(BUCKET, PREFIX, None);
+        let client = store.new_client().unwrap();
+        let object = client.new_object("testfile".to_string()).unwrap();
+        let data = b"hello world";
+        object.write(data).unwrap();
+        assert!(object.exists().unwrap());
+        object.delete().unwrap();
+        assert!(!object.exists().unwrap());
+    }
+}
