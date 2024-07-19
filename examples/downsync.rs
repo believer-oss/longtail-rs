@@ -241,21 +241,31 @@ pub fn downsync(
         enable_file_mapping,
     );
 
-    let (compress_block_store, cache_block_store, local_index_store) = match cache_path.is_empty() {
-        true => {
-            let block_store = BlockstoreAPI::new_compressed(&fake_remotefs, &creg);
-            (block_store, None, None)
-        }
+    // let (compress_block_store, cache_block_store, local_index_store) = match cache_path.is_empty() {
+    //     true => {
+    //         let block_store = BlockstoreAPI::new_compressed(&fake_remotefs, &creg);
+    //         (block_store, None, None)
+    //     }
+    //     false => {
+    //         let local_index_store =
+    //             BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
+    //         let cache_block_store = BlockstoreAPI::new_compressed(&local_index_store, &creg);
+    //         let block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
+    //         (
+    //             block_store,
+    //             Some(cache_block_store),
+    //             Some(local_index_store),
+    //         )
+    //     }
+    // };
+    let compress_block_store = match cache_path.is_empty() {
+        true => BlockstoreAPI::new_compressed(Box::new(fake_remotefs), &creg),
         false => {
             let local_index_store =
                 BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
-            let cache_block_store = BlockstoreAPI::new_compressed(&local_index_store, &creg);
-            let block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
-            (
-                block_store,
-                Some(cache_block_store),
-                Some(local_index_store),
-            )
+            let cache_block_store =
+                BlockstoreAPI::new_cached(&jobs, &local_index_store, &fake_remotefs);
+            BlockstoreAPI::new_compressed(Box::new(cache_block_store), &creg)
         }
     };
 
@@ -287,7 +297,7 @@ pub fn downsync(
         .expect("Failed to get required chunk hashes");
 
     let retargetted_version_store_index =
-        StoreIndex::get_existing_store_index(&index_store, chunk_hashes, 0).unwrap();
+        StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).unwrap();
     debug!("Retargetted version store index: {:?}", unsafe {
         *retargetted_version_store_index.store_index
     });

@@ -64,7 +64,10 @@ impl BlobClient for S3BlobClient {
                 object_key,
             }))
         } else {
-            let object_key = format!("{}/{}", self.store.prefix, object_key);
+            let prefix = self.store.prefix.clone();
+            let prefix = prefix.strip_suffix('/').unwrap_or(&prefix);
+            let object_key = object_key.strip_prefix('/').unwrap_or(&object_key);
+            let object_key = format!("{}/{}", prefix, object_key);
             Ok(Box::new(S3BlobObject {
                 client: self,
                 object_key,
@@ -160,9 +163,8 @@ impl<'a> BlobObject for S3BlobObject<'a> {
     }
     fn read(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         tracing::debug!(
-            "Reading object: [{}] [{}] [{}]",
+            "Reading object from s3: [{}] [{}]",
             self.client.store.bucket_name,
-            self.client.store.prefix,
             self.object_key
         );
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -215,7 +217,11 @@ impl<'a> BlobObject for S3BlobObject<'a> {
         Ok(())
     }
     fn get_string(&self) -> String {
-        format!("{0}/{1}", self.client.get_string(), self.object_key)
+        let base = self.client.get_string();
+        let base = base.strip_suffix('/').unwrap_or(&base);
+        let key = self.object_key.clone();
+        let key = key.strip_suffix('/').unwrap_or(&key);
+        format!("{0}/{1}", base, key)
     }
 }
 

@@ -113,7 +113,7 @@ pub fn read_from_uri(
     opts: Option<S3Options>,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let (parent, name) = split_uri(uri);
-    tracing::debug!("Reading from URI: {parent} {name}");
+    tracing::debug!("Reading from URI: [{parent}] [{name}]");
     let store = create_blob_store_for_uri(parent, opts);
     let client = store.new_client()?;
     let object = client.new_object(name.to_owned())?;

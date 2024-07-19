@@ -94,7 +94,7 @@ lazy_static! {
 }
 
 fn create_content(path: &str, content: HashMap<&str, &str>) {
-    let mut store = MemBlobStore::new("test", true);
+    let store = MemBlobStore::new("test", true);
     content.iter().for_each(|(name, data)| {
         let client = store.new_client().unwrap();
         let mut newname = path.to_string();
@@ -112,8 +112,7 @@ fn validate_content(store: &mut MemBlobStore, path: String, content: HashMap<&st
         let orig = content.get(item.name.as_str());
         if let Some(data) = orig {
             let f = client.new_object(item.name.clone()).unwrap();
-            let mut buffer = Vec::new();
-            let _ = f.read(&mut buffer);
+            let buffer = f.read().unwrap();
             assert_eq!(*data.as_bytes(), buffer);
             found_items.insert(item.name.clone(), item.size);
         }

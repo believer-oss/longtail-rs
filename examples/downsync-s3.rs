@@ -316,13 +316,19 @@ pub fn downsync(
         .get_required_chunk_hashes(&source_version_index)
         .expect("Failed to get required chunk hashes");
 
-    debug!("BEFORE!!!!!!!!");
     let retargetted_version_store_index =
         StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).unwrap();
-    debug!("AFTER!!!!!!!!");
     debug!("Retargetted version store index: {:?}", unsafe {
         *retargetted_version_store_index.store_index
     });
+    debug!(
+        "Retargetted version store index: {:?}",
+        retargetted_version_store_index
+    );
+    debug!(
+        "Retargetted version store index: {:p}",
+        std::ptr::addr_of!(retargetted_version_store_index)
+    );
 
     if cache_target_index && localfs.file_exists(&cache_target_index_path) {
         localfs.delete_file(&cache_target_index_path)?;
@@ -477,6 +483,8 @@ pub fn downsync(
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_file(true)
+        .with_line_number(true)
         .init();
     set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
 

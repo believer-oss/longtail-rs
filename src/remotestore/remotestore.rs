@@ -193,11 +193,13 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         added_store_index_paths: &Option<Vec<String>>,
         blob_store: &impl BlobStore,
         access_type: &AccessType,
-        worker_count: i32,
+        _worker_count: i32,
     ) -> Result<StoreIndex, Box<dyn std::error::Error>> {
         let mut store_index = StoreIndex::new();
         match access_type {
             AccessType::Init => {
+                // TODO: This is only used in for new remote stores, skipping for now
+                todo!();
                 info!("building store index from blocks");
                 // inlining buildStoreIndexFromStoreBlocks
                 let client = blob_store.new_client()?;
@@ -207,14 +209,12 @@ impl<S: BlobStore> RemoteBlockStore<S> {
                     .filter(|blob| blob.size > 0 && blob.name.ends_with(".lsb"))
                     .map(|blob| blob.name)
                     .collect();
-                Self::get_store_index_from_blocks(blob_store, worker_count, blobs);
+                let _result = Self::get_store_index_from_blocks(blob_store, _worker_count, blobs);
 
                 info!(
                     "rebuilt remote index with {} blocks",
                     store_index.get_block_hashes().len()
                 );
-                // TODO: This is only used in for new remote stores, skipping for now
-                todo!();
                 // let new_store_index = add_to_remote_store_index(client, store_index)?;
                 // if new_store_index.is_valid() {
                 //     store_index = new_store_index
@@ -297,25 +297,43 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
     fn preflight_get(
         &self,
         block_hashes: Vec<u64>,
-        async_complete_api: AsyncPreflightStartedAPIProxy,
+        async_complete_api: Option<AsyncPreflightStartedAPIProxy>,
     ) -> Result<(), i32> {
         warn!("preflight_get not implemented");
-        async_complete_api.on_complete(block_hashes, 0);
+        if let Some(async_complete_api) = async_complete_api {
+            async_complete_api.on_complete(block_hashes, 0);
+        }
         Ok(())
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn get_stored_block(
         &self,
         block_hash: u64,
-        async_complete_api: AsyncGetStoredBlockAPIProxy,
+        async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
     ) -> Result<(), i32> {
         info!("get_stored_block: {:?}", block_hash);
         let stored_block = self.get_stored_block(block_hash);
+        tracing::debug!("stored_block: {:?}", stored_block);
+        tracing::debug!(
+            "async_complete_api: {:p}",
+            std::ptr::addr_of!(async_complete_api)
+        );
         match stored_block {
-            Ok(stored_block) => async_complete_api.on_complete(*stored_block, 0),
+            Ok(stored_block) => unsafe {
+                async_complete_api
+                    .as_ref()
+                    .expect("Failed to get async_complete_api")
+                    .on_complete(*stored_block, 0)
+            },
             Err(e) => {
                 error!("Failed to get stored block: {}", e);
-                async_complete_api.on_complete(*StoredBlock::new_from_lt(null_mut()), 1);
+                unsafe {
+                    async_complete_api
+                        .as_ref()
+                        .expect("Failed to get async_complete_api")
+                        .on_complete(*StoredBlock::new_from_lt(null_mut()), 1)
+                };
             }
         }
         Ok(())
@@ -441,8 +459,10 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         block_hash: u64,
     ) -> Result<StoredBlock, Box<dyn std::error::Error>> {
         let block_path = StoredBlock::get_block_path(Path::new("chunks"), block_hash);
+        tracing::debug!("get_stored_block: {:?}", block_path);
         // TODO: Add retries
-        let mut blob = read_from_uri(block_path.as_str(), None)?;
+        let client = self.blob_store.new_client()?;
+        let mut blob = read_blob(&client, block_path.as_str())?;
         let stored_block = StoredBlock::new_from_buffer(blob.as_mut_slice())
             .expect("Failed to create stored block from buffer");
         let block_index = stored_block.get_block_index();
@@ -607,7 +627,7 @@ mod tests {
                 info!("Error: {:?}", err);
             }
         }
-        let async_complete_api =
+        let mut async_complete_api =
             AsyncGetStoredBlockAPIProxy::new(Box::new(TestGetStoredBlockCompletion {}));
         info!("async_complete_api: {:?}", async_complete_api);
 
@@ -626,7 +646,7 @@ mod tests {
         info!("store ptr: {:?}", std::ptr::addr_of!(store));
         info!("store: {:?}", store);
         info!("async_complete_api: {:?}", async_complete_api);
-        let result = store.get_stored_block(hash, async_complete_api);
+        let result = store.get_stored_block(hash, &mut async_complete_api);
         assert!(result.is_ok());
     }
 

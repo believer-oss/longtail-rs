@@ -1,9 +1,6 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, RwLock},
-};
+use std::ops::{Deref, DerefMut};
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
@@ -13,17 +10,18 @@ use crate::{
 };
 
 // AsyncGetExistingContentAPI
+// -------------------------------------------------------------------------------------------
 // TODO: This needs to be a macro
 pub trait AsyncGetExistingContentAPI: std::fmt::Debug {
     fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32);
-    fn get_store_index(&self) -> Result<Option<StoreIndex>, i32>;
 }
-#[repr(C)]
+
 // FIXME: We need to deal with the memory management of this clone
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct AsyncGetExistingContentAPIProxy {
     pub api: Longtail_AsyncGetExistingContentAPI,
-    pub context: *mut std::os::raw::c_void,
+    pub context: *mut Box<dyn AsyncGetExistingContentAPI>,
     mark: [u8; 4],
     _pin: std::marker::PhantomPinned,
 }
@@ -64,84 +62,72 @@ impl AsyncGetExistingContentAPIProxy {
                 },
                 OnComplete: Some(async_get_existing_content_api_on_complete),
             },
-            context: context as *mut std::os::raw::c_void,
+            context,
             mark: [0xf0, 0x0f, 0xf0, 0x0f],
             _pin: std::marker::PhantomPinned,
         }
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn new_from_api(
-        async_api: Longtail_AsyncGetExistingContentAPI,
+        async_api: *mut Longtail_AsyncGetExistingContentAPI,
     ) -> AsyncGetExistingContentAPIProxy {
-        debug!(
-            "AsyncGetExistingContentAPIProxy::new_from_api: async_api: {:?}",
-            async_api
-        );
-        let proxy_ptr = std::ptr::addr_of!(async_api) as *mut AsyncGetExistingContentAPIProxy;
-        let mut context = std::ptr::null_mut();
-        let mut mark = [0; 4];
-        unsafe {
-            if (*proxy_ptr).mark == [0xf0, 0x0f, 0xf0, 0x0f] {
-                context = (*proxy_ptr).context;
-                mark.copy_from_slice(&(*proxy_ptr).mark);
+        let proxy_ptr = async_api as *mut AsyncGetExistingContentAPIProxy;
+        let mark_ptr = unsafe { (*proxy_ptr).mark };
+        if mark_ptr == [0xf0, 0x0f, 0xf0, 0x0f] {
+            debug!("AsyncGetExistingContentAPIProxy::new_from_api: returning proxy");
+            let api = unsafe { (*proxy_ptr).api };
+            let context = unsafe { (*proxy_ptr).context };
+            let mark = unsafe { (*proxy_ptr).mark };
+            AsyncGetExistingContentAPIProxy {
+                api,
+                context,
+                mark,
+                _pin: std::marker::PhantomPinned,
             }
-        }
-
-        // FIXME: We need to validate that this really is a Proxy
-        // let context = unsafe { (*proxy_ptr).context };
-        AsyncGetExistingContentAPIProxy {
-            api: async_api,
-            context,
-            mark,
-            _pin: std::marker::PhantomPinned,
+        } else {
+            let api = unsafe { *async_api };
+            let context = std::ptr::null_mut();
+            AsyncGetExistingContentAPIProxy {
+                api,
+                context,
+                mark: [0; 4],
+                _pin: std::marker::PhantomPinned,
+            }
         }
     }
 
-    /// # Safety
-    /// This function is unsafe because it dereferences `context`.
-    pub unsafe fn get_store_index(&self) -> Result<Option<StoreIndex>, i32> {
-        let context = self.context as *mut Box<dyn AsyncGetExistingContentAPI>;
-
-        (*context).get_store_index()
+    pub fn get_context(&self) -> Option<Box<Box<dyn AsyncGetExistingContentAPI>>> {
+        if self.context.is_null() || self.mark != [0xf0, 0x0f, 0xf0, 0x0f] {
+            tracing::warn!("AsyncGetExistingContentAPIProxy::get_context: context is null");
+            None
+        } else {
+            tracing::debug!(
+                "AsyncGetExistingContentAPIProxy::get_context: context: {:?}",
+                self.context
+            );
+            Some(unsafe { Box::from_raw(self.context) })
+        }
     }
 }
 
 impl AsyncGetExistingContentAPI for AsyncGetExistingContentAPIProxy {
     // FIXME: horrible...
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    #[tracing::instrument]
     fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
-        debug!("AsyncGetExistingContentAPIProxy::on_complete");
-        debug!(
-            "AsyncGetExistingContentAPIProxy::on_complete: store_index: {:?}",
-            store_index
-        );
-        let proxy = self as *mut AsyncGetExistingContentAPIProxy;
-        debug!(
-            "AsyncGetExistingContentAPIProxy::on_complete: proxy: {:?}",
-            proxy
-        );
-        let context = unsafe { (*proxy).context };
-        debug!(
-            "AsyncGetExistingContentAPIProxy::on_complete: context: {:?}",
-            context
-        );
-        if context.is_null() {
-            tracing::warn!("AsyncGetExistingContentAPIProxy::on_complete: context is null");
-            unsafe { self.api.OnComplete.unwrap()(&mut self.api, store_index, err) }
+        let context = self.get_context();
+        if let Some(mut context) = context {
+            context.on_complete(store_index, err);
+            Box::into_raw(context);
         } else {
-            let mut async_get_existing_content_api =
-                unsafe { Box::from_raw(context as *mut Box<dyn AsyncGetExistingContentAPI>) };
-            // FIXME: Blowing up here, presumably because the context is not being passed correctly
-            debug!(
-                "AsyncGetExistingContentAPIProxy::on_complete: async_get_existing_content_api: {:?}",
-                async_get_existing_content_api
+            let oncomplete = self.api.OnComplete.unwrap();
+            tracing::debug!(
+                "AsyncGetExistingContentAPIProxy::on_complete: oncomplete: {:?}",
+                oncomplete
             );
-            async_get_existing_content_api.on_complete(store_index, err);
-            Box::into_raw(async_get_existing_content_api);
+            unsafe { oncomplete(&mut self.api, store_index, err) };
         }
-    }
-    fn get_store_index(&self) -> Result<Option<StoreIndex>, i32> {
-        unsafe { self.get_store_index() }
     }
 }
 
@@ -151,59 +137,23 @@ pub unsafe extern "C" fn async_get_existing_content_api_on_complete(
     err: i32,
 ) {
     let proxy = context as *mut AsyncGetExistingContentAPIProxy;
-    debug!(
-        "async_get_existing_content_api_on_complete: proxy: {:?}",
-        proxy
-    );
-    let inner = unsafe { (*proxy).context };
-    debug!(
-        "async_get_existing_content_api_on_complete: context: {:?}",
-        inner
-    );
-    if inner.is_null() {
-        tracing::warn!("async_get_existing_content_api_on_complete: context is null");
-        unsafe { (*proxy).api.OnComplete.unwrap()(context, store_index, err) }
+    // let inner = unsafe { (*proxy).context };
+    let inner = proxy.as_ref().expect("couldn't get ref").get_context();
+    if let Some(mut inner) = inner {
+        inner.on_complete(store_index, err);
+        Box::into_raw(inner);
     } else {
-        let mut async_get_existing_content_api =
-            unsafe { Box::from_raw(inner as *mut Box<dyn AsyncGetExistingContentAPI>) };
-        debug!(
-            "async_get_existing_content_api_on_complete: async_get_existing_content_api: {:?}",
-            async_get_existing_content_api
-        );
-        async_get_existing_content_api.on_complete(store_index, err);
-        Box::into_raw(async_get_existing_content_api);
+        unsafe { (*proxy).api.OnComplete.unwrap()(context, store_index, err) }
     }
 }
 
 pub extern "C" fn async_get_existing_content_api_dispose(api: *mut Longtail_API) {
     let context = unsafe { (*(api as *mut AsyncGetExistingContentAPIProxy)).context };
-    let _ = unsafe { Box::from_raw(context as *mut Box<dyn AsyncGetExistingContentAPI>) };
-}
-
-// TODO: Placeholder for a default implementation
-#[derive(Debug, Default, Clone)]
-pub struct GetExistingContentCompletion {
-    pub store_index: Option<StoreIndex>,
-    pub err: Arc<Mutex<Option<i32>>>,
-}
-
-impl AsyncGetExistingContentAPI for GetExistingContentCompletion {
-    fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
-        self.store_index = Some(StoreIndex::new_from_lt(store_index));
-        self.err = Arc::new(Mutex::new(Some(err)));
-    }
-    fn get_store_index(&self) -> Result<Option<StoreIndex>, i32> {
-        let err = self.err.lock().unwrap();
-        match *err {
-            // TODO: This is a clone, should it be?
-            Some(0) => Ok(Some(self.store_index.clone().unwrap())),
-            Some(err) => Err(err),
-            None => Ok(None),
-        }
-    }
+    let _ = unsafe { Box::from_raw(context) };
 }
 
 // AsyncPutStoredBlockAPI
+// -------------------------------------------------------------------------------------------
 pub trait AsyncPutStoredBlockAPI: std::fmt::Debug {
     fn on_complete(&self, err: i32);
 }
@@ -290,6 +240,7 @@ pub extern "C" fn async_put_stored_block_api_dispose(api: *mut Longtail_API) {
 }
 
 // AsyncPreflightStartedAPI
+// -------------------------------------------------------------------------------------------
 pub trait AsyncPreflightStartedAPI: std::fmt::Debug {
     fn on_complete(&self, block_hashes: Vec<u64>, err: i32);
 }
@@ -381,17 +332,21 @@ pub extern "C" fn async_preflight_started_api_dispose(api: *mut Longtail_API) {
 }
 
 // AsyncGetStoredBlockAPI
+// -------------------------------------------------------------------------------------------
 pub trait AsyncGetStoredBlockAPI: std::fmt::Debug {
     fn on_complete(&self, stored_block: *mut Longtail_StoredBlock, err: i32);
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub struct AsyncGetStoredBlockAPIProxy {
     pub api: Longtail_AsyncGetStoredBlockAPI,
-    pub context: *mut std::os::raw::c_void,
+    pub context: *mut Box<dyn AsyncGetStoredBlockAPI>,
+    mark: [u8; 4],
     _pin: std::marker::PhantomPinned,
 }
 
+// TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for AsyncGetStoredBlockAPIProxy {
     fn drop(&mut self) {
         // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
@@ -415,12 +370,8 @@ impl AsyncGetStoredBlockAPIProxy {
     pub fn new(
         async_get_stored_block_api: Box<dyn AsyncGetStoredBlockAPI>,
     ) -> AsyncGetStoredBlockAPIProxy {
-        debug!(
-            "AsyncGetStoredBlockAPIProxy::new: {:?}",
-            std::ptr::addr_of!(async_get_stored_block_api)
-        );
-        let outer = Box::into_raw(Box::new(async_get_stored_block_api));
-        debug!("AsyncGetStoredBlockAPIProxy::new: outer: {:?}", outer);
+        let inner = Box::into_raw(Box::new(async_get_stored_block_api));
+        debug!("AsyncGetStoredBlockAPIProxy::new: conext: {:?}", inner);
         AsyncGetStoredBlockAPIProxy {
             api: Longtail_AsyncGetStoredBlockAPI {
                 m_API: Longtail_API {
@@ -428,50 +379,107 @@ impl AsyncGetStoredBlockAPIProxy {
                 },
                 OnComplete: Some(async_get_stored_block_api_on_complete),
             },
-            context: outer as *mut std::os::raw::c_void,
+            context: inner,
+            mark: *b"ltrs",
             _pin: std::marker::PhantomPinned,
         }
     }
 
-    pub fn new_from_api(async_api: Longtail_AsyncGetStoredBlockAPI) -> AsyncGetStoredBlockAPIProxy {
-        AsyncGetStoredBlockAPIProxy {
-            api: async_api,
-            context: std::ptr::null_mut(),
-            _pin: std::marker::PhantomPinned,
+    // FIXME: This can't move the pointer...
+    pub unsafe fn new_from_api(
+        async_api: *mut Longtail_AsyncGetStoredBlockAPI,
+    ) -> *mut AsyncGetStoredBlockAPIProxy {
+        let proxy_ptr = async_api as *mut AsyncGetStoredBlockAPIProxy;
+        let mark_ptr = unsafe { (*proxy_ptr).mark };
+        if mark_ptr == *b"ltrs" {
+            debug!("AsyncGetStoredBlockAPIProxy::new_from_api: returning proxy");
+            let api = unsafe { (*proxy_ptr).api };
+            let context = unsafe { (*proxy_ptr).context };
+            Box::into_raw(Box::new(AsyncGetStoredBlockAPIProxy {
+                api,
+                context,
+                mark: *b"ltrs",
+                _pin: std::marker::PhantomPinned,
+            }))
+        } else {
+            // warn!("AsyncGetStoredBlockAPIProxy::new_from_api: context is null");
+            // let api = unsafe { *async_api };
+            // let context = std::ptr::null_mut();
+            // AsyncGetStoredBlockAPIProxy {
+            //     api,
+            //     context,
+            //     mark: [0; 4],
+            //     _pin: std::marker::PhantomPinned,
+            // }
+            async_api as *mut AsyncGetStoredBlockAPIProxy
+        }
+    }
+
+    pub fn get_context(&self) -> Option<Box<Box<dyn AsyncGetStoredBlockAPI>>> {
+        if self.context.is_null() || self.mark != *b"ltrs" {
+            warn!("AsyncGetStoredBlockAPIProxy::get_context: context is null");
+            None
+        } else {
+            debug!(
+                "AsyncGetStoredBlockAPIProxy::get_context: context: {:?}",
+                self.context
+            );
+            Some(unsafe { Box::from_raw(self.context) })
         }
     }
 }
 
 impl AsyncGetStoredBlockAPI for AsyncGetStoredBlockAPIProxy {
+    // FIXME: horrible...
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn on_complete(&self, stored_block: *mut Longtail_StoredBlock, err: i32) {
         let proxy = self as *const AsyncGetStoredBlockAPIProxy as *mut AsyncGetStoredBlockAPIProxy;
-        let context = unsafe { (*proxy).context };
-        let async_get_stored_block_api =
-            unsafe { Box::from_raw(context as *mut Box<dyn AsyncGetStoredBlockAPI>) };
-        async_get_stored_block_api.on_complete(stored_block, err);
-        Box::into_raw(async_get_stored_block_api);
+        debug!(
+            "AsyncGetStoredBlockAPIProxy::on_complete: proxy: {:p}",
+            proxy
+        );
+        let context = self.get_context();
+        if let Some(context) = context {
+            context.on_complete(stored_block, err);
+            Box::into_raw(context);
+        } else {
+            let oncomplete = self.api.OnComplete.unwrap();
+            unsafe { oncomplete(&mut (*proxy).api, stored_block, err) };
+        };
+        // let async_get_stored_block_api = unsafe { Box::from_raw(context) };
+        // async_get_stored_block_api.on_complete(stored_block, err);
+        // Box::into_raw(async_get_stored_block_api);
     }
 }
 
+// FIXME: horrible...
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn async_get_stored_block_api_on_complete(
     context: *mut Longtail_AsyncGetStoredBlockAPI,
     stored_block: *mut Longtail_StoredBlock,
     err: i32,
 ) {
     let proxy = context as *mut AsyncGetStoredBlockAPIProxy;
-    let context = unsafe { (*proxy).context };
-    let async_get_stored_block_api =
-        unsafe { Box::from_raw(context as *mut Box<dyn AsyncGetStoredBlockAPI>) };
-    async_get_stored_block_api.on_complete(stored_block, err);
-    Box::into_raw(async_get_stored_block_api);
+    let inner = unsafe { proxy.as_ref().expect("couldn't get ref").get_context() };
+    if let Some(inner) = inner {
+        inner.on_complete(stored_block, err);
+        Box::into_raw(inner);
+    } else {
+        unsafe { (*proxy).api.OnComplete.unwrap()(context, stored_block, err) };
+    }
+    // let context = unsafe { (*proxy).context };
+    // let async_get_stored_block_api = unsafe { Box::from_raw(context) };
+    // async_get_stored_block_api.on_complete(stored_block, err);
+    // Box::into_raw(async_get_stored_block_api);
 }
 
 pub extern "C" fn async_get_stored_block_api_dispose(api: *mut Longtail_API) {
     let context = unsafe { (*(api as *mut AsyncGetStoredBlockAPIProxy)).context };
-    let _ = unsafe { Box::from_raw(context as *mut Box<dyn AsyncGetStoredBlockAPI>) };
+    let _ = unsafe { Box::from_raw(context) };
 }
 
 // AsyncPruneBlocksAPI
+// -------------------------------------------------------------------------------------------
 pub trait AsyncPruneBlocksAPI: std::fmt::Debug {
     fn on_complete(&mut self, pruned_block_count: u32, err: i32);
 }
@@ -555,6 +563,7 @@ pub extern "C" fn async_prune_blocks_api_dispose(api: *mut Longtail_API) {
 }
 
 // AsyncFlushAPI
+// -------------------------------------------------------------------------------------------
 pub trait AsyncFlushAPI: std::fmt::Debug {
     fn on_complete(&mut self, err: i32);
 }

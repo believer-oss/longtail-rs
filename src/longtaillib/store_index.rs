@@ -2,6 +2,7 @@ use crate::*;
 use std::{
     ffi::c_char,
     ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
 };
 
 #[repr(C)]
@@ -13,7 +14,8 @@ pub struct StoreIndex {
 
 impl Drop for StoreIndex {
     fn drop(&mut self) {
-        unsafe { Longtail_Free((self.store_index as *mut c_char) as *mut std::ffi::c_void) };
+        tracing::debug!("Dropping StoreIndex");
+        // unsafe { Longtail_Free((self.store_index as *mut c_char) as *mut std::ffi::c_void) };
     }
 }
 
@@ -127,7 +129,25 @@ impl StoreIndex {
         chunk_hashes: Vec<u64>,
         min_block_usage_percent: u32,
     ) -> Result<StoreIndex, i32> {
-        let api = Box::<GetExistingContentCompletion>::default();
+        tracing::info!("Getting existing store index");
+        #[derive(Debug, Clone, Default)]
+        struct GetExistingContentCompletion {
+            store_index: Arc<Mutex<Option<Result<StoreIndex, i32>>>>,
+        }
+        impl AsyncGetExistingContentAPI for GetExistingContentCompletion {
+            fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
+                tracing::info!("GetExistingContentCompletion::on_complete");
+                let out = match err {
+                    0 => Ok(StoreIndex::new_from_lt(store_index)),
+                    _ => Err(err),
+                };
+                let mut store_index = self.store_index.lock().unwrap();
+                store_index.replace(out);
+            }
+        }
+
+        let x = GetExistingContentCompletion::default();
+        let api = Box::new(x.clone());
         let completion = AsyncGetExistingContentAPIProxy::new(api);
         tracing::debug!(
             "Getting existing store index, completion: {:p}",
@@ -140,14 +160,11 @@ impl StoreIndex {
         )?;
         // TODO: This is terrible
         loop {
-            let store_index = unsafe { completion.get_store_index() };
-            match store_index {
-                Ok(Some(store_index)) => return Ok(store_index),
-                Err(err) => return Err(err),
-                _ => {}
+            if let Some(store_index) = x.store_index.lock().unwrap().clone() {
+                return store_index;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            tracing::debug!("Waiting for store index");
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            tracing::warn!("Waiting for store index");
         }
     }
 

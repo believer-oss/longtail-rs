@@ -1,4 +1,4 @@
-use tracing::debug;
+use tracing::{debug, instrument};
 
 #[allow(unused_imports)]
 use crate::{
@@ -181,9 +181,9 @@ impl StoredBlock {
         })
     }
 
+    #[tracing::instrument]
     pub fn get_block_path(base_path: &Path, block_hash: u64) -> String {
-        let block_hash = format!("{:016x}", block_hash);
-        let file_name = format!("{}.lsb", block_hash);
+        let file_name = format!("0x{:016x}.lsb", block_hash);
         let dir = base_path.join(&file_name[2..6]);
         let block_path = dir.join(file_name);
         block_path.to_string_lossy().into_owned().replace('\\', "/")
@@ -380,6 +380,9 @@ impl BlockstoreAPI {
         retain_permissions: bool,
     ) -> Result<(), i32> {
         let version_path = std::ffi::CString::new(version_path).unwrap();
+        let store_index = store_index.store_index;
+        debug!("store_index: {:?}", store_index);
+        debug!("store_index: {:?}", unsafe { *store_index });
         let result = unsafe {
             Longtail_ChangeVersion(
                 self.blockstore_api,
@@ -390,7 +393,7 @@ impl BlockstoreAPI {
                 progress_api as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
                 null_mut::<Longtail_CancelAPI>(),
                 null_mut::<Longtail_CancelAPI_CancelToken>(),
-                **store_index,
+                store_index,
                 **source_version_index,
                 **target_version_index,
                 **version_diff,
@@ -451,14 +454,19 @@ impl Blockstore for BlockstoreAPI {
     fn preflight_get(
         &self,
         chunk_hashes: Vec<u64>,
-        optional_async_complete_api: AsyncPreflightStartedAPIProxy,
+        optional_async_complete_api: Option<AsyncPreflightStartedAPIProxy>,
     ) -> Result<(), i32> {
+        let async_complete_api = if let Some(async_complete_api) = optional_async_complete_api {
+            &async_complete_api as *const _ as *mut Longtail_AsyncPreflightStartedAPI
+        } else {
+            null_mut::<Longtail_AsyncPreflightStartedAPI>()
+        };
         let result = unsafe {
             Longtail_BlockStore_PreflightGet(
                 self.blockstore_api,
                 chunk_hashes.len() as u32,
                 chunk_hashes.as_ptr(),
-                &optional_async_complete_api as *const _ as *mut Longtail_AsyncPreflightStartedAPI,
+                async_complete_api,
             )
         };
         if result != 0 {
@@ -471,7 +479,7 @@ impl Blockstore for BlockstoreAPI {
     fn get_stored_block(
         &self,
         block_hash: u64,
-        async_complete_api: AsyncGetStoredBlockAPIProxy,
+        async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
     ) -> Result<(), i32> {
         debug!("Getting stored block: {}", block_hash);
         debug!("Blockstore: {:?}", addr_of!(self.blockstore_api));
@@ -543,12 +551,12 @@ pub trait Blockstore {
     fn preflight_get(
         &self,
         block_hashes: Vec<u64>,
-        async_complete_api: AsyncPreflightStartedAPIProxy,
+        async_complete_api: Option<AsyncPreflightStartedAPIProxy>,
     ) -> Result<(), i32>;
     fn get_stored_block(
         &self,
         block_hash: u64,
-        async_complete_api: AsyncGetStoredBlockAPIProxy,
+        async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
     ) -> Result<(), i32>;
     fn get_existing_content(
         &self,
@@ -632,9 +640,7 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
 
     let chunk_hashes = unsafe { std::slice::from_raw_parts(chunk_hashes, chunk_count as usize) };
-    // FIXME: This was dropping the context!!! Changed to assume it's always a Box, but is that
-    // correct?
-    let async_complete_api = AsyncGetExistingContentAPIProxy::new_from_api(*async_complete_api);
+    let async_complete_api = AsyncGetExistingContentAPIProxy::new_from_api(async_complete_api);
     let result = blockstore.get_existing_content(
         chunk_hashes.to_vec(),
         min_block_usage_percent,
@@ -669,7 +675,13 @@ pub unsafe extern "C" fn blockstore_api_preflight_get(
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let chunk_hashes = unsafe { std::slice::from_raw_parts(chunk_hashes, chunk_count as usize) };
-    let async_complete_api = AsyncPreflightStartedAPIProxy::new_from_api(*async_complete_api);
+    let async_complete_api = if !async_complete_api.is_null() {
+        Some(AsyncPreflightStartedAPIProxy::new_from_api(
+            *async_complete_api,
+        ))
+    } else {
+        None
+    };
     let result = blockstore.preflight_get(chunk_hashes.to_vec(), async_complete_api);
     Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
@@ -684,9 +696,15 @@ pub unsafe extern "C" fn blockstore_api_get_stored_block(
     let proxy = context as *mut BlockstoreAPIProxy;
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
-    let async_complete_api = AsyncGetStoredBlockAPIProxy::new_from_api(*async_complete_api);
+    debug!("AsyncCompleteAPI: {:p}", async_complete_api);
+    debug!("AsyncCompleteAPI: {:?}", async_complete_api);
+    let async_complete_api = AsyncGetStoredBlockAPIProxy::new_from_api(async_complete_api);
     debug!("Getting stored block: {}", block_hash);
     debug!("Blockstore: {:?}", addr_of!(blockstore));
+    debug!(
+        "AsyncCompleteAPI: {:p}",
+        std::ptr::addr_of!(async_complete_api)
+    );
     debug!("AsyncCompleteAPI: {:?}", async_complete_api);
     let result = blockstore.get_stored_block(block_hash, async_complete_api);
     Box::into_raw(blockstore);
