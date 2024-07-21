@@ -7,40 +7,56 @@ use crate::{
 };
 use std::{io::Read, ptr::null_mut};
 
-impl Longtail_FileInfos {
+#[derive(Debug)]
+pub struct FileInfos(pub *mut Longtail_FileInfos);
+
+impl FileInfos {
     pub fn get_file_count(&self) -> u32 {
-        self.m_Count
+        unsafe { (*self.0).m_Count }
     }
+    fn get_path_data_size(&self) -> u32 {
+        unsafe { (*self.0).m_PathDataSize }
+    }
+    fn get_sizes_ptr(&self) -> *const u64 {
+        unsafe { (*self.0).m_Sizes }
+    }
+    fn get_permissions_ptr(&self) -> *const u16 {
+        unsafe { (*self.0).m_Permissions }
+    }
+    fn get_path_data_ptr(&self) -> *const u8 {
+        unsafe { (*self.0).m_PathData as *const _ }
+    }
+
     fn get_path_start_offsets(&self, index: u32) -> u32 {
         // The index should be less than the file count
-        assert!(index < self.m_Count);
+        assert!(index < self.get_file_count());
         let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *self.m_PathStartOffsets.offset(index) }
+        unsafe { *(*self.0).m_PathStartOffsets.offset(index) }
     }
     pub fn get_file_path(&self, index: u32) -> String {
         let offset = self.get_path_start_offsets(index);
 
         // The offset should be less than the path data size
-        assert!(offset < self.m_PathDataSize);
+        assert!(offset < self.get_path_data_size());
         let offset = usize::try_from(offset).expect("Failed to convert offset to usize");
         unsafe {
-            let data = self.m_PathData.add(offset);
-            std::ffi::CStr::from_ptr(data)
+            let data = self.get_path_data_ptr().add(offset);
+            std::ffi::CStr::from_ptr(data as *const _)
                 .to_string_lossy()
                 .into_owned()
         }
     }
     pub fn get_file_size(&self, index: u32) -> u64 {
         // The index should be less than the file count
-        assert!(index < self.m_Count);
+        assert!(index < self.get_file_count());
         let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *self.m_Sizes.offset(index) }
+        unsafe { *self.get_sizes_ptr().offset(index) }
     }
     pub fn get_file_permissions(&self, index: u32) -> u16 {
         // The index should be less than the file count
-        assert!(index < self.m_Count);
+        assert!(index < self.get_file_count());
         let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *self.m_Permissions.offset(index) }
+        unsafe { *self.get_permissions_ptr().offset(index) }
     }
     pub fn iter(&self) -> FileInfosIterator {
         FileInfosIterator {
@@ -58,7 +74,7 @@ impl Longtail_FileInfos {
 }
 
 pub struct FileInfosIterator<'a> {
-    file_infos: &'a Longtail_FileInfos,
+    file_infos: &'a FileInfos,
     index: u32,
 }
 type FileInfosItem = (String, u64, u16);
@@ -79,15 +95,9 @@ impl Iterator for FileInfosIterator<'_> {
 
 #[repr(C)]
 pub struct FolderScanner {
-    file_infos: *mut Longtail_FileInfos,
+    file_infos: FileInfos,
     elapsed: std::time::Duration,
     error: *const std::os::raw::c_char,
-}
-
-impl Default for FolderScanner {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 // TODO: Only implementing GetFilesRecursively2 for now?
@@ -99,7 +109,7 @@ pub fn get_files_recursively(
     job_api: &BikeshedJobAPI,
     path_filter: &PathFilterAPIProxy,
     root_path: &str,
-) -> Result<*mut Longtail_FileInfos, i32> {
+) -> Result<FileInfos, i32> {
     let c_root_path = std::ffi::CString::new(root_path).unwrap();
     let mut file_infos = std::ptr::null_mut::<Longtail_FileInfos>();
     let result = unsafe {
@@ -118,19 +128,12 @@ pub fn get_files_recursively(
     if result != 0 {
         return Err(result);
     }
-    Ok(file_infos)
+    Ok(FileInfos(file_infos))
 }
 
 impl FolderScanner {
-    pub fn new() -> FolderScanner {
-        FolderScanner {
-            file_infos: std::ptr::null_mut(),
-            elapsed: std::time::Duration::new(0, 0),
-            error: std::ptr::null(),
-        }
-    }
-    pub fn get_file_infos(&self) -> *const Longtail_FileInfos {
-        self.file_infos
+    pub fn get_file_infos(&self) -> &FileInfos {
+        &self.file_infos
     }
     pub fn get_elapsed(&self) -> std::time::Duration {
         self.elapsed
@@ -140,17 +143,19 @@ impl FolderScanner {
     }
 
     pub fn scan(
-        &mut self,
         root_path: &str,
         path_filter: &PathFilterAPIProxy,
         fs: &StorageAPI,
         jobs: &BikeshedJobAPI,
-    ) {
+    ) -> FolderScanner {
         let start = std::time::Instant::now();
         let file_infos = get_files_recursively(fs, jobs, path_filter, root_path).unwrap();
         let elapsed = start.elapsed();
-        self.file_infos = file_infos;
-        self.elapsed = elapsed;
+        FolderScanner {
+            file_infos,
+            elapsed,
+            error: std::ptr::null(),
+        }
     }
 }
 
@@ -226,8 +231,7 @@ impl VersionIndexReader {
             }
             let file_infos = scanner.get_file_infos();
             info!("file_infos: {:?}", file_infos);
-            let compression_types =
-                unsafe { (*file_infos).get_compression_types_for_files(compression_type) };
+            let compression_types = (*file_infos).get_compression_types_for_files(compression_type);
             let hash = hash_registry
                 .get_hash_api(
                     HashType::from_repr(hash_id as usize).expect("Could not find hash type"),
@@ -247,7 +251,7 @@ impl VersionIndexReader {
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                     source_folder_path.as_ptr(),
-                    file_infos,
+                    file_infos.0,
                     compression_types,
                     target_chunk_size,
                     enable_file_mappping as i32,
@@ -310,10 +314,9 @@ mod tests {
         let pf = Box::new(TestPathFilter {});
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(pf);
         let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let mut scanner = FolderScanner::new();
         let root_path = "test-data";
-        scanner.scan(root_path, path_filter, &fs, &jobs);
-        let file_infos = unsafe { &*scanner.file_infos };
+        let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
+        let file_infos = scanner.get_file_infos();
         assert_eq!(file_infos.get_file_count(), 20);
         for (path, size, permissions) in file_infos.iter() {
             println!("{} {} {:o}", path, size, permissions);
@@ -328,9 +331,8 @@ mod tests {
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
         let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let mut scanner = FolderScanner::new();
         let root_path = "test-data";
-        scanner.scan(root_path, path_filter, &fs, &jobs);
+        let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
         let source_folder_path = "test-data";
         let source_index_path = "";
         let target_chunk_size = 64 * 1024;

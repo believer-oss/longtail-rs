@@ -2,7 +2,7 @@ use dyn_clone::DynClone;
 use http::Uri;
 
 #[allow(unused_imports)]
-use crate::UNCPrefix;
+use crate::UNC_PREFIX;
 use crate::{FsBlobStore, S3BlobStore, S3Options};
 
 // pub enum BlobType {
@@ -99,8 +99,8 @@ fn split_uri(uri: &str) -> (&str, &str) {
 }
 
 // TODO: implement read_blob_with_retry
-pub fn read_blob(
-    client: &Box<dyn BlobClient>,
+pub fn read_blob<'a>(
+    client: &(dyn BlobClient + 'a),
     key: &str,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let object = client.new_object(key.to_owned())?;

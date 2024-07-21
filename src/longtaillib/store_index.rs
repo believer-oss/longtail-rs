@@ -1,6 +1,5 @@
 use crate::*;
 use std::{
-    ffi::c_char,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex},
 };

@@ -3,6 +3,8 @@ mod common;
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
+use longtail_sys::permissions_to_string;
+use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

@@ -1,6 +1,6 @@
 use crate::{
-    hash::HashType, BikeshedJobAPI, ChunkerAPI, HashAPI, Longtail_CreateVersionIndex,
-    Longtail_FileInfos, Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
+    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
+    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
     Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
 };
 use std::{
@@ -52,7 +52,7 @@ impl Drop for VersionIndex {
 
 impl std::fmt::Debug for VersionIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let m_Version = self.get_version();
+        let m_version = self.get_version();
         let m_hash_identifier = self.get_hash_identifier();
         let m_target_chunk_size = self.get_target_chunk_size();
         let m_asset_count = self.get_asset_count();
@@ -119,7 +119,7 @@ impl std::fmt::Debug for VersionIndex {
         let m_chunk_tags = display_x(chunk_to_show, &self.get_chunk_tags(), chunk_cont);
 
         f.debug_struct("VersionIndex")
-            .field("m_Version", &m_Version)
+            .field("m_Version", &m_version)
             .field("m_HashIdentifier", &m_hash_identifier)
             .field(
                 "m_HashIdentifier",
@@ -147,18 +147,15 @@ impl std::fmt::Debug for VersionIndex {
 }
 
 impl VersionIndex {
-    /// # Safety
-    /// This function is unsafe because it dereferences a raw pointer.
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn new_from_fileinfos(
+    pub fn new_from_fileinfos(
         storage_api: &StorageAPI,
         hash_api: &HashAPI,
         chunker_api: &ChunkerAPI,
         job_api: &BikeshedJobAPI,
         progress_api: &ProgressAPIProxy,
         path: &str,
-        validate_file_infos: *mut Longtail_FileInfos,
-        asset_compression_types: *const u32,
+        validate_file_infos: FileInfos,
         max_chunk_size: u32,
         enable_file_mapping: bool,
     ) -> Result<VersionIndex, i32> {
@@ -174,8 +171,8 @@ impl VersionIndex {
                 null_mut(),
                 null_mut(),
                 path.as_ptr(),
-                validate_file_infos,
-                asset_compression_types,
+                validate_file_infos.0,
+                null_mut(),
                 max_chunk_size,
                 enable_file_mapping as i32,
                 &mut version_index,

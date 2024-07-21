@@ -1,0 +1,13 @@
+/target
+/out
+
+# longtail objects
+dist-win32-x64
+dist-linux-x64
+linux-x64.zip
+win32-x64.zip
+longtail/
+
+# editor
+.idea
+.gdb_history

@@ -1,5 +1,6 @@
 mod common;
 
+use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
 use std::{collections::HashMap, ptr::null_mut};
 
 use clap::Parser;
@@ -120,7 +121,7 @@ pub fn downsync(
 
     let resolved_target_folder_path = if target_path.is_empty() {
         let normalized_source_file_path =
-            NormalizeFileSystemPath(source_paths[0].clone()).replace('\\', "/");
+            normalize_file_system_path(source_paths[0].clone()).replace('\\', "/");
         let mut source_name_split = normalized_source_file_path
             .split('/')
             .last()
@@ -149,7 +150,7 @@ pub fn downsync(
     };
 
     // TODO: Replace this with PathBuf handling?
-    let cache_target_index_path = NormalizeFileSystemPath(
+    let cache_target_index_path = normalize_file_system_path(
         resolved_target_folder_path.to_owned() + "/.longtail.index.cache.lvi",
     );
 
@@ -169,8 +170,8 @@ pub fn downsync(
         resolved_target_folder_path
     );
     // Recursively scan the target folder. TODO: This is async in golongtail
-    let mut target_path_scanner = FolderScanner::new();
-    target_path_scanner.scan(&resolved_target_folder_path, &path_filter, &fs, &jobs);
+    let target_path_scanner =
+        FolderScanner::scan(&resolved_target_folder_path, &path_filter, &fs, &jobs);
     info!("Scanned target path");
 
     let hash_registry = HashRegistry::new();
@@ -318,9 +319,6 @@ pub fn downsync(
 
     let retargetted_version_store_index =
         StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).unwrap();
-    debug!("Retargetted version store index: {:?}", unsafe {
-        *retargetted_version_store_index.store_index
-    });
     debug!(
         "Retargetted version store index: {:?}",
         retargetted_version_store_index
@@ -384,21 +382,17 @@ pub fn downsync(
         }
         let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
 
-        // TODO: fix this unsafe
-        let validate_version_index = unsafe {
-            VersionIndex::new_from_fileinfos(
-                &localfs,
-                &target_hash,
-                &chunker,
-                &jobs,
-                &progress,
-                &resolved_target_folder_path,
-                validate_file_infos,
-                null_mut(),
-                target_chunk_size,
-                enable_file_mapping,
-            )
-        }?;
+        let validate_version_index = VersionIndex::new_from_fileinfos(
+            &localfs,
+            &target_hash,
+            &chunker,
+            &jobs,
+            &progress,
+            &resolved_target_folder_path,
+            validate_file_infos,
+            target_chunk_size,
+            enable_file_mapping,
+        )?;
 
         if validate_version_index.get_asset_count() != source_version_index.get_asset_count() {
             error!("Validation failed: asset count mismatch");
@@ -490,7 +484,7 @@ fn main() {
 
     let args = Args::parse();
     downsync(
-        1,
+        10,
         &args.storage_uri,
         &args.s3_endpoint_resolver_url.unwrap_or_default(),
         &args.source_path,

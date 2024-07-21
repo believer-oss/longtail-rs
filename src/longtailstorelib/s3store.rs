@@ -32,7 +32,21 @@ impl BlobStore for S3BlobStore {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let config = rt.block_on(aws_config::load_from_env());
+        let config = rt.block_on(async {
+            if let Some(options) = &self.options {
+                let region_provider =
+                    aws_config::meta::region::RegionProviderChain::default_provider()
+                        .or_else(aws_config::Region::new("us-east-1"));
+
+                aws_config::from_env()
+                    .region(region_provider)
+                    .endpoint_url(options.endpoint_resolver_uri.clone())
+                    .load()
+                    .await
+            } else {
+                aws_config::load_from_env().await
+            }
+        });
         let s3_client = S3Client::new(&config);
         Ok(Box::new(S3BlobClient {
             s3_client,

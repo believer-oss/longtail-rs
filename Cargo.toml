@@ -3,9 +3,6 @@ name = "longtail"
 version = "0.1.0"
 edition = "2021"
 
-[build-dependencies]
-bindgen = "0.69.4"
-
 [dev-dependencies]
 itertools = "0.13.0"
 clap = { version = "4.5.7", features = ["derive"] }
@@ -13,6 +10,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 lazy_static = "1.5.0"
 
 [dependencies]
+longtail-sys = { path = "longtail-sys" }
 aws-config = { version = "1.5.3", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.38.0"
 dyn-clone = "1.0.17"

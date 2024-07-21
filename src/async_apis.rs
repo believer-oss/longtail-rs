@@ -6,7 +6,7 @@ use crate::{
     Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
     Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
     Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_StoreIndex,
-    Longtail_StoredBlock, StoreIndex,
+    Longtail_StoredBlock,
 };
 
 // AsyncGetExistingContentAPI
@@ -131,6 +131,8 @@ impl AsyncGetExistingContentAPI for AsyncGetExistingContentAPIProxy {
     }
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn async_get_existing_content_api_on_complete(
     context: *mut Longtail_AsyncGetExistingContentAPI,
     store_index: *mut Longtail_StoreIndex,
@@ -311,6 +313,8 @@ impl AsyncPreflightStartedAPI for AsyncPreflightStartedAPIProxy {
     }
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn async_preflight_started_api_on_complete(
     context: *mut Longtail_AsyncPreflightStartedAPI,
     block_count: u32,
@@ -385,6 +389,8 @@ impl AsyncGetStoredBlockAPIProxy {
         }
     }
 
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
     // FIXME: This can't move the pointer...
     pub unsafe fn new_from_api(
         async_api: *mut Longtail_AsyncGetStoredBlockAPI,

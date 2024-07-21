@@ -1,6 +1,6 @@
 use std::{ops::Deref, os::unix::fs::MetadataExt};
 
-use crate::{BlobClient, BlobObject, BlobStore, NormalizeFileSystemPath};
+use crate::{normalize_file_system_path, BlobClient, BlobObject, BlobStore};
 use fs4::FileExt;
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl BlobClient for FsBlobClient {
         &self,
         path: String,
     ) -> Result<Box<dyn crate::BlobObject + '_>, Box<dyn std::error::Error>> {
-        let path = NormalizeFileSystemPath(path);
+        let path = normalize_file_system_path(path);
         Ok(Box::new(FsBlobObject {
             client: self.clone(),
             path,
@@ -79,7 +79,7 @@ impl BlobClient for FsBlobClient {
         if !meta.is_dir() {
             objects.push(crate::BlobProperties {
                 size: meta.size().try_into().unwrap(),
-                name: NormalizeFileSystemPath(search_path.to_string()),
+                name: normalize_file_system_path(search_path.to_string()),
             });
 
             return Ok(objects);
@@ -95,7 +95,7 @@ impl BlobClient for FsBlobClient {
             }
             let path = path.strip_prefix(search_path).unwrap();
             // TODO: Windows strings may fail here...
-            let leaf_path = NormalizeFileSystemPath(path.to_str().unwrap().to_string());
+            let leaf_path = normalize_file_system_path(path.to_str().unwrap().to_string());
             if leaf_path.len() < path_prefix.len() {
                 continue;
             }

@@ -1222,13 +1222,13 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
- "bindgen",
  "clap",
  "dyn-clone",
  "fs4",
  "http 1.1.0",
  "itertools 0.13.0",
  "lazy_static",
+ "longtail-sys",
  "num_cpus",
  "regex",
  "strum",
@@ -1236,6 +1236,13 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "longtail-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
 ]
 
 [[package]]

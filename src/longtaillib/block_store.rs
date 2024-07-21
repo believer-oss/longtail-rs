@@ -1,4 +1,4 @@
-use tracing::{debug, instrument};
+use tracing::debug;
 
 #[allow(unused_imports)]
 use crate::{
@@ -224,11 +224,11 @@ impl BlockstoreAPI {
     pub fn new_fs(
         jobs: &BikeshedJobAPI,
         storage_api: &StorageAPI,
-        contentPath: &str,
+        content_path: &str,
         block_extension: Option<&str>,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
-        let c_content_path = std::ffi::CString::new(contentPath).unwrap();
+        let c_content_path = std::ffi::CString::new(content_path).unwrap();
         let c_block_extension = if let Some(block_extension) = block_extension {
             std::ffi::CString::new(block_extension).unwrap()
         } else {
@@ -628,6 +628,8 @@ pub extern "C" fn blockstore_api_dispose(api: *mut Longtail_API) {
     let _ = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_get_existing_content(
     context: *mut Longtail_BlockStoreAPI,
     chunk_count: u32,
@@ -650,6 +652,8 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_put_stored_block(
     context: *mut Longtail_BlockStoreAPI,
     stored_block: *mut Longtail_StoredBlock,
@@ -665,6 +669,8 @@ pub unsafe extern "C" fn blockstore_api_put_stored_block(
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_preflight_get(
     context: *mut Longtail_BlockStoreAPI,
     chunk_count: u32,
@@ -711,6 +717,8 @@ pub unsafe extern "C" fn blockstore_api_get_stored_block(
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_prune_blocks(
     context: *mut Longtail_BlockStoreAPI,
     block_count: u32,
@@ -728,6 +736,8 @@ pub unsafe extern "C" fn blockstore_api_prune_blocks(
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_get_stats(
     context: *mut Longtail_BlockStoreAPI,
     out_stats: *mut Longtail_BlockStore_Stats,
@@ -748,6 +758,8 @@ pub unsafe extern "C" fn blockstore_api_get_stats(
     }
 }
 
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_flush(
     context: *mut Longtail_BlockStoreAPI,
     async_complete_api: *mut Longtail_AsyncFlushAPI,

@@ -128,8 +128,8 @@ impl<S: BlobStore> RemoteBlockStore<S> {
             .collect())
     }
 
-    fn read_store_store_index_from_path(
-        client: &Box<dyn BlobClient>,
+    fn read_store_store_index_from_path<'a>(
+        client: &(dyn BlobClient + 'a),
         item: &str,
     ) -> Result<StoreIndex, Box<dyn std::error::Error>> {
         let buf = read_blob(client, item)
@@ -146,7 +146,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         let mut used_items = Vec::new();
         let mut store_index = StoreIndex::new();
         for item in items {
-            let tmp_store_index = Self::read_store_store_index_from_path(&client, &item)
+            let tmp_store_index = Self::read_store_store_index_from_path(client.as_ref(), &item)
                 .inspect_err(|e| tracing::debug!("Error: {:?}", e))?;
             if !store_index.is_valid() {
                 warn!("Store index is invalid");
@@ -462,7 +462,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         tracing::debug!("get_stored_block: {:?}", block_path);
         // TODO: Add retries
         let client = self.blob_store.new_client()?;
-        let mut blob = read_blob(&client, block_path.as_str())?;
+        let mut blob = read_blob(client.as_ref(), block_path.as_str())?;
         let stored_block = StoredBlock::new_from_buffer(blob.as_mut_slice())
             .expect("Failed to create stored block from buffer");
         let block_index = stored_block.get_block_index();
