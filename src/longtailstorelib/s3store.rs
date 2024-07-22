@@ -231,11 +231,11 @@ impl<'a> BlobObject for S3BlobObject<'a> {
         Ok(())
     }
     fn get_string(&self) -> String {
-        let base = self.client.get_string();
-        let base = base.strip_suffix('/').unwrap_or(&base);
+        let bucket = self.client.store.bucket_name.clone();
+        // Key already includes the prefix
         let key = self.object_key.clone();
-        let key = key.strip_suffix('/').unwrap_or(&key);
-        format!("{0}/{1}", base, key)
+        let key = key.strip_prefix('/').unwrap_or(&key);
+        format!("s3://{0}/{1}", bucket, key)
     }
 }
 
@@ -263,7 +263,7 @@ mod tests {
         let object = client
             .new_object("game-win64-test.json".to_string())
             .unwrap();
-        assert!(!object.exists().unwrap());
+        assert!(object.exists().unwrap());
         let object = client.new_object("not-exist".to_string()).unwrap();
         assert!(!object.exists().unwrap());
     }

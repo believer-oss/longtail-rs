@@ -26,7 +26,7 @@ use crate::{
 use std::{
     ops::{Deref, DerefMut},
     path::Path,
-    ptr::{addr_of, null_mut},
+    ptr::null_mut,
 };
 
 #[repr(C)]
@@ -181,7 +181,6 @@ impl StoredBlock {
         })
     }
 
-    #[tracing::instrument]
     pub fn get_block_path(base_path: &Path, block_hash: u64) -> String {
         let file_name = format!("0x{:016x}.lsb", block_hash);
         let dir = base_path.join(&file_name[2..6]);
@@ -271,13 +270,16 @@ impl BlockstoreAPI {
         backing_blockstore: Box<BlockstoreAPI>,
         compression_api: &CompressionRegistry,
     ) -> BlockstoreAPI {
-        tracing::info!("Compressed blockstore: {:p}", addr_of!(backing_blockstore));
+        tracing::info!("Compressed blockstore: {:p}", backing_blockstore);
         tracing::info!(
             "Compressed blockstore blockstore_api: {:p}",
             backing_blockstore.blockstore_api
         );
         tracing::info!("Dispose API: {:p}", unsafe {
-            addr_of!((*(backing_blockstore.blockstore_api)).m_API.Dispose)
+            (*(backing_blockstore.blockstore_api))
+                .m_API
+                .Dispose
+                .unwrap()
         });
         tracing::info!(
             "blockstore_api_dispose: {:p}",
@@ -354,7 +356,7 @@ impl BlockstoreAPI {
     }
 
     pub fn new_from_proxy(proxy: Box<BlockstoreAPIProxy>) -> BlockstoreAPI {
-        tracing::info!("Creating new blockstore from proxy: {:p}", addr_of!(proxy));
+        tracing::info!("Creating new blockstore from proxy: {:p}", proxy);
         let proxy = Box::into_raw(proxy);
         BlockstoreAPI {
             blockstore_api: proxy as *mut Longtail_BlockStoreAPI,
@@ -481,13 +483,11 @@ impl Blockstore for BlockstoreAPI {
         block_hash: u64,
         async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
     ) -> Result<(), i32> {
-        debug!("Getting stored block: {}", block_hash);
-        debug!("Blockstore: {:?}", addr_of!(self.blockstore_api));
         let result = unsafe {
             Longtail_BlockStore_GetStoredBlock(
                 self.blockstore_api,
                 block_hash,
-                &async_complete_api as *const _ as *mut Longtail_AsyncGetStoredBlockAPI,
+                async_complete_api as *const _ as *mut Longtail_AsyncGetStoredBlockAPI,
             )
         };
         if result != 0 {
@@ -693,7 +693,8 @@ pub unsafe extern "C" fn blockstore_api_preflight_get(
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
-#[tracing::instrument]
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
 pub unsafe extern "C" fn blockstore_api_get_stored_block(
     context: *mut Longtail_BlockStoreAPI,
     block_hash: u64,
@@ -706,11 +707,7 @@ pub unsafe extern "C" fn blockstore_api_get_stored_block(
     debug!("AsyncCompleteAPI: {:?}", async_complete_api);
     let async_complete_api = AsyncGetStoredBlockAPIProxy::new_from_api(async_complete_api);
     debug!("Getting stored block: {}", block_hash);
-    debug!("Blockstore: {:?}", addr_of!(blockstore));
-    debug!(
-        "AsyncCompleteAPI: {:p}",
-        std::ptr::addr_of!(async_complete_api)
-    );
+    debug!("Blockstore: {:p}", blockstore);
     debug!("AsyncCompleteAPI: {:?}", async_complete_api);
     let result = blockstore.get_stored_block(block_hash, async_complete_api);
     Box::into_raw(blockstore);

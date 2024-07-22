@@ -5,29 +5,6 @@ use http::Uri;
 use crate::UNC_PREFIX;
 use crate::{FsBlobStore, S3BlobStore, S3Options};
 
-// pub enum BlobType {
-//     Fs(FsBlobStore),
-//     S3(S3BlobStore),
-//     Mem(MemBlobStore),
-// }
-//
-// impl BlobStore for BlobType {
-//     fn new_client(&self) -> Result<Box<Pin<BlobClient>>, Box<dyn std::error::Error>> {
-//         match self {
-//             BlobType::Fs(fs_blob_store) => fs_blob_store.new_client(),
-//             BlobType::S3(s3_blob_store) => s3_blob_store.new_client(),
-//             BlobType::Mem(mem_blob_store) => mem_blob_store.new_client(),
-//         }
-//     }
-//     fn get_string(&self) -> String {
-//         match self {
-//             BlobType::Fs(fs_blob_store) => fs_blob_store.get_string(),
-//             BlobType::S3(s3_blob_store) => s3_blob_store.get_string(),
-//             BlobType::Mem(mem_blob_store) => mem_blob_store.get_string(),
-//         }
-//     }
-// }
-
 pub fn create_blob_store_for_uri(uri: &str, opts: Option<S3Options>) -> Box<dyn BlobStore> {
     match uri {
         s if s.starts_with("fsblob://") => {

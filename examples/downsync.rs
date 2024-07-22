@@ -1,7 +1,7 @@
 mod common;
 
 use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
-use std::{collections::HashMap, ptr::null_mut};
+use std::collections::HashMap;
 
 use clap::Parser;
 use common::version_index_from_file;

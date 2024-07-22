@@ -315,10 +315,10 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
         info!("get_stored_block: {:?}", block_hash);
         let stored_block = self.get_stored_block(block_hash);
         tracing::debug!("stored_block: {:?}", stored_block);
-        tracing::debug!(
-            "async_complete_api: {:p}",
-            std::ptr::addr_of!(async_complete_api)
-        );
+        tracing::debug!("async_complete_api: {:p}", async_complete_api);
+        tracing::debug!("context: {:?}", unsafe {
+            async_complete_api.as_ref().unwrap().get_context()
+        });
         match stored_block {
             Ok(stored_block) => unsafe {
                 async_complete_api
@@ -631,7 +631,7 @@ mod tests {
             AsyncGetStoredBlockAPIProxy::new(Box::new(TestGetStoredBlockCompletion {}));
         info!("async_complete_api: {:?}", async_complete_api);
 
-        let uri = format!("s3://{}/{}", BUCKET, PREFIX);
+        let uri = format!("s3://{}/{}/store", BUCKET, PREFIX);
         let store = create_block_store_for_uri(
             &uri,
             None,
@@ -643,10 +643,7 @@ mod tests {
         )
         .unwrap();
         let hash = 0xd1006a10ce6543f6;
-        info!("store ptr: {:?}", std::ptr::addr_of!(store));
-        info!("store: {:?}", store);
-        info!("async_complete_api: {:?}", async_complete_api);
-        let result = store.get_stored_block(hash, &mut async_complete_api);
+        let result = store.get_stored_block(hash, &mut async_complete_api as *mut _);
         assert!(result.is_ok());
     }
 

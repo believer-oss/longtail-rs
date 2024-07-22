@@ -317,7 +317,7 @@ mod tests {
         let root_path = "test-data";
         let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
         let file_infos = scanner.get_file_infos();
-        assert_eq!(file_infos.get_file_count(), 20);
+        assert_eq!(file_infos.get_file_count(), 21);
         for (path, size, permissions) in file_infos.iter() {
             println!("{} {} {:o}", path, size, permissions);
         }
@@ -354,6 +354,6 @@ mod tests {
         )
         .unwrap();
         let version_index = version_index_reader.version_index;
-        assert_eq!(version_index.get_asset_count(), 20);
+        assert_eq!(version_index.get_asset_count(), 21);
     }
 }
