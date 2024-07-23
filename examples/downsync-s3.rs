@@ -20,7 +20,7 @@ struct Args {
 
     /// Source file uri(s)
     #[clap(name = "source-path", long)]
-    source_path: Vec<String>,
+    source_paths: Vec<String>,
 
     /// Target folder path
     #[clap(name = "target-path", long)]
@@ -45,7 +45,7 @@ struct Args {
     /// Path(s) to an optimized store index matching the source. If any of the
     /// file(s) cant be read it will fall back to the master store index
     #[clap(name = "version-local-store-index-path", long)]
-    version_local_store_index_path: Vec<String>,
+    version_local_store_index_paths: Option<Vec<String>>,
 
     /// Optional include regex filter for assets in --target-path on downsync.
     #[clap(name = "include-filter-regex", long)]
@@ -84,7 +84,7 @@ pub fn downsync(
     cache_path: &str,
     retain_permissions: bool,
     validate: bool,
-    _version_local_store_index_paths: &[String],
+    version_local_store_index_paths: Option<Vec<String>>,
     include_filter_regex: Option<String>,
     exclude_filter_regex: Option<String>,
     _scan_target: bool,
@@ -265,7 +265,7 @@ pub fn downsync(
     // TODO: Handle multiple source paths
     let remote_index_store = create_block_store_for_uri(
         storage_uri,
-        None,
+        version_local_store_index_paths,
         &jobs,
         1,
         AccessType::ReadOnly,
@@ -487,13 +487,13 @@ fn main() {
         10,
         &args.storage_uri,
         &args.s3_endpoint_resolver_url.unwrap_or_default(),
-        &args.source_path,
+        &args.source_paths,
         &args.target_path,
         &args.target_index_path.unwrap_or_default(),
         &args.cache_path.unwrap_or_default(),
         args.retain_permissions,
         args.validate,
-        &args.version_local_store_index_path,
+        args.version_local_store_index_paths,
         args.include_filter_regex,
         args.exclude_filter_regex,
         args.scan_target,
