@@ -35,7 +35,7 @@ pub struct RemoteBlockStore<S> {
     // prefetch_mem: i64,
     // max_prefetch_mem: i64,
     // prefetchBlocks: Mutex<HashMap<u64, pending_prefetch_blocks>>,
-    optional_store_index_paths: Option<Vec<String>>,
+    store_index_paths: Option<Vec<String>>,
     access_type: AccessType,
 }
 
@@ -43,20 +43,12 @@ impl<S: BlobStore> RemoteBlockStore<S> {
     pub fn new_remote_block_store(
         // job_api: BikeshedJobAPI,
         blob_store: S,
-        optional_store_index_paths: Option<Vec<&str>>,
+        store_index_paths: Option<Vec<String>>,
         worker_count: i32,
         access_type: AccessType,
         // opts: Option<S3Options>,
     ) -> Result<RemoteBlockStore<S>, Box<dyn std::error::Error>> {
         // let max_prefetch_mem = 512 * 1024 * 1024;
-        let optional_store_index_paths: Option<Vec<String>> =
-            optional_store_index_paths.map(|optional_store_index_paths| {
-                optional_store_index_paths
-                    .iter()
-                    .map(|path| path.to_string())
-                    .collect()
-            });
-
         Ok(RemoteBlockStore {
             // job_api,
             blob_store,
@@ -65,7 +57,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
             // prefetch_mem: 0,
             // max_prefetch_mem,
             // prefetchBlocks: Mutex::new(HashMap::new()),
-            optional_store_index_paths,
+            store_index_paths,
             access_type,
         })
     }
@@ -357,7 +349,7 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
         let store_index = StoreIndex::new();
         let added_block_indexes = Vec::new();
         let (store_index, _additional_store_indexes) = self.get_current_store_index(
-            &self.optional_store_index_paths,
+            &self.store_index_paths,
             &self.access_type,
             store_index,
             added_block_indexes,
@@ -513,7 +505,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
 
 pub fn create_block_store_for_uri(
     uri: &str,
-    optional_store_index_paths: Option<Vec<&str>>,
+    store_index_paths: Option<Vec<String>>,
     job_api: &BikeshedJobAPI,
     num_worker_count: i32,
     access_type: AccessType,
@@ -526,7 +518,7 @@ pub fn create_block_store_for_uri(
             let fs_block_store = RemoteBlockStore::new_remote_block_store(
                 // job_api,
                 fs_blob_store,
-                optional_store_index_paths,
+                store_index_paths,
                 num_worker_count,
                 access_type,
                 // opts,
@@ -556,7 +548,7 @@ pub fn create_block_store_for_uri(
             let s3_block_store = RemoteBlockStore::new_remote_block_store(
                 // job_api,
                 s3_blob_store,
-                optional_store_index_paths,
+                store_index_paths,
                 num_worker_count,
                 access_type,
                 // opts,
