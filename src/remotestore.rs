@@ -181,6 +181,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         }
     }
 
+    #[allow(unreachable_code)]
     fn read_remote_store_index(
         added_store_index_paths: &Option<Vec<String>>,
         blob_store: &impl BlobStore,
