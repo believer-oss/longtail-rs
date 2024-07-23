@@ -1,6 +1,12 @@
-use crate::hash::HashType;
-use crate::*;
-use std::ops::{Deref, DerefMut};
+use crate::{
+    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
+    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
+    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
+};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::null_mut,
+};
 
 #[repr(C)]
 pub struct VersionIndex {
@@ -46,7 +52,7 @@ impl Drop for VersionIndex {
 
 impl std::fmt::Debug for VersionIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let m_Version = self.get_version();
+        let m_version = self.get_version();
         let m_hash_identifier = self.get_hash_identifier();
         let m_target_chunk_size = self.get_target_chunk_size();
         let m_asset_count = self.get_asset_count();
@@ -113,7 +119,7 @@ impl std::fmt::Debug for VersionIndex {
         let m_chunk_tags = display_x(chunk_to_show, &self.get_chunk_tags(), chunk_cont);
 
         f.debug_struct("VersionIndex")
-            .field("m_Version", &m_Version)
+            .field("m_Version", &m_version)
             .field("m_HashIdentifier", &m_hash_identifier)
             .field(
                 "m_HashIdentifier",
@@ -141,7 +147,47 @@ impl std::fmt::Debug for VersionIndex {
 }
 
 impl VersionIndex {
-    pub fn read_version_index_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_from_fileinfos(
+        storage_api: &StorageAPI,
+        hash_api: &HashAPI,
+        chunker_api: &ChunkerAPI,
+        job_api: &BikeshedJobAPI,
+        progress_api: &ProgressAPIProxy,
+        path: &str,
+        validate_file_infos: FileInfos,
+        max_chunk_size: u32,
+        enable_file_mapping: bool,
+    ) -> Result<VersionIndex, i32> {
+        let path = std::ffi::CString::new(path).unwrap();
+        let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
+        let result = unsafe {
+            Longtail_CreateVersionIndex(
+                **storage_api,
+                **hash_api,
+                **chunker_api,
+                **job_api,
+                progress_api as *const _ as *mut Longtail_ProgressAPI,
+                null_mut(),
+                null_mut(),
+                path.as_ptr(),
+                validate_file_infos.0,
+                null_mut(),
+                max_chunk_size,
+                enable_file_mapping as i32,
+                &mut version_index,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(VersionIndex {
+            version_index,
+            _pin: std::marker::PhantomPinned,
+        })
+    }
+
+    pub fn new_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
         let buffer_size = buffer.len();
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
         let result = unsafe {
@@ -182,19 +228,9 @@ impl VersionIndex {
     }
     pub fn get_asset_path(&self, index: u32) -> String {
         let offset = unsafe { *(*self.version_index).m_NameOffsets.offset(index as isize) };
-        let size = unsafe {
-            *(*self.version_index)
-                .m_NameOffsets
-                .offset(index as isize + 1)
-        } - offset;
-        let name_data: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                (*self.version_index).m_NameData as *const u8,
-                size.try_into().unwrap(),
-            )
-        };
-        let name = std::str::from_utf8(name_data).unwrap();
-        name.to_string()
+        let name_data_start = unsafe { (*self.version_index).m_NameData.add(offset as usize) };
+        let c_str = unsafe { std::ffi::CStr::from_ptr(name_data_start) };
+        String::from_utf8_lossy(c_str.to_bytes()).to_string()
     }
     pub fn get_asset_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
@@ -302,11 +338,7 @@ mod tests {
 
     #[test]
     fn test_read_version_index_from_buffer() {
-        // let mut buffer = [0u8; 1024];
-        // let result = read_version_index_from_buffer(&mut buffer);
-        // assert_eq!(result, Err(9)); // Empty buffer
-
-        set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
+        let _guard = crate::init_logging().unwrap();
 
         let mut f = std::fs::File::open("test-data/target-path/testdir.lvi").unwrap();
         let metadata = f.metadata().unwrap();
@@ -314,7 +346,7 @@ mod tests {
         println!("Reading {} bytes", metadata.len());
         f.read_exact(&mut buffer).unwrap();
         println!("Bytes read: {:?}", buffer);
-        let result = VersionIndex::read_version_index_from_buffer(&mut buffer);
+        let result = VersionIndex::new_from_buffer(&mut buffer);
         println!("Result: {:?}", result);
         match result {
             Ok(version_index) => {

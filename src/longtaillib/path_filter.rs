@@ -40,7 +40,7 @@ impl DerefMut for PathFilterAPIProxy {
     }
 }
 
-// TODO: Unused, since we're relying on the dispose function to handle it
+// TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for PathFilterAPIProxy {
     fn drop(&mut self) {
         println!("Dropping PathFilterAPIProxy");
@@ -139,9 +139,6 @@ pub extern "C" fn path_filter_dispose(api: *mut Longtail_API) {
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
-    use crate::LONGTAIL_LOG_LEVEL_DEBUG;
-
     use super::*;
     use std::ffi::CString;
     #[derive(Debug)]
@@ -164,10 +161,7 @@ mod tests {
     }
     #[test]
     fn test_path_filter_include() {
-        // tracing_subscriber::fmt()
-        //     .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        //     .init();
-        // crate::set_longtail_loglevel(LONGTAIL_LOG_LEVEL_DEBUG);
+        let _guard = crate::init_logging().unwrap();
         let path_filter = Box::new(TestPathFilterAPI {});
         let path_filter_proxy = PathFilterAPIProxy::new_proxy_ptr(path_filter);
         let asset_path = CString::new("asset").unwrap();
@@ -205,6 +199,7 @@ mod tests {
 
     #[test]
     fn test_path_filter_dispose() {
+        let _guard = crate::init_logging().unwrap();
         let path_filter = Box::new(TestPathFilterAPI {});
         let path_filter_proxy = PathFilterAPIProxy::new_proxy_ptr(path_filter);
         path_filter_dispose(path_filter_proxy as *mut Longtail_API);

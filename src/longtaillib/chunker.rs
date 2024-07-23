@@ -23,6 +23,19 @@ impl Default for ChunkerAPI {
     }
 }
 
+impl Deref for ChunkerAPI {
+    type Target = *mut Longtail_ChunkerAPI;
+    fn deref(&self) -> &Self::Target {
+        &self.chunker_api
+    }
+}
+
+impl DerefMut for ChunkerAPI {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.chunker_api
+    }
+}
+
 impl ChunkerAPI {
     pub fn new() -> ChunkerAPI {
         ChunkerAPI {

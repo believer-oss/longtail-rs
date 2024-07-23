@@ -4,6 +4,7 @@ use std::ops::{Deref, DerefMut};
 // If we want to implement our own job api, we'll need some changes here...
 
 #[repr(C)]
+#[derive(Debug, Clone)]
 pub struct BikeshedJobAPI {
     pub job_api: *mut Longtail_JobAPI,
     _pin: std::marker::PhantomPinned,

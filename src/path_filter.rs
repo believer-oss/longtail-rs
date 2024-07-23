@@ -136,10 +136,10 @@ use crate::PathFilterAPI;
 #[repr(C)]
 #[derive(Debug)]
 pub struct RegexPathFilter {
-    includeRegexes: Option<Vec<String>>,
-    compiledIncludeRegexes: Option<Vec<Regex>>,
-    excludeRegexes: Option<Vec<String>>,
-    compiledExcludeRegexes: Option<Vec<Regex>>,
+    include_regexes: Option<Vec<String>>,
+    compiled_include_regexes: Option<Vec<Regex>>,
+    exclude_regexes: Option<Vec<String>>,
+    compiled_exclude_regexes: Option<Vec<Regex>>,
 }
 
 impl PathFilterAPI for RegexPathFilter {
@@ -164,22 +164,22 @@ impl RegexPathFilter {
         exclude_filter_regex: Option<String>,
     ) -> Result<RegexPathFilter, Box<dyn std::error::Error>> {
         let mut regex_path_filter = RegexPathFilter {
-            includeRegexes: None,
-            compiledIncludeRegexes: None,
-            excludeRegexes: None,
-            compiledExcludeRegexes: None,
+            include_regexes: None,
+            compiled_include_regexes: None,
+            exclude_regexes: None,
+            compiled_exclude_regexes: None,
         };
         if let Some(include_filter_regex) = include_filter_regex {
             let (include_regexes, compiled_include_regexes) =
                 Self::split_regexes(&include_filter_regex)?;
-            regex_path_filter.includeRegexes = Some(include_regexes);
-            regex_path_filter.compiledIncludeRegexes = Some(compiled_include_regexes);
+            regex_path_filter.include_regexes = Some(include_regexes);
+            regex_path_filter.compiled_include_regexes = Some(compiled_include_regexes);
         }
         if let Some(exclude_filter_regex) = exclude_filter_regex {
             let (exclude_regexes, compiled_exclude_regexes) =
                 Self::split_regexes(&exclude_filter_regex)?;
-            regex_path_filter.excludeRegexes = Some(exclude_regexes);
-            regex_path_filter.compiledExcludeRegexes = Some(compiled_exclude_regexes);
+            regex_path_filter.exclude_regexes = Some(exclude_regexes);
+            regex_path_filter.compiled_exclude_regexes = Some(compiled_exclude_regexes);
         }
         Ok(regex_path_filter)
     }
@@ -225,13 +225,13 @@ impl RegexPathFilter {
         _size: u64,
         _permissions: u16,
     ) -> bool {
-        if let Some(compiled_exclude_regexes) = &self.compiledExcludeRegexes {
+        if let Some(compiled_exclude_regexes) = &self.compiled_exclude_regexes {
             for (i, r) in compiled_exclude_regexes.iter().enumerate() {
                 if r.is_match(asset_path) {
                     println!(
                         "Excluded file `{}` (match for `{}`)",
                         asset_path,
-                        self.excludeRegexes.as_ref().unwrap().get(i).unwrap()
+                        self.exclude_regexes.as_ref().unwrap().get(i).unwrap()
                     );
                     return false;
                 }
@@ -239,22 +239,22 @@ impl RegexPathFilter {
                     println!(
                         "Excluded dir `{}/` (match for `{}`)",
                         asset_path,
-                        self.excludeRegexes.as_ref().unwrap().get(i).unwrap()
+                        self.exclude_regexes.as_ref().unwrap().get(i).unwrap()
                     );
                     return false;
                 }
             }
         }
-        if self.compiledIncludeRegexes.is_none() {
+        if self.compiled_include_regexes.is_none() {
             return true;
         }
-        if let Some(compiled_include_regexes) = &self.compiledIncludeRegexes {
+        if let Some(compiled_include_regexes) = &self.compiled_include_regexes {
             for (i, r) in compiled_include_regexes.iter().enumerate() {
                 if r.is_match(asset_path) {
                     println!(
                         "Included file `{}` (match for `{}`)",
                         asset_path,
-                        self.includeRegexes.as_ref().unwrap().get(i).unwrap()
+                        self.include_regexes.as_ref().unwrap().get(i).unwrap()
                     );
                     return true;
                 }
@@ -262,7 +262,7 @@ impl RegexPathFilter {
                     println!(
                         "Included dir `{}/` (match for `{}`)",
                         asset_path,
-                        self.includeRegexes.as_ref().unwrap().get(i).unwrap()
+                        self.include_regexes.as_ref().unwrap().get(i).unwrap()
                     );
                     return true;
                 }
@@ -279,10 +279,8 @@ mod tests {
     #[test]
     fn test_regex_path_filter() {
         let regex_path_filter =
-            RegexPathFilter::new(
-            Some(r".*\.txt$".to_string()), 
-            Some(r".*\.rs$".to_string())
-        ).unwrap();
+            RegexPathFilter::new(Some(r".*\.txt$".to_string()), Some(r".*\.rs$".to_string()))
+                .unwrap();
         assert!(regex_path_filter.include("root", "file.txt", "", false, 0, 0));
         assert!(!regex_path_filter.include("root", "file.rs", "", false, 0, 0));
     }
