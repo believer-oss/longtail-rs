@@ -7,3 +7,8 @@ dist-linux-x64
 
 # editor
 .idea
+
+# test data
+test-data-big
+test-data-medium
+test-data

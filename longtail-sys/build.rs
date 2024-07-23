@@ -1,5 +1,15 @@
-use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::{env, fs, io};
+
+fn setup_submodule() {
+    if !Path::new("longtail/src").exists() {
+        Command::new("git")
+            .args(["submodule", "update", "--init", "longtail"])
+            .status()
+            .expect("Failed to update submodules");
+    }
+}
 
 #[allow(dead_code)]
 fn setup_windows() -> PathBuf {
@@ -68,69 +78,137 @@ fn setup_linux_debug() -> PathBuf {
     libdir_path
 }
 
+const EXTRA_HEADERS: [(&str, &str); 27] = [
+    ("archiveblockstore", "longtail_archiveblockstore.h"),
+    ("atomiccancel", "longtail_atomiccancel.h"),
+    ("bikeshed", "longtail_bikeshed.h"),
+    ("blake2", "longtail_blake2.h"),
+    ("blake3", "longtail_blake3.h"),
+    ("blockstorestorage", "longtail_blockstorestorage.h"),
+    ("brotli", "longtail_brotli.h"),
+    ("cacheblockstore", "longtail_cacheblockstore.h"),
+    ("compressblockstore", "longtail_compressblockstore.h"),
+    ("compressionregistry", "longtail_compression_registry.h"),
+    (
+        "compressionregistry",
+        "longtail_full_compression_registry.h",
+    ),
+    (
+        "compressionregistry",
+        "longtail_zstd_compression_registry.h",
+    ),
+    ("concurrentchunkwrite", "longtail_concurrentchunkwrite.h"),
+    ("filestorage", "longtail_filestorage.h"),
+    ("fsblockstore", "longtail_fsblockstore.h"),
+    ("hashregistry", "longtail_blake3_hash_registry.h"),
+    ("hashregistry", "longtail_full_hash_registry.h"),
+    ("hashregistry", "longtail_hash_registry.h"),
+    ("hpcdcchunker", "longtail_hpcdcchunker.h"),
+    ("lrublockstore", "longtail_lrublockstore.h"),
+    ("lz4", "longtail_lz4.h"),
+    ("memstorage", "longtail_memstorage.h"),
+    ("memtracer", "longtail_memtracer.h"),
+    ("meowhash", "longtail_meowhash.h"),
+    ("ratelimitedprogress", "longtail_ratelimitedprogress.h"),
+    ("shareblockstore", "longtail_shareblockstore.h"),
+    ("zstd", "longtail_zstd.h"),
+];
+
 fn main() {
-    #[cfg(target_os = "windows")]
-    let libdir_path = setup_windows();
+    // #[cfg(target_os = "windows")]
+    // let libdir_path = setup_windows();
+    //
+    // #[cfg(target_os = "linux")]
+    // let libdir_path = setup_linux_debug();
+    // // let libdir_path = setup_linux();
+    //
+    // // This is the path to the `c` headers file.
+    // let longtail_header_path = libdir_path.join("longtail.h");
+    // let longtail_header_path_str = longtail_header_path
+    //     .to_str()
+    //     .expect("Path is not a valid string");
 
-    #[cfg(target_os = "linux")]
-    let libdir_path = setup_linux_debug();
-    // let libdir_path = setup_linux();
+    setup_submodule();
 
-    // This is the path to the `c` headers file.
-    let longtail_header_path = libdir_path.join("longtail.h");
+    let profile = env::var("PROFILE").unwrap();
+    let target = env::var("TARGET").unwrap();
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let windows = target.contains("windows");
+    let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let include = dst.join("include");
+    let mut cfg = cc::Build::new();
+    fs::create_dir_all(&include).unwrap();
+
+    cp_r_include("longtail/src", include.join("src"));
+    cp_r_include("longtail/lib", include.join("lib"));
+
+    cfg.include(&include).out_dir(dst.join("build"));
+    add_c_files(&mut cfg, "longtail/src");
+    add_c_files(&mut cfg, "longtail/src/ext");
+    add_c_files(&mut cfg, "longtail/lib");
+
+    for (module, _header) in EXTRA_HEADERS.iter() {
+        add_c_files(&mut cfg, &format!("longtail/lib/{}", module));
+    }
+
+    add_c_files(&mut cfg, "longtail/lib/brotli/ext/common");
+    add_c_files(&mut cfg, "longtail/lib/brotli/ext/dec");
+    add_c_files(&mut cfg, "longtail/lib/brotli/ext/enc");
+
+    add_c_files(&mut cfg, "longtail/lib/lz4/ext");
+
+    add_c_files(&mut cfg, "longtail/lib/zstd/ext/common");
+    add_c_files(&mut cfg, "longtail/lib/zstd/ext/compress");
+    add_c_files(&mut cfg, "longtail/lib/zstd/ext/decompress");
+
+    cfg.file("longtail/lib/blake2/ext/blake2s.c");
+    cfg.file("longtail/lib/blake3/ext/blake3.c");
+    cfg.file("longtail/lib/blake3/ext/blake3_dispatch.c");
+    cfg.file("longtail/lib/blake3/ext/blake3_portable.c");
+
+    if arch == "x86_64" {
+        cfg.file("longtail/lib/blake3/ext/blake3_sse2.c");
+        cfg.file("longtail/lib/blake3/ext/blake3_sse41.c");
+        cfg.file("longtail/lib/blake3/ext/blake3_avx2.c");
+        cfg.file("longtail/lib/blake3/ext/blake3_avx512.c");
+    } else if arch == "aarch64" {
+        cfg.file("longtail/lib/blake3/ext/blake3_neon.c");
+    }
+
+    if windows {
+        if profile == "release" {
+            cfg.flag("-O3");
+        } else {
+            cfg.flag("-DLONGTAIL_ASSERTS=1")
+                .flag("-DBIKESHED_ASSERTS=1");
+        }
+        cfg.flag("/arch:AVX2");
+        cfg.compile("longtail");
+    } else {
+        if profile == "release" {
+            cfg.flag("-O3");
+        } else {
+            cfg.flag("-DLONGTAIL_ASSERTS=1")
+                .flag("-DBIKESHED_ASSERTS=1");
+        }
+        cfg.flag("-std=gnu99")
+            .flag("-g")
+            .flag("-pthread")
+            .compile("longtail");
+    }
+
+    let longtail_header_path = include.join("src").join("longtail.h");
     let longtail_header_path_str = longtail_header_path
         .to_str()
         .expect("Path is not a valid string");
+    let libdir_path = include.join("lib");
 
-    const EXTRA_HEADERS: [(&str, &str); 27] = [
-        ("archiveblockstore", "longtail_archiveblockstore.h"),
-        ("atomiccancel", "longtail_atomiccancel.h"),
-        ("bikeshed", "longtail_bikeshed.h"),
-        ("blake2", "longtail_blake2.h"),
-        ("blake3", "longtail_blake3.h"),
-        ("blockstorestorage", "longtail_blockstorestorage.h"),
-        ("brotli", "longtail_brotli.h"),
-        ("cacheblockstore", "longtail_cacheblockstore.h"),
-        ("compressblockstore", "longtail_compressblockstore.h"),
-        ("compressionregistry", "longtail_compression_registry.h"),
-        (
-            "compressionregistry",
-            "longtail_full_compression_registry.h",
-        ),
-        (
-            "compressionregistry",
-            "longtail_zstd_compression_registry.h",
-        ),
-        ("concurrentchunkwrite", "longtail_concurrentchunkwrite.h"),
-        ("filestorage", "longtail_filestorage.h"),
-        ("fsblockstore", "longtail_fsblockstore.h"),
-        ("hashregistry", "longtail_blake3_hash_registry.h"),
-        ("hashregistry", "longtail_full_hash_registry.h"),
-        ("hashregistry", "longtail_hash_registry.h"),
-        ("hpcdcchunker", "longtail_hpcdcchunker.h"),
-        ("lrublockstore", "longtail_lrublockstore.h"),
-        ("lz4", "longtail_lz4.h"),
-        ("memstorage", "longtail_memstorage.h"),
-        ("memtracer", "longtail_memtracer.h"),
-        ("meowhash", "longtail_meowhash.h"),
-        ("ratelimitedprogress", "longtail_ratelimitedprogress.h"),
-        ("shareblockstore", "longtail_shareblockstore.h"),
-        ("zstd", "longtail_zstd.h"),
-    ];
-
-    // The bindgen::Builder is the main entry point
-    // to bindgen, and lets you build up options for
-    // the resulting bindings.
-    let builder = bindgen::Builder::default()
-        // The input header we would like to generate
-        // bindings for.
-        .header(longtail_header_path_str);
-    // .no_debug("Longtail_VersionIndex")
+    let builder = bindgen::Builder::default().header(longtail_header_path_str);
 
     let headers = EXTRA_HEADERS
         .iter()
         .map(|(module, header)| {
-            let header_path = libdir_path.join("..").join("lib").join(module).join(header);
+            let header_path = libdir_path.join(module).join(header);
             header_path
                 .to_str()
                 .expect("Path is not a valid string")
@@ -142,31 +220,32 @@ fn main() {
         .iter()
         .fold(builder, |builder, header| builder.header(header));
 
-    // https://github.com/rust-lang/rust-bindgen/pull/2369
-    // let builder = builder
-    //     .header_contents("compression", "
-    //         #define LONGTAIL_BROTLI_COMPRESSION_TYPE             ((((uint32_t)'b') << 24) + (((uint32_t)'t') << 16) + (((uint32_t)'l') << 8))
-    //         #define LONGTAIL_BROTLI_GENERIC_MIN_QUALITY_TYPE     (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'0'))
-    //         #define LONGTAIL_BROTLI_GENERIC_DEFAULT_QUALITY_TYPE (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'1'))
-    //         #define LONGTAIL_BROTLI_GENERIC_MAX_QUALITY_TYPE     (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'2'))
-    //         #define LONGTAIL_BROTLI_TEXT_MIN_QUALITY_TYPE        (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'a'))
-    //         #define LONGTAIL_BROTLI_TEXT_DEFAULT_QUALITY_TYPE    (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'b'))
-    //         #define LONGTAIL_BROTLI_TEXT_MAX_QUALITY_TYPE        (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'c'))
+    // // https://github.com/rust-lang/rust-bindgen/pull/2369
+    // // let builder = builder
+    // //     .header_contents("compression", "
+    // //         #define LONGTAIL_BROTLI_COMPRESSION_TYPE             ((((uint32_t)'b') << 24) + (((uint32_t)'t') << 16) + (((uint32_t)'l') << 8))
+    // //         #define LONGTAIL_BROTLI_GENERIC_MIN_QUALITY_TYPE     (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'0'))
+    // //         #define LONGTAIL_BROTLI_GENERIC_DEFAULT_QUALITY_TYPE (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'1'))
+    // //         #define LONGTAIL_BROTLI_GENERIC_MAX_QUALITY_TYPE     (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'2'))
+    // //         #define LONGTAIL_BROTLI_TEXT_MIN_QUALITY_TYPE        (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'a'))
+    // //         #define LONGTAIL_BROTLI_TEXT_DEFAULT_QUALITY_TYPE    (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'b'))
+    // //         #define LONGTAIL_BROTLI_TEXT_MAX_QUALITY_TYPE        (LONGTAIL_BROTLI_COMPRESSION_TYPE + ((uint32_t)'c'))
+    // //
+    // //         #define LONGTAIL_LZ4_DEFAULT_COMPRESSION_TYPE ((((uint32_t)'l') << 24) + (((uint32_t)'z') << 16) + (((uint32_t)'4') << 8) + ((uint32_t)'2'))
+    // //
+    // //         #define LONGTAIL_ZSTD_COMPRESSION_TYPE         ((((uint32_t)'z') << 24) + (((uint32_t)'t') << 16) + (((uint32_t)'d') << 8))
+    // //         #define LONGTAIL_ZSTD_MIN_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'1'))
+    // //         #define LONGTAIL_ZSTD_DEFAULT_COMPRESSION_TYPE (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'2'))
+    // //         #define LONGTAIL_ZSTD_MAX_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'3'))
+    // //         #define LONGTAIL_ZSTD_HIGH_COMPRESSION_TYPE    (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'4'))
+    // //         #define LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'5'))
+    // //     ")
+    // //     .header_contents("hashes", "
+    // //         const uint32_t LONGTAIL_MEOW_HASH_TYPE = (((uint32_t)'m') << 24) + (((uint32_t)'e') << 16) + (((uint32_t)'o') << 8) + ((uint32_t)'w');
+    // //         const uint32_t LONGTAIL_BLAKE2_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'2');
+    // //         const uint32_t LONGTAIL_BLAKE3_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'3');
+    // //     ");
     //
-    //         #define LONGTAIL_LZ4_DEFAULT_COMPRESSION_TYPE ((((uint32_t)'l') << 24) + (((uint32_t)'z') << 16) + (((uint32_t)'4') << 8) + ((uint32_t)'2'))
-    //
-    //         #define LONGTAIL_ZSTD_COMPRESSION_TYPE         ((((uint32_t)'z') << 24) + (((uint32_t)'t') << 16) + (((uint32_t)'d') << 8))
-    //         #define LONGTAIL_ZSTD_MIN_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'1'))
-    //         #define LONGTAIL_ZSTD_DEFAULT_COMPRESSION_TYPE (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'2'))
-    //         #define LONGTAIL_ZSTD_MAX_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'3'))
-    //         #define LONGTAIL_ZSTD_HIGH_COMPRESSION_TYPE    (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'4'))
-    //         #define LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE     (LONGTAIL_ZSTD_COMPRESSION_TYPE + ((uint32_t)'5'))
-    //     ")
-    //     .header_contents("hashes", "
-    //         const uint32_t LONGTAIL_MEOW_HASH_TYPE = (((uint32_t)'m') << 24) + (((uint32_t)'e') << 16) + (((uint32_t)'o') << 8) + ((uint32_t)'w');
-    //         const uint32_t LONGTAIL_BLAKE2_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'2');
-    //         const uint32_t LONGTAIL_BLAKE3_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'3');
-    //     ");
 
     let bindings = builder
         // Tell cargo to invalidate the built crate whenever any of the
@@ -182,4 +261,42 @@ fn main() {
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn cp_r_include(from: impl AsRef<Path>, to: impl AsRef<Path>) {
+    for e in from.as_ref().read_dir().unwrap() {
+        let e = e.unwrap();
+        let from = e.path();
+        let to = to.as_ref().join(e.file_name());
+        if e.file_type().unwrap().is_dir() {
+            fs::create_dir_all(&to).unwrap();
+            cp_r_include(&from, &to);
+        } else {
+            if !e.file_name().to_string_lossy().ends_with(".h") {
+                continue;
+            }
+            println!("{} => {}", from.display(), to.display());
+            fs::copy(&from, &to).unwrap();
+        }
+    }
+}
+
+fn add_c_files(build: &mut cc::Build, path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    if !path.exists() {
+        panic!("Path {} does not exist", path.display());
+    }
+    // sort the C files to ensure a deterministic build for reproducible builds
+    let dir = path.read_dir().unwrap();
+    let mut paths = dir.collect::<io::Result<Vec<_>>>().unwrap();
+    paths.sort_by_key(|e| e.path());
+
+    for e in paths {
+        let path = e.path();
+        if e.file_type().unwrap().is_dir() {
+            // skip for now
+        } else if path.extension().and_then(|s| s.to_str()) == Some("c") {
+            build.file(&path);
+        }
+    }
 }
