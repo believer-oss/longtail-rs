@@ -314,10 +314,10 @@ mod tests {
         let pf = Box::new(TestPathFilter {});
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(pf);
         let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let root_path = "test-data";
+        let root_path = "test-data/storage";
         let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
         let file_infos = scanner.get_file_infos();
-        assert_eq!(file_infos.get_file_count(), 21);
+        assert_eq!(file_infos.get_file_count(), 7);
         for (path, size, permissions) in file_infos.iter() {
             println!("{} {} {:o}", path, size, permissions);
         }
@@ -354,6 +354,6 @@ mod tests {
         )
         .unwrap();
         let version_index = version_index_reader.version_index;
-        assert_eq!(version_index.get_asset_count(), 21);
+        assert_eq!(version_index.get_asset_count(), 17);
     }
 }

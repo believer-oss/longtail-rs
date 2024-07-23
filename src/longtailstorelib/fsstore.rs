@@ -1,4 +1,10 @@
-use std::{ops::Deref, os::unix::fs::MetadataExt};
+use std::ops::Deref;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::MetadataExt;
+
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::MetadataExt;
 
 use crate::{normalize_file_system_path, BlobClient, BlobObject, BlobStore};
 use fs4::FileExt;
@@ -77,8 +83,14 @@ impl BlobClient for FsBlobClient {
         let mut objects = Vec::<crate::BlobProperties>::new();
         let meta = std::fs::metadata(search_path)?;
         if !meta.is_dir() {
+            #[cfg(target_os = "windows")]
+            let size = meta.file_size().try_into().unwrap();
+
+            #[cfg(not(target_os = "windows"))]
+            let size = meta.size().try_into().unwrap();
+
             objects.push(crate::BlobProperties {
-                size: meta.size().try_into().unwrap(),
+                size,
                 name: normalize_file_system_path(search_path.to_string()),
             });
 

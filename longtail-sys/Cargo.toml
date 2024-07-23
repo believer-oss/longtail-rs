@@ -2,8 +2,18 @@
 name = "longtail-sys"
 version = "0.1.0"
 edition = "2021"
+links = "longtail"
 
 [build-dependencies]
 bindgen = "0.69.4"
+cc = "1.1.6"
+reqwest = { version = "0.12.5", features = ["blocking"] }
+sha2 = "0.10.8"
+zip = "2.1.5"
+zip-extensions = "0.8.0"
 
 [dependencies]
+
+[features]
+default = ["vendored"]
+vendored = []
