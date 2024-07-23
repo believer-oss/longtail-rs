@@ -367,7 +367,10 @@ mod tests {
                 assert_eq!(version_index.get_chunk_tags(), [2054448178]);
                 assert_eq!(version_index.get_name_offsets(), [0]);
                 assert_eq!(version_index.get_name_data_size(), 9);
+                #[cfg(target_family = "unix")]
                 assert_eq!(version_index.get_permissions(), [420]);
+                #[cfg(target_family = "windows")]
+                assert_eq!(version_index.get_permissions(), [438]);
                 assert_eq!(version_index.get_name_data(), [String::from("testfile")]);
             }
             Err(e) => {

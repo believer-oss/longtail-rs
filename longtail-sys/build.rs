@@ -196,8 +196,8 @@ fn upstream_dist() {
     }
 
     let libdir_path = match windows {
-        true => setup_windows(upstream),
-        false => setup_linux(upstream),
+        true => setup_windows(upstream.clone()),
+        false => setup_linux(upstream.clone()),
     };
 
     // This is the path to the `c` headers file.
@@ -206,7 +206,20 @@ fn upstream_dist() {
         .to_str()
         .expect("Path is not a valid string");
 
-    let builder = bindgen::Builder::default().header(longtail_header_path_str);
+    let builder = if windows {
+        // On windows, we need to add the include path for the archiveblockstore to resolve
+        // relative includes of the longtail.h in lib files.
+        bindgen::Builder::default()
+            .header(longtail_header_path_str)
+            .clang_arg(format!(
+                "-I{}",
+                upstream
+                    .join("dist-win32-x64/include/lib/archiveblockstore/")
+                    .display()
+            ))
+    } else {
+        bindgen::Builder::default().header(longtail_header_path_str)
+    };
 
     let headers = EXTRA_HEADERS
         .iter()
