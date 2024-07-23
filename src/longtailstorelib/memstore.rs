@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    result::Result,
+    sync::{Arc, Mutex},
+};
 
 use thiserror::Error;
 use tracing::{debug, warn};
@@ -12,9 +16,9 @@ pub struct MemBlob {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemBlobStore {
-    pub blobs: Mutex<HashMap<String, MemBlob>>,
+    pub blobs: Arc<Mutex<HashMap<String, MemBlob>>>,
     pub prefix: String,
     pub supports_locking: bool,
 }
@@ -22,7 +26,7 @@ pub struct MemBlobStore {
 impl MemBlobStore {
     pub fn new(prefix: &str, supports_locking: bool) -> Self {
         MemBlobStore {
-            blobs: Mutex::new(HashMap::new()),
+            blobs: Arc::new(Mutex::new(HashMap::new())),
             prefix: prefix.to_string(),
             supports_locking,
         }
@@ -30,37 +34,39 @@ impl MemBlobStore {
 }
 
 impl BlobStore for MemBlobStore {
-    fn new_client(
-        &mut self,
-    ) -> Result<impl BlobClient<'_>, Box<(dyn std::error::Error + 'static)>> {
-        Ok(MemBlobClient { store: self })
+    fn new_client<'a>(
+        &self,
+    ) -> Result<Box<dyn BlobClient + 'a>, Box<(dyn std::error::Error + 'static)>> {
+        Ok(Box::new(MemBlobClient {
+            store: self.clone(),
+        }))
     }
 
-    fn get_string() -> String {
+    fn get_string(&self) -> String {
         "memstore".to_string()
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct MemBlobClient<'a> {
-    pub store: &'a MemBlobStore,
+#[derive(Debug, Clone)]
+pub struct MemBlobClient {
+    pub store: MemBlobStore,
 }
 
-impl<'a> BlobClient<'a> for MemBlobClient<'a> {
+impl BlobClient for MemBlobClient {
     fn new_object(
-        &'a mut self,
+        &self,
         path: String,
-        // ) -> Result<MemBlobObject<'a>, Box<dyn std::error::Error + 'static>> {
-    ) -> Result<impl BlobObject, Box<(dyn std::error::Error + 'static)>> {
-        Ok(MemBlobObject {
-            client: self,
+        // ) -> Result<MemBlobObject, Box<dyn std::error::Error + 'static>> {
+    ) -> Result<Box<dyn BlobObject + '_>, Box<(dyn std::error::Error + 'static)>> {
+        Ok(Box::new(MemBlobObject {
+            client: self.clone(),
             path,
             locked_generation: None,
-        })
+        }))
     }
 
     fn get_objects(
-        &'a self,
+        &self,
         path_prefix: String,
     ) -> Result<Vec<crate::BlobProperties>, Box<dyn std::error::Error>> {
         let blobs = self.store.blobs.lock().unwrap();
@@ -76,15 +82,15 @@ impl<'a> BlobClient<'a> for MemBlobClient<'a> {
         Ok(ret)
     }
 
-    fn supports_locking(&'a self) -> bool {
+    fn supports_locking(&self) -> bool {
         self.store.supports_locking
     }
 
-    fn get_string(&'a self) -> String {
-        MemBlobStore::get_string()
+    fn get_string(&self) -> String {
+        self.store.get_string()
     }
 
-    fn close(&'a self) {}
+    fn close(&self) {}
 }
 
 #[derive(Error, Debug)]
@@ -96,42 +102,34 @@ pub enum MemBlobError {
     LockGenerationMismatch(i32, i32),
 }
 
-pub struct MemBlobObject<'a> {
-    pub client: &'a mut MemBlobClient<'a>,
+pub struct MemBlobObject {
+    pub client: MemBlobClient,
     pub path: String,
     pub locked_generation: Option<i32>,
 }
 
-impl BlobObject for MemBlobObject<'_> {
+impl BlobObject for MemBlobObject {
     fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
         let blobs = self.client.store.blobs.lock().unwrap();
         Ok(blobs.contains_key(&self.path))
     }
-    fn lock_write_version(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn lock_write_version(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
         let blobs = self.client.store.blobs.lock().unwrap();
         let blob = blobs.get(&self.path).ok_or_else(|| {
             warn!("lock_write_version: blob not found");
             MemBlobError::BlobNotFound("blob not found".to_string())
         })?;
         self.locked_generation = Some(blob.generation);
-        Ok(())
+        Ok(true)
     }
-    fn read<'a>(&'a self, buf: &'a mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+    fn read(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let blobs = self.client.store.blobs.lock().unwrap();
         blobs.get(&self.path).map_or_else(
-            move || {
-                warn!("lock_write_version: blob not found");
-                Err(MemBlobError::BlobNotFound("blob not found".to_string()).into())
-            },
-            |blob| {
-                debug!("read: blob: {:?}", blob);
-                buf.copy_from_slice(&blob.data);
-                debug!("read: buf: {:?}", buf);
-                Ok(blob.data.len())
-            },
+            move || Err(MemBlobError::BlobNotFound("blob not found".to_string()).into()),
+            |blob| Ok(blob.data.clone()),
         )
     }
-    fn write(&mut self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let mut blobs = self.client.store.blobs.lock().unwrap();
         if let Some(blob) = blobs.get_mut(&self.path) {
             if let Some(locked_generation) = self.locked_generation {
@@ -157,7 +155,7 @@ impl BlobObject for MemBlobObject<'_> {
 
         Ok(())
     }
-    fn delete(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn delete(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut blobs = self.client.store.blobs.lock().unwrap();
         if self.locked_generation.is_some() {
             match blobs.contains_key(&self.path) {
@@ -197,15 +195,24 @@ mod tests {
     #[test]
     fn test_mem_blob_store() {
         let _guard = init_logging().unwrap();
-        let mut store = MemBlobStore::new("test", true);
-        let mut client = store.new_client().unwrap();
-        let mut obj = client.new_object("test".to_string()).unwrap();
-        obj.write(b"testit").unwrap();
-        let mut buf = [0u8; 6];
-        assert_eq!(obj.read(&mut buf).unwrap(), 6);
-        debug!("buf: {:?}", buf);
-        assert_eq!(&buf, b"testit");
-        obj.delete().unwrap();
-        assert!(!obj.exists().unwrap());
+        // let store = std::sync::Arc::new(Mutex::new(MemBlobStore::new("test", true)));
+        let store: MemBlobStore = MemBlobStore::new("test", true);
+        {
+            // let mut lock = store.lock().unwrap();
+            // let mut client = lock.new_client().unwrap();
+            let client = store.new_client().unwrap();
+            let s = String::from("test");
+            {
+                let obj = client.new_object(s).unwrap();
+                obj.write(b"testit").unwrap();
+                let buf = obj.read().unwrap();
+                assert_eq!(&buf, b"testit");
+                obj.delete().unwrap();
+                assert!(!obj.exists().unwrap());
+            }
+            // drop(obj);
+            // drop(store);
+            //
+        }
     }
 }

@@ -40,7 +40,7 @@ impl DerefMut for PathFilterAPIProxy {
     }
 }
 
-// TODO: Unused, since we're relying on the dispose function to handle it
+// TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for PathFilterAPIProxy {
     fn drop(&mut self) {
         println!("Dropping PathFilterAPIProxy");

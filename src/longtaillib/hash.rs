@@ -21,6 +21,12 @@ pub struct HashAPI {
     _pin: std::marker::PhantomPinned,
 }
 
+impl Drop for HashAPI {
+    fn drop(&mut self) {
+        // unsafe { Longtail_DisposeAPI(&mut (*self.hash_api).m_API as *mut Longtail_API) };
+    }
+}
+
 impl Deref for HashAPI {
     type Target = *mut Longtail_HashAPI;
     fn deref(&self) -> &Self::Target {
@@ -62,6 +68,7 @@ pub struct HashRegistry {
 
 impl Drop for HashRegistry {
     fn drop(&mut self) {
+        println!("Disposing hash registry");
         unsafe { Longtail_DisposeAPI(&mut (*self.hash_registry).m_API as *mut Longtail_API) };
     }
 }

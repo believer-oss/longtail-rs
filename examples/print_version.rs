@@ -1,4 +1,5 @@
 use longtail::*;
+use longtail_sys::LONGTAIL_LOG_LEVEL_INFO;
 
 mod common;
 use common::version_index_from_file;

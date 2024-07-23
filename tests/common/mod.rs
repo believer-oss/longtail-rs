@@ -2,7 +2,8 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-use longtail::{create_blob_store, BlobClient, BlobObject, BlobStore, MemBlobStore};
+// use longtail::{create_blob_store, BlobClient, BlobObject, BlobStore, MemBlobStore};
+use longtail::{BlobClient, BlobObject, BlobStore, MemBlobStore};
 
 lazy_static! {
     static ref V1_FILES: HashMap<&'static str, &'static str> = HashMap::from([
@@ -93,42 +94,39 @@ lazy_static! {
 }
 
 fn create_content(path: &str, content: HashMap<&str, &str>) {
-    let mut store = MemBlobStore::new("test", true);
+    let store = MemBlobStore::new("test", true);
     content.iter().for_each(|(name, data)| {
-        let mut client = store.new_client().unwrap();
+        let client = store.new_client().unwrap();
         let mut newname = path.to_string();
         newname.push_str(name);
-        let mut f = client.new_object(newname).unwrap();
-        f.write(data.as_bytes());
+        let f = client.new_object(newname).unwrap();
+        let _ = f.write(data.as_bytes());
     });
 }
 
-fn validate_content(store: MemBlobStore, path: String, content: HashMap<&str, &str>) {
-    let mut store = MemBlobStore::new("test", true);
+fn validate_content(store: &mut MemBlobStore, path: String, content: HashMap<&str, &str>) {
     let client = store.new_client().unwrap();
     let items = client.get_objects(path).unwrap();
     let mut found_items = HashMap::new();
     items.iter().for_each(|item| {
-        let mut client = store.new_client().unwrap();
         let orig = content.get(item.name.as_str());
         if let Some(data) = orig {
             let f = client.new_object(item.name.clone()).unwrap();
-            let mut buffer = Vec::new();
-            f.read(&mut buffer);
+            let buffer = f.read().unwrap();
             assert_eq!(*data.as_bytes(), buffer);
             found_items.insert(item.name.clone(), item.size);
         }
     });
 }
 
-fn create_version_data(base_uri: String) {
+fn create_version_data(_base_uri: String) {
     // let store = create_blob_store(base_uri);
     create_content("version/v1/", V1_FILES.clone());
     create_content("version/v2/", V2_FILES.clone());
     create_content("version/v3/", V3_FILES.clone());
 }
 
-fn create_layer_data(base_uri: String) {
+fn create_layer_data(_base_uri: String) {
     // let store = create_blob_store(base_uri);
     create_content("source/", LAYER_DATA.clone());
 }
