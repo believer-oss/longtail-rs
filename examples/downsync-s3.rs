@@ -493,7 +493,7 @@ fn main() {
         &args.cache_path.unwrap_or_default(),
         args.retain_permissions,
         args.validate,
-        &args.version_local_store_index_path,
+        args.version_local_store_index_paths,
         args.include_filter_regex,
         args.exclude_filter_regex,
         args.scan_target,
