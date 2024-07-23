@@ -273,7 +273,6 @@ fn vendored() {
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/common");
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/compress");
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/decompress");
-    cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
 
     cfg.file("longtail/lib/blake2/ext/blake2s.c");
     cfg.file("longtail/lib/blake3/ext/blake3.c");
@@ -291,14 +290,15 @@ fn vendored() {
 
     if windows {
         if profile == "release" {
-            cfg.flag("-O3");
+            cfg.flag("/O3");
         } else {
-            cfg.flag("-DLONGTAIL_ASSERTS=1")
-                .flag("-DBIKESHED_ASSERTS=1");
+            cfg.flag("/DLONGTAIL_ASSERTS=1")
+                .flag("/DBIKESHED_ASSERTS=1");
         }
         cfg.flag("/arch:AVX2");
         cfg.compile("longtail");
     } else {
+        cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
         if profile == "release" {
             cfg.flag("-O3");
         } else {
