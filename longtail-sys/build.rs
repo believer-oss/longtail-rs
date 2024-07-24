@@ -262,6 +262,7 @@ fn vendored() {
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
     let include = dst.join("include");
     let mut cfg = cc::Build::new();
+    cfg.warnings(false);
     fs::create_dir_all(&include).unwrap();
 
     cp_r_include("longtail/src", include.join("src"));

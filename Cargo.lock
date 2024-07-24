@@ -1547,6 +1547,7 @@ dependencies = [
  "longtail-sys",
  "num_cpus",
  "regex",
+ "serde_json",
  "strum",
  "thiserror",
  "tokio",

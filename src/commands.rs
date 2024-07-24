@@ -412,3 +412,36 @@ pub fn downsync(
     info!("Downsync complete");
     Ok(())
 }
+
+pub fn get(url: &str, target_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let buf = read_from_uri(url, None)?;
+    let s = std::str::from_utf8(&buf)?;
+    let json = serde_json::from_str::<serde_json::Value>(s)?;
+
+    let source_path = json["source-path"].as_str().unwrap();
+    let storage_uri = json["storage-uri"].as_str().unwrap();
+    let version_local_store_index_path = json["version-local-store-index-path"].as_str().unwrap();
+    downsync(
+        4,
+        storage_uri,
+        "",
+        &[source_path.to_string()],
+        target_path,
+        "",
+        "",
+        false,
+        false,
+        Some(vec![version_local_store_index_path.to_string()]),
+        None,
+        None,
+        false,
+        false,
+        false,
+        false,
+    )
+    .map_err(|err| {
+        let err = format!("failed to downsync: {}", err);
+        err
+    })?;
+    Ok(())
+}
