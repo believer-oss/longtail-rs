@@ -9,7 +9,7 @@ cd small
 
 mkdir testdir
 $test = "test"
-$test | Out-File -FilePath "testdir/testfile"
+$test | Out-File -Encoding ASCII -FilePath "testdir/testfile"
 & "../longtail.exe" `
   upsync `
   --source-path "testdir" `
@@ -18,7 +18,7 @@ $test | Out-File -FilePath "testdir/testfile"
   --storage-uri "storage/testdir/"
 
 $test = "another test"
-$test | Out-File -FilePath "testdir/testfile"
+$test | Out-File -Encoding ASCII -FilePath "testdir/testfile"
 & "../longtail.exe" `
   upsync `
   --source-path "testdir" `
