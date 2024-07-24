@@ -354,6 +354,6 @@ mod tests {
         )
         .unwrap();
         let version_index = version_index_reader.version_index;
-        assert_eq!(version_index.get_asset_count(), 17);
+        assert_eq!(version_index.get_asset_count(), 16);
     }
 }
