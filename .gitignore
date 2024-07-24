@@ -9,6 +9,8 @@ dist-linux-x64
 .idea
 
 # test data
-test-data-big
-test-data-medium
-test-data
+test-data/large
+test-data/medium
+test-data/small
+test-data/longtail
+test-data/longtail.exe
