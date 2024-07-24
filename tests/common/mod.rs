@@ -1,9 +1,9 @@
+#![allow(dead_code)]
 // https://github.com/DanEngelbrecht/golongtail/blob/main/commands/commands_test.go#L119
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-// use longtail::{create_blob_store, BlobClient, BlobObject, BlobStore, MemBlobStore};
-use longtail::{BlobClient, BlobObject, BlobStore, MemBlobStore};
+use longtail::{BlobStore, MemBlobStore};
 
 lazy_static! {
     static ref V1_FILES: HashMap<&'static str, &'static str> = HashMap::from([

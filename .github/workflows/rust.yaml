@@ -3,13 +3,20 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test-linux:
-    name: cargo test
+    name: linux - cargo test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: |
+          pushd test-data
+          ./mkdata.sh
       - run: cargo test
 
   # Check formatting with rustfmt
@@ -26,9 +33,12 @@ jobs:
         uses: actions-rust-lang/rustfmt@v1
 
   test-windows:
-    name: cargo test
+    name: windows - cargo test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: |
+          pushd test-data
+          ./mkdata.ps1
       - run: cargo test

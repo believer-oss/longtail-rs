@@ -124,8 +124,10 @@ mod test {
     #[test]
     fn test_version_diff() {
         let _guard = crate::init_logging().unwrap();
-        let source_version_index = create_test_version_index("test-data/target-path/testdir.lvi");
-        let target_version_index = create_test_version_index("test-data/target-path/testdir2.lvi");
+        let source_version_index =
+            create_test_version_index("test-data/small/target-path/testdir.lvi");
+        let target_version_index =
+            create_test_version_index("test-data/small/target-path/testdir2.lvi");
         let hash = source_version_index.get_hash_identifier();
         let from_repr = HashType::from_repr(hash as usize);
         let hash_reg = HashRegistry::new();

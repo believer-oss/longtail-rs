@@ -257,6 +257,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_blob_object_exists() {
         let store = S3BlobStore::new(BUCKET, PREFIX, None);
         let client = store.new_client().unwrap();
@@ -269,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_blob_object_read_write() {
         let store = S3BlobStore::new(BUCKET, PREFIX, None);
         let client = store.new_client().unwrap();
@@ -280,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_blob_object_delete() {
         let store = S3BlobStore::new(BUCKET, PREFIX, None);
         let client = store.new_client().unwrap();

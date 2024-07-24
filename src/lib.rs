@@ -19,6 +19,9 @@ pub use path_filter::RegexPathFilter;
 pub mod async_apis;
 pub use async_apis::*;
 
+pub mod commands;
+pub use commands::*;
+
 pub struct NativeBuffer {
     pub buffer: *mut c_void,
     pub size: usize,
