@@ -12,7 +12,7 @@ pushd small
 rm -rf local-store-index/ storage/ target-path/ testdir/
 
 mkdir testdir
-echo "test" >testdir/testfile
+echo -n "test" >testdir/testfile
 
 ../longtail \
   upsync \
@@ -21,7 +21,7 @@ echo "test" >testdir/testfile
   --version-local-store-index-path local-store-index/testdir.lvi \
   --storage-uri storage/testdir/
 
-echo "another test" >testdir/testfile
+echo -n "another test" >testdir/testfile
 
 ../longtail \
   upsync \

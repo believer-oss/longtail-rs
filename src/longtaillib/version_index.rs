@@ -357,13 +357,13 @@ mod tests {
                 assert_eq!(version_index.get_chunk_count(), 1);
                 assert_eq!(version_index.get_asset_chunk_index_count(), 1);
                 assert_eq!(version_index.get_path_hashes(), [17453309618399787745]);
-                assert_eq!(version_index.get_asset_hashes(), [15623113628389385483]);
-                assert_eq!(version_index.get_asset_sizes(), [5]);
+                assert_eq!(version_index.get_asset_hashes(), [6929027089488294080]);
+                assert_eq!(version_index.get_asset_sizes(), [4]);
                 assert_eq!(version_index.get_asset_chunk_counts(), [1]);
                 assert_eq!(version_index.get_asset_chunk_index_starts(), [0]);
                 assert_eq!(version_index.get_asset_chunk_indexes(), [0]);
-                assert_eq!(version_index.get_chunk_hashes(), [13038361456346964702]);
-                assert_eq!(version_index.get_chunk_sizes(), [5]);
+                assert_eq!(version_index.get_chunk_hashes(), [18030661544962586696]);
+                assert_eq!(version_index.get_chunk_sizes(), [4]);
                 assert_eq!(version_index.get_chunk_tags(), [2054448178]);
                 assert_eq!(version_index.get_name_offsets(), [0]);
                 assert_eq!(version_index.get_name_data_size(), 9);
