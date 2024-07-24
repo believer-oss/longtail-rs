@@ -340,7 +340,7 @@ mod tests {
     fn test_read_version_index_from_buffer() {
         let _guard = crate::init_logging().unwrap();
 
-        let mut f = std::fs::File::open("test-data/target-path/testdir.lvi").unwrap();
+        let mut f = std::fs::File::open("test-data/small/target-path/testdir.lvi").unwrap();
         let metadata = f.metadata().unwrap();
         let mut buffer = vec![0u8; metadata.len() as usize];
         println!("Reading {} bytes", metadata.len());

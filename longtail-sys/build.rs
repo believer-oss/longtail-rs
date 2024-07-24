@@ -417,7 +417,8 @@ fn cp_r_include(from: impl AsRef<Path>, to: impl AsRef<Path>) {
 fn add_c_files(build: &mut cc::Build, path: impl AsRef<Path>) {
     let path = path.as_ref();
     if !path.exists() {
-        panic!("Path {} does not exist", path.display());
+        let d = path.display();
+        panic!("Path {} does not exist", d);
     }
     // sort the C files to ensure a deterministic build for reproducible builds
     let dir = path.read_dir().unwrap();
