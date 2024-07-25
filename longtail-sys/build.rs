@@ -308,7 +308,8 @@ fn vendored() {
 
     if windows {
         cfg.flag("/arch:AVX2");
-        cfg.compile("longtail");
+        cfg.static_crt(true);
+        let _ = cfg.try_compile("longtail-cc");
     } else {
         cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
         cfg.flag("-std=gnu99")
@@ -321,7 +322,7 @@ fn vendored() {
             .flag("-mvaes")
             .flag("-maes")
             .flag("-fno-asynchronous-unwind-tables")
-            .compile("longtail");
+            .compile("longtail-cc");
     }
 
     let longtail_header_path = include.join("src").join("longtail.h");
