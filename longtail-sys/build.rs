@@ -301,23 +301,16 @@ fn vendored() {
         cfg.file("longtail/lib/blake3/ext/blake3_neon.c");
     }
 
+    if profile == "debug" {
+        cfg.define("LONGTAIL_ASSERTS", None)
+            .define("BIKESHED_ASSERTS", None);
+    }
+
     if windows {
-        if profile == "release" {
-            cfg.flag("/O3");
-        } else {
-            cfg.flag("/DLONGTAIL_ASSERTS=1")
-                .flag("/DBIKESHED_ASSERTS=1");
-        }
         cfg.flag("/arch:AVX2");
         cfg.compile("longtail");
     } else {
         cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
-        if profile == "release" {
-            cfg.flag("-O3");
-        } else {
-            cfg.flag("-DLONGTAIL_ASSERTS=1")
-                .flag("-DBIKESHED_ASSERTS=1");
-        }
         cfg.flag("-std=gnu99")
             .flag("-g")
             .flag("-pthread")
