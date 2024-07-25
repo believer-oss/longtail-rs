@@ -261,43 +261,78 @@ fn vendored() {
     let windows = target.contains("windows");
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
     let include = dst.join("include");
+
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
     fs::create_dir_all(&include).unwrap();
 
+    // Copy the headers into OUT_DIR/include/...
     cp_r_include("longtail/src", include.join("src"));
     cp_r_include("longtail/lib", include.join("lib"));
 
+    // Add the include directory to the search path, and set the output directory
     cfg.include(&include).out_dir(dst.join("build"));
-    add_c_files(&mut cfg, "longtail/src");
+
+    // This should match the build order of the upstream build fairly well,
+    // though the build flags are not individually passed for each section.
+    // See:
+    //  https://github.com/DanEngelbrecht/longtail/blob/v0.4.2/all_sources.sh#L63-L70
+    //  https://github.com/DanEngelbrecht/longtail/blob/v0.4.2/static_lib/build.sh#L69-L96
+
+    // THIRDPARTY_SRC
     add_c_files(&mut cfg, "longtail/src/ext");
-    add_c_files(&mut cfg, "longtail/lib");
-
-    for (module, _header) in EXTRA_HEADERS.iter() {
-        add_c_files(&mut cfg, &format!("longtail/lib/{}", module));
-    }
-
+    cfg.file("longtail/lib/blake3/ext/blake3.c");
+    cfg.file("longtail/lib/blake3/ext/blake3_dispatch.c");
+    cfg.file("longtail/lib/blake3/ext/blake3_portable.c");
+    add_c_files(&mut cfg, "longtail/lib/lz4/ext");
     add_c_files(&mut cfg, "longtail/lib/brotli/ext/common");
     add_c_files(&mut cfg, "longtail/lib/brotli/ext/dec");
     add_c_files(&mut cfg, "longtail/lib/brotli/ext/enc");
-
-    add_c_files(&mut cfg, "longtail/lib/lz4/ext");
-
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/common");
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/compress");
     add_c_files(&mut cfg, "longtail/lib/zstd/ext/decompress");
 
-    cfg.file("longtail/lib/blake2/ext/blake2s.c");
-    cfg.file("longtail/lib/blake3/ext/blake3.c");
-    cfg.file("longtail/lib/blake3/ext/blake3_dispatch.c");
-    cfg.file("longtail/lib/blake3/ext/blake3_portable.c");
+    // SRC
+    add_c_files(&mut cfg, "longtail/src");
+    add_c_files(&mut cfg, "longtail/lib/filestorage");
+    add_c_files(&mut cfg, "longtail/lib/archiveblockstore");
+    add_c_files(&mut cfg, "longtail/lib/atomiccancel");
+    add_c_files(&mut cfg, "longtail/lib/blockstorestorage");
+    add_c_files(&mut cfg, "longtail/lib/compressblockstore");
+    add_c_files(&mut cfg, "longtail/lib/concurrentchunkwrite");
+    add_c_files(&mut cfg, "longtail/lib/cacheblockstore");
+    add_c_files(&mut cfg, "longtail/lib/shareblockstore");
+    add_c_files(&mut cfg, "longtail/lib");
+    add_c_files(&mut cfg, "longtail/lib/fsblockstore");
+    add_c_files(&mut cfg, "longtail/lib/hpcdcchunker");
+    add_c_files(&mut cfg, "longtail/lib/lrublockstore");
+    add_c_files(&mut cfg, "longtail/lib/memstorage");
+    add_c_files(&mut cfg, "longtail/lib/memtracer");
+    add_c_files(&mut cfg, "longtail/lib/ratelimitedprogress");
+    add_c_files(&mut cfg, "longtail/lib/compressionregistry");
+    add_c_files(&mut cfg, "longtail/lib/hashregistry");
+    add_c_files(&mut cfg, "longtail/lib/bikeshed");
+    add_c_files(&mut cfg, "longtail/lib/blake2");
+    add_c_files(&mut cfg, "longtail/lib/blake3");
+    add_c_files(&mut cfg, "longtail/lib/meowhash");
+    add_c_files(&mut cfg, "longtail/lib/lz4");
+    add_c_files(&mut cfg, "longtail/lib/brotli");
+    add_c_files(&mut cfg, "longtail/lib/zstd");
 
     if arch == "x86_64" {
+        // THIRDPARTY_SSE
+        add_c_files(&mut cfg, "longtail/lib/blake2/ext");
         cfg.file("longtail/lib/blake3/ext/blake3_sse2.c");
         cfg.file("longtail/lib/blake3/ext/blake3_sse41.c");
+
+        // THIRDPARTY_SSE42
+        // THIRDPARTY_SRC_AVX2
         cfg.file("longtail/lib/blake3/ext/blake3_avx2.c");
+
+        // THIRDPARTY_SRC_AVX512
         cfg.file("longtail/lib/blake3/ext/blake3_avx512.c");
     } else if arch == "aarch64" {
+        // THIRDPARTY_SRC_NEON
         cfg.file("longtail/lib/blake3/ext/blake3_neon.c");
     }
 
@@ -307,9 +342,15 @@ fn vendored() {
     }
 
     if windows {
-        cfg.flag("/arch:AVX2");
+        cfg.flag("/arch:AVX512");
         cfg.static_crt(true);
-        let _ = cfg.try_compile("longtail-cc");
+        match cfg.try_compile("longtail-cc") {
+            Ok(_) => {}
+            Err(e) => {
+                println!("cargo:warning=Failed to compile");
+                println!("cargo:warning={:?}", e);
+            }
+        }
     } else {
         cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
         cfg.flag("-std=gnu99")
