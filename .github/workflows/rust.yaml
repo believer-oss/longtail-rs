@@ -1,6 +1,8 @@
 name: "Test Suite"
 on:
   push:
+    branches:
+      - "main"
   pull_request:
 
 concurrency:
@@ -19,19 +21,6 @@ jobs:
           ./mkdata.sh
       - run: cargo test
 
-  # Check formatting with rustfmt
-  formatting:
-    name: cargo fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Ensure rustfmt is installed and setup problem matcher
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          components: rustfmt
-      - name: Rustfmt Check
-        uses: actions-rust-lang/rustfmt@v1
-
   test-windows:
     name: windows - cargo test
     runs-on: windows-latest
@@ -42,3 +31,16 @@ jobs:
           pushd test-data
           ./mkdata.ps1
       - run: cargo test
+
+  # Check formatting with rustfmt
+  formatting:
+    name: common - cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Ensure rustfmt is installed and setup problem matcher
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Rustfmt Check
+        uses: actions-rust-lang/rustfmt@v1
