@@ -256,9 +256,9 @@ fn vendored() {
     setup_submodule();
 
     let profile = env::var("PROFILE").unwrap();
-    let target = env::var("TARGET").unwrap();
+    // let target = env::var("TARGET").unwrap();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let windows = target.contains("windows");
+    // let windows = target.contains("windows");
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
     let include = dst.join("include");
 
