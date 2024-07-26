@@ -30,6 +30,7 @@ pub fn downsync(
     cache_target_index: bool,
     enable_file_mapping: bool,
     _use_legacy_write: bool,
+    progress_api: Option<Box<dyn ProgressAPI>>,
 ) -> Result<(), i32> {
     // Setup the longtail environment
     let jobs = BikeshedJobAPI::new(workers as u32, 1);
@@ -273,13 +274,17 @@ pub fn downsync(
 
     // Setup prerequisites for writing to the target folder
     info!("Setting up target folder writing");
-    struct ProgressHandler {}
-    impl ProgressAPI for ProgressHandler {
-        fn on_progress(&self, _total_count: u32, _done_count: u32) {
-            info!("Downsync Progress: {}/{}", _done_count, _total_count);
+
+    let progress_api = progress_api.unwrap_or_else(|| {
+        struct ProgressHandler {}
+        impl ProgressAPI for ProgressHandler {
+            fn on_progress(&self, _total_count: u32, _done_count: u32) {
+                info!("Downsync Progress: {}/{}", _done_count, _total_count);
+            }
         }
-    }
-    let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
+        Box::new(ProgressHandler {})
+    });
+    let progress = ProgressAPIProxy::new(progress_api);
 
     // Unused now
     let concurrent_chunk_write_api = ConcurrentChunkWriteAPI::new(
@@ -413,7 +418,11 @@ pub fn downsync(
     Ok(())
 }
 
-pub fn get(url: &str, target_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn get(
+    url: &str,
+    target_path: &str,
+    progress_api: Option<Box<dyn ProgressAPI>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let buf = read_from_uri(url, None)?;
     let s = std::str::from_utf8(&buf)?;
     let json = serde_json::from_str::<serde_json::Value>(s)?;
@@ -438,6 +447,7 @@ pub fn get(url: &str, target_path: &str) -> Result<(), Box<dyn std::error::Error
         false,
         false,
         false,
+        progress_api,
     )
     .map_err(|err| {
         let err = format!("failed to downsync: {}", err);

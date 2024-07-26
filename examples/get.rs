@@ -27,5 +27,5 @@ fn main() {
 
     let args = Args::parse();
     let source_path = args.source_paths[0].clone();
-    get(&source_path, &args.target_path).unwrap();
+    get(&source_path, &args.target_path, None).unwrap();
 }
