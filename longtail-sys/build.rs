@@ -294,8 +294,7 @@ fn vendored() {
     // Add the include directory to the search path, and set the output directory
     cfg.include(&include).out_dir(dst.join("build"));
 
-    // This should match the build order of the upstream build fairly well,
-    // though the build flags are not individually passed for each section.
+    // This should match the build order of the upstream build fairly well.
     // See:
     //  https://github.com/DanEngelbrecht/longtail/blob/v0.4.2/all_sources.sh#L63-L70
     //  https://github.com/DanEngelbrecht/longtail/blob/v0.4.2/static_lib/build.sh#L69-L96
