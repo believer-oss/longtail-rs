@@ -431,7 +431,7 @@ pub fn get(
     let storage_uri = json["storage-uri"].as_str().unwrap();
     let version_local_store_index_path = json["version-local-store-index-path"].as_str().unwrap();
     downsync(
-        4,
+        32,
         storage_uri,
         "",
         &[source_path.to_string()],
