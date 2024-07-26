@@ -7,7 +7,7 @@ chmod +x longtail
 rm -rf small medium large
 
 mkdir small
-pushd small
+pushd small || exit
 
 rm -rf local-store-index/ storage/ target-path/ testdir/
 
@@ -29,3 +29,6 @@ echo -n "another test" >testdir/testfile
   --target-path target-path/testdir2.lvi \
   --version-local-store-index-path local-store-index/testdir2.lvi \
   --storage-uri storage/testdir/
+
+# No clue why longtail isn't cleaning up this lock file on linux
+rm -f storage/testdir/store.lsi.sync

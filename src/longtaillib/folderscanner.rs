@@ -94,6 +94,7 @@ impl Iterator for FileInfosIterator<'_> {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct FolderScanner {
     file_infos: FileInfos,
     elapsed: std::time::Duration,
