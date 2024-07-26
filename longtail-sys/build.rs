@@ -330,7 +330,7 @@ fn vendored() {
         cfg.file("longtail/lib/blake3/ext/blake3_avx2.c");
 
         // THIRDPARTY_SRC_AVX512
-        cfg.file("longtail/lib/blake3/ext/blake3_avx512.c");
+        // cfg.file("longtail/lib/blake3/ext/blake3_avx512.c");
     } else if arch == "aarch64" {
         // THIRDPARTY_SRC_NEON
         cfg.file("longtail/lib/blake3/ext/blake3_neon.c");
@@ -342,7 +342,8 @@ fn vendored() {
     }
 
     if windows {
-        cfg.flag("/arch:AVX512");
+        // cfg.flag("/arch:AVX512");
+        cfg.flag("/arch:AVX2");
         cfg.static_crt(true);
         match cfg.try_compile("longtail-cc") {
             Ok(_) => {}
@@ -358,8 +359,8 @@ fn vendored() {
             .flag("-pthread")
             .flag("-msse4.2")
             .flag("-mavx2")
-            .flag("-mavx512vl")
-            .flag("-mavx512f")
+            // .flag("-mavx512vl")
+            // .flag("-mavx512f")
             .flag("-mvaes")
             .flag("-maes")
             .flag("-fno-asynchronous-unwind-tables")
