@@ -266,6 +266,27 @@ fn vendored() {
     cfg.warnings(false);
     fs::create_dir_all(&include).unwrap();
 
+    // Setup default build flags
+    #[cfg(target_env = "msvc")]
+    cfg.static_crt(true);
+    if arch == "x86_64" {
+        #[cfg(target_env = "msvc")]
+        cfg.flag("/arch:AVX");
+        #[cfg(not(target_env = "msvc"))]
+        cfg.flag("-std=gnu99")
+            .flag("-g")
+            .flag("-pthread")
+            .flag("-maes")
+            .flag("-mssse3")
+            .flag("-msse4.1");
+    } else if arch == "aarch64" {
+        cfg.flag("-march=armv8-a+crc+simd"); // untested, probably wrong
+    }
+
+    // MSVC doesn't support this asm?
+    #[cfg(not(target_env = "msvc"))]
+    cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
+
     // Copy the headers into OUT_DIR/include/...
     cp_r_include("longtail/src", include.join("src"));
     cp_r_include("longtail/lib", include.join("lib"));
@@ -327,10 +348,26 @@ fn vendored() {
 
         // THIRDPARTY_SSE42
         // THIRDPARTY_SRC_AVX2
-        cfg.file("longtail/lib/blake3/ext/blake3_avx2.c");
+        let mut cfg_avx2 = cfg.clone();
+        #[cfg(target_env = "msvc")]
+        cfg_avx2.flag("/arch:AVX2");
+        #[cfg(not(target_env = "msvc"))]
+        cfg_avx2.flag("-msse4.2").flag("-mavx2");
+        cfg_avx2.file("longtail/lib/blake3/ext/blake3_avx2.c");
+        cfg_avx2.compile("longtail-cc-avx2");
 
         // THIRDPARTY_SRC_AVX512
-        // cfg.file("longtail/lib/blake3/ext/blake3_avx512.c");
+        let mut cfg_avx512 = cfg_avx2.clone();
+        #[cfg(target_env = "msvc")]
+        cfg_avx512.flag("/arch:AVX512");
+        #[cfg(not(target_env = "msvc"))]
+        cfg_avx512
+            .flag("-mavx512vl")
+            .flag("-mavx512f")
+            .flag("-mvaes")
+            .flag("-fno-asynchronous-unwind-tables");
+        cfg_avx512.file("longtail/lib/blake3/ext/blake3_avx512.c");
+        cfg_avx512.compile("longtail-cc-avx512");
     } else if arch == "aarch64" {
         // THIRDPARTY_SRC_NEON
         cfg.file("longtail/lib/blake3/ext/blake3_neon.c");
@@ -341,30 +378,12 @@ fn vendored() {
             .define("BIKESHED_ASSERTS", None);
     }
 
-    if windows {
-        // cfg.flag("/arch:AVX512");
-        cfg.flag("/arch:AVX2");
-        cfg.static_crt(true);
-        match cfg.try_compile("longtail-cc") {
-            Ok(_) => {}
-            Err(e) => {
-                println!("cargo:warning=Failed to compile");
-                println!("cargo:warning={:?}", e);
-            }
+    match cfg.try_compile("longtail-cc") {
+        Ok(_) => {}
+        Err(e) => {
+            println!("cargo:warning=Failed to compile");
+            println!("cargo:warning={:?}", e);
         }
-    } else {
-        cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
-        cfg.flag("-std=gnu99")
-            .flag("-g")
-            .flag("-pthread")
-            .flag("-msse4.2")
-            .flag("-mavx2")
-            // .flag("-mavx512vl")
-            // .flag("-mavx512f")
-            .flag("-mvaes")
-            .flag("-maes")
-            .flag("-fno-asynchronous-unwind-tables")
-            .compile("longtail-cc");
     }
 
     let longtail_header_path = include.join("src").join("longtail.h");
