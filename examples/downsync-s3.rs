@@ -97,6 +97,7 @@ fn main() {
         args.cache_target_index,
         args.enable_file_mapping,
         args.use_legacy_write,
+        None,
     )
     .unwrap();
 }
