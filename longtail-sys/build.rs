@@ -245,10 +245,8 @@ fn upstream_dist() {
         // Unwrap the Result and panic on failure.
         .expect("Unable to generate bindings");
 
-    // Write the bindings to the $OUT_DIR/bindings.rs file.
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(dst.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }
 
@@ -260,11 +258,13 @@ fn vendored() {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     // let windows = target.contains("windows");
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let include = dst.join("include");
 
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
-    fs::create_dir_all(&include).unwrap();
+
+    // Disable warnings for mismatched declarations, because longtail redefines free's signature
+    #[cfg(not(target_env = "msvc"))]
+    cfg.flag("-Wno-builtin-declaration-mismatch");
 
     // Setup default build flags
     #[cfg(target_env = "msvc")]
@@ -287,12 +287,10 @@ fn vendored() {
     #[cfg(not(target_env = "msvc"))]
     cfg.file("longtail/lib/zstd/ext/decompress/huf_decompress_amd64.S");
 
-    // Copy the headers into OUT_DIR/include/...
-    cp_r_include("longtail/src", include.join("src"));
-    cp_r_include("longtail/lib", include.join("lib"));
-
     // Add the include directory to the search path, and set the output directory
-    cfg.include(&include).out_dir(dst.join("build"));
+    cfg.out_dir(dst.join("build"))
+        .include("longtail/src/")
+        .include("longtail/lib/");
 
     // This should match the build order of the upstream build fairly well.
     // See:
@@ -347,16 +345,22 @@ fn vendored() {
 
         // THIRDPARTY_SSE42
         // THIRDPARTY_SRC_AVX2
-        let mut cfg_avx2 = cfg.clone();
+        let mut cfg_avx2 = cc::Build::new();
         #[cfg(target_env = "msvc")]
         cfg_avx2.flag("/arch:AVX2");
         #[cfg(not(target_env = "msvc"))]
         cfg_avx2.flag("-msse4.2").flag("-mavx2");
+
+        cfg_avx2
+            .warnings(false)
+            .out_dir(dst.join("build"))
+            .include("longtail/src/")
+            .include("longtail/lib/");
         cfg_avx2.file("longtail/lib/blake3/ext/blake3_avx2.c");
         cfg_avx2.compile("longtail-cc-avx2");
 
         // THIRDPARTY_SRC_AVX512
-        let mut cfg_avx512 = cfg_avx2.clone();
+        let mut cfg_avx512 = cc::Build::new();
         #[cfg(target_env = "msvc")]
         cfg_avx512.flag("/arch:AVX512");
         #[cfg(not(target_env = "msvc"))]
@@ -365,6 +369,12 @@ fn vendored() {
             .flag("-mavx512f")
             .flag("-mvaes")
             .flag("-fno-asynchronous-unwind-tables");
+
+        cfg_avx512
+            .warnings(false)
+            .out_dir(dst.join("build"))
+            .include("longtail/src/")
+            .include("longtail/lib/");
         cfg_avx512.file("longtail/lib/blake3/ext/blake3_avx512.c");
         cfg_avx512.compile("longtail-cc-avx512");
     } else if arch == "aarch64" {
@@ -385,11 +395,11 @@ fn vendored() {
         }
     }
 
-    let longtail_header_path = include.join("src").join("longtail.h");
+    let longtail_header_path = PathBuf::from("longtail/src/longtail.h");
     let longtail_header_path_str = longtail_header_path
         .to_str()
         .expect("Path is not a valid string");
-    let libdir_path = include.join("lib");
+    let libdir_path = PathBuf::from("longtail/lib");
 
     let builder = bindgen::Builder::default().header(longtail_header_path_str);
 
@@ -445,28 +455,9 @@ fn vendored() {
         .expect("Unable to generate bindings");
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(dst.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-}
-
-fn cp_r_include(from: impl AsRef<Path>, to: impl AsRef<Path>) {
-    for e in from.as_ref().read_dir().unwrap() {
-        let e = e.unwrap();
-        let from = e.path();
-        let to = to.as_ref().join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            fs::create_dir_all(&to).unwrap();
-            cp_r_include(&from, &to);
-        } else {
-            if !e.file_name().to_string_lossy().ends_with(".h") {
-                continue;
-            }
-            println!("{} => {}", from.display(), to.display());
-            fs::copy(&from, &to).unwrap();
-        }
-    }
 }
 
 fn add_c_files(build: &mut cc::Build, path: impl AsRef<Path>) {
