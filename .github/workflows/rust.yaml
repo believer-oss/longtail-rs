@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   test-linux:
-    name: linux - cargo test
+    name: cargo test - linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
       - run: cargo test
 
   test-windows:
-    name: windows - cargo test
+    name: cargo test - windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +40,7 @@ jobs:
 
   # Check formatting with rustfmt
   formatting:
-    name: common - cargo fmt
+    name: cargo clippy and fmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
