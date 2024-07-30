@@ -2,7 +2,11 @@ use std::io::Write;
 
 use aws_sdk_s3::Client as S3Client;
 
-use crate::{BlobClient, BlobObject, BlobStore};
+use crate::{
+    BlobClient,
+    BlobObject,
+    BlobStore,
+};
 
 #[derive(Debug, Clone)]
 pub struct S3Options {
@@ -66,8 +70,8 @@ struct S3BlobClient {
 }
 
 impl BlobClient for S3BlobClient {
-    // New objects are always rooted unter the storages prefix, but allow the prefix to be
-    // stripped if it's passed in.
+    // New objects are always rooted unter the storages prefix, but allow the prefix
+    // to be stripped if it's passed in.
     fn new_object(
         &self,
         object_key: String,

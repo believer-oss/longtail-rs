@@ -15,10 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+
       - run: |
           pushd test-data
           ./mkdata.sh
+
       - run: cargo test
 
   test-windows:
@@ -26,10 +29,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+
       - run: |
           pushd test-data
           ./mkdata.ps1
+
       - run: cargo test
 
   # Check formatting with rustfmt
@@ -38,9 +44,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       # Ensure rustfmt is installed and setup problem matcher
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          components: rustfmt
+          toolchain: nightly
+          components: rustfmt, clippy
+
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
+
+      - name: Clippy
+        run: cargo clippy
+
+      - name: Clippy of tests
+        run: cargo clippy --tests

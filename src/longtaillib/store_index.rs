@@ -1,7 +1,13 @@
 use crate::*;
 use std::{
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    ops::{
+        Deref,
+        DerefMut,
+    },
+    sync::{
+        Arc,
+        Mutex,
+    },
 };
 
 #[repr(C)]
@@ -14,7 +20,8 @@ pub struct StoreIndex {
 impl Drop for StoreIndex {
     fn drop(&mut self) {
         tracing::debug!("Dropping StoreIndex");
-        // unsafe { Longtail_Free((self.store_index as *mut c_char) as *mut std::ffi::c_void) };
+        // unsafe { Longtail_Free((self.store_index as *mut c_char) as *mut
+        // std::ffi::c_void) };
     }
 }
 
@@ -192,10 +199,10 @@ impl StoreIndex {
     }
 
     // TODO: Need BlockIndex struct
-    // pub fn new_from_blocks(block_indexes: Vec<BlockIndex>) -> Result<StoreIndex, i32> {
-    //     let mut store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
-    //     let result = unsafe { Longtail_CreateStoreIndexFromBlocks() };
-    //     if result != 0 {
+    // pub fn new_from_blocks(block_indexes: Vec<BlockIndex>) -> Result<StoreIndex,
+    // i32> {     let mut store_index =
+    // std::ptr::null_mut::<Longtail_StoreIndex>();     let result = unsafe {
+    // Longtail_CreateStoreIndexFromBlocks() };     if result != 0 {
     //         return Err(result);
     //     }
     //     Ok(StoreIndex {
@@ -243,8 +250,8 @@ impl StoreIndex {
     }
 }
 
-// FIXME: This generates an invalid StoreIndex by default, which doesn't seem right, but is used in
-// the golang code. This should be fixed.
+// FIXME: This generates an invalid StoreIndex by default, which doesn't seem
+// right, but is used in the golang code. This should be fixed.
 impl Default for StoreIndex {
     fn default() -> Self {
         Self::new()

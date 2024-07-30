@@ -3,8 +3,10 @@ mod common;
 use common::version_index_from_file;
 use itertools::izip;
 use longtail::*;
-use longtail_sys::permissions_to_string;
-use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
+use longtail_sys::{
+    permissions_to_string,
+    LONGTAIL_LOG_LEVEL_DEBUG,
+};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -51,11 +53,12 @@ fn main() {
         &version_index,
     );
 
-    // TODO: Need to understand if the blockstore should be recursing here... Leaving unsafe for
-    // now.
-    // This is the implementation of the ls command ported from golongtail. It doesn't recurse, and
-    // I'm not sure why? It is/may be important because it loops through the blockstore layer.
-    // The golongtail binary exhibits the same behavior.
+    // TODO: Need to understand if the blockstore should be recursing here...
+    // Leaving unsafe for now.
+    // This is the implementation of the ls command ported from golongtail. It
+    // doesn't recurse, and I'm not sure why? It is/may be important because it
+    // loops through the blockstore layer. The golongtail binary exhibits the
+    // same behavior.
     println!("-----------------------------");
     println!("Listing files in blockstore");
     match block_store.start_find("") {

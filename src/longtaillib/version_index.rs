@@ -1,10 +1,22 @@
 use crate::{
-    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
-    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
-    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
+    hash::HashType,
+    BikeshedJobAPI,
+    ChunkerAPI,
+    FileInfos,
+    HashAPI,
+    Longtail_CreateVersionIndex,
+    Longtail_Free,
+    Longtail_ProgressAPI,
+    Longtail_ReadVersionIndexFromBuffer,
+    Longtail_VersionIndex,
+    ProgressAPIProxy,
+    StorageAPI,
 };
 use std::{
-    ops::{Deref, DerefMut},
+    ops::{
+        Deref,
+        DerefMut,
+    },
     ptr::null_mut,
 };
 
@@ -109,10 +121,11 @@ impl std::fmt::Debug for VersionIndex {
             (m_chunk_count as usize, false)
         };
         // Fixed? get_chunk_hashes() works now, but do other accessors need to be fixed?
-        // This accessor triggers UB in a test file, but it seems like it could be any of
-        // the slice::from_raw_parts calls.
-        // unsafe precondition(s) violated: slice::from_raw_parts requires the pointer to be
-        // aligned and non-null, and the total size of the slice not to exceed `isize::MAX`
+        // This accessor triggers UB in a test file, but it seems like it could be any
+        // of the slice::from_raw_parts calls.
+        // unsafe precondition(s) violated: slice::from_raw_parts requires the pointer
+        // to be aligned and non-null, and the total size of the slice not to
+        // exceed `isize::MAX`
         //
         let m_chunk_hashes = display_x(chunk_to_show, &self.get_chunk_hashes(), chunk_cont);
         let m_chunk_sizes = display_x(chunk_to_show, &self.get_chunk_sizes(), chunk_cont);

@@ -1,8 +1,14 @@
 use crate::{
-    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
+    HashAPI,
+    Longtail_CreateVersionDiff,
+    Longtail_GetRequiredChunkHashes,
+    Longtail_VersionDiff,
     VersionIndex,
 };
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -13,8 +19,8 @@ pub struct VersionDiff {
 
 // impl Drop for VersionDiff {
 //     fn drop(&mut self) {
-//         // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut Longtail_API) };
-//     }
+//         // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as
+// *mut Longtail_API) };     }
 // }
 impl Deref for VersionDiff {
     type Target = *mut Longtail_VersionDiff;
@@ -116,7 +122,10 @@ impl VersionDiff {
 
 #[cfg(test)]
 mod test {
-    use crate::{HashRegistry, HashType};
+    use crate::{
+        HashRegistry,
+        HashType,
+    };
 
     use super::*;
     use std::io::Read;

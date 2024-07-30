@@ -1,11 +1,24 @@
 use tracing::info;
 
 use crate::{
-    BikeshedJobAPI, ChunkerAPI, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
-    Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy, ProgressAPI,
-    ProgressAPIProxy, StorageAPI, VersionIndex,
+    BikeshedJobAPI,
+    ChunkerAPI,
+    HashAPI,
+    HashRegistry,
+    HashType,
+    Longtail_FileInfos,
+    Longtail_GetFilesRecursively2,
+    Longtail_ProgressAPI,
+    PathFilterAPIProxy,
+    ProgressAPI,
+    ProgressAPIProxy,
+    StorageAPI,
+    VersionIndex,
 };
-use std::{io::Read, ptr::null_mut};
+use std::{
+    io::Read,
+    ptr::null_mut,
+};
 
 #[derive(Debug)]
 pub struct FileInfos(pub *mut Longtail_FileInfos);
@@ -288,8 +301,14 @@ impl VersionIndexReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PathFilterAPI;
-    use crate::{BikeshedJobAPI, HashRegistry, HashType, PathFilterAPIProxy, StorageAPI};
+    use crate::{
+        BikeshedJobAPI,
+        HashRegistry,
+        HashType,
+        PathFilterAPI,
+        PathFilterAPIProxy,
+        StorageAPI,
+    };
     #[derive(Debug)]
     struct TestPathFilter {}
     impl PathFilterAPI for TestPathFilter {

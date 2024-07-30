@@ -1,11 +1,14 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
 // longtail headers are exporting the underlying defines as functions.
-// Another approach was attempted where we could copy the existing defines into header_contents
-// blocks in build.rs, but that is blocked by:
+// Another approach was attempted where we could copy the existing defines into
+// header_contents blocks in build.rs, but that is blocked by:
 // https://github.com/rust-lang/rust-bindgen/pull/2369
 const LONGTAIL_BROTLI_COMPRESSION_TYPE: usize =
     (('b' as usize) << 24) + (('t' as usize) << 16) + (('l' as usize) << 8);

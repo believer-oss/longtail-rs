@@ -1,7 +1,10 @@
 use crate::*;
 use std::{
     ffi::c_char,
-    ops::{Deref, DerefMut},
+    ops::{
+        Deref,
+        DerefMut,
+    },
 };
 
 #[repr(C)]
@@ -264,8 +267,8 @@ impl StorageAPI {
         Ok(())
     }
 
-    // TODO: Not sure this belongs here, because we have COpenFile, but modeling golongtail for
-    // now.
+    // TODO: Not sure this belongs here, because we have COpenFile, but modeling
+    // golongtail for now.
     pub fn get_size(&self, f: COpenFile) -> Result<u64, i32> {
         let mut size = 0;
         let result = unsafe { Longtail_Storage_GetSize(self.storage_api, f.open_file, &mut size) };

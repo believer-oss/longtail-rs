@@ -1,11 +1,22 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
-use tracing::{debug, warn};
+use tracing::{
+    debug,
+    warn,
+};
 
 use crate::{
-    Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
-    Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
-    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_StoreIndex,
+    Longtail_API,
+    Longtail_AsyncFlushAPI,
+    Longtail_AsyncGetExistingContentAPI,
+    Longtail_AsyncGetStoredBlockAPI,
+    Longtail_AsyncPreflightStartedAPI,
+    Longtail_AsyncPruneBlocksAPI,
+    Longtail_AsyncPutStoredBlockAPI,
+    Longtail_StoreIndex,
     Longtail_StoredBlock,
 };
 
@@ -29,7 +40,8 @@ pub struct AsyncGetExistingContentAPIProxy {
 // TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for AsyncGetExistingContentAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -170,7 +182,8 @@ pub struct AsyncPutStoredBlockAPIProxy {
 
 impl Drop for AsyncPutStoredBlockAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -256,7 +269,8 @@ pub struct AsyncPreflightStartedAPIProxy {
 
 impl Drop for AsyncPreflightStartedAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -353,7 +367,8 @@ pub struct AsyncGetStoredBlockAPIProxy {
 // TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for AsyncGetStoredBlockAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -499,7 +514,8 @@ pub struct AsyncPruneBlocksAPIProxy {
 
 impl Drop for AsyncPruneBlocksAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -582,7 +598,8 @@ pub struct AsyncFlushAPIProxy {
 
 impl Drop for AsyncFlushAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 

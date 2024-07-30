@@ -2,29 +2,69 @@ use tracing::debug;
 
 #[allow(unused_imports)]
 use crate::{
-    AsyncFlushAPIProxy, AsyncGetExistingContentAPIProxy, AsyncGetStoredBlockAPIProxy,
-    AsyncPreflightStartedAPIProxy, AsyncPruneBlocksAPIProxy, AsyncPutStoredBlockAPIProxy,
-    BikeshedJobAPI, CompressionRegistry, ConcurrentChunkWriteAPI, HashAPI, Longtail_API,
-    Longtail_Alloc, Longtail_ArchiveIndex, Longtail_AsyncFlushAPI,
-    Longtail_AsyncGetExistingContentAPI, Longtail_AsyncGetStoredBlockAPI,
-    Longtail_AsyncPreflightStartedAPI, Longtail_AsyncPruneBlocksAPI,
-    Longtail_AsyncPutStoredBlockAPI, Longtail_BlockIndex, Longtail_BlockStoreAPI,
-    Longtail_BlockStore_Flush, Longtail_BlockStore_GetExistingContent,
-    Longtail_BlockStore_GetStats, Longtail_BlockStore_GetStoredBlock,
-    Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PruneBlocks,
-    Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats, Longtail_CancelAPI,
-    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion, Longtail_ChangeVersion2,
-    Longtail_CopyBlockIndex, Longtail_CreateArchiveBlockStore, Longtail_CreateBlockStoreStorageAPI,
-    Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
-    Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
-    Longtail_CreateShareBlockStoreAPI, Longtail_DisposeAPI, Longtail_GetBlockIndexSize,
-    Longtail_InitStoredBlockFromData, Longtail_ProgressAPI, Longtail_ReadBlockIndexFromBuffer,
-    Longtail_ReadStoreIndexFromBuffer, Longtail_ReadStoredBlockFromBuffer, Longtail_StorageAPI,
-    Longtail_StoredBlock, Longtail_WriteStoredBlockToBuffer, NativeBuffer, ProgressAPIProxy,
-    StorageAPI, StoreIndex, VersionDiff, VersionIndex,
+    AsyncFlushAPIProxy,
+    AsyncGetExistingContentAPIProxy,
+    AsyncGetStoredBlockAPIProxy,
+    AsyncPreflightStartedAPIProxy,
+    AsyncPruneBlocksAPIProxy,
+    AsyncPutStoredBlockAPIProxy,
+    BikeshedJobAPI,
+    CompressionRegistry,
+    ConcurrentChunkWriteAPI,
+    HashAPI,
+    Longtail_API,
+    Longtail_Alloc,
+    Longtail_ArchiveIndex,
+    Longtail_AsyncFlushAPI,
+    Longtail_AsyncGetExistingContentAPI,
+    Longtail_AsyncGetStoredBlockAPI,
+    Longtail_AsyncPreflightStartedAPI,
+    Longtail_AsyncPruneBlocksAPI,
+    Longtail_AsyncPutStoredBlockAPI,
+    Longtail_BlockIndex,
+    Longtail_BlockStoreAPI,
+    Longtail_BlockStore_Flush,
+    Longtail_BlockStore_GetExistingContent,
+    Longtail_BlockStore_GetStats,
+    Longtail_BlockStore_GetStoredBlock,
+    Longtail_BlockStore_PreflightGet,
+    Longtail_BlockStore_PruneBlocks,
+    Longtail_BlockStore_PutStoredBlock,
+    Longtail_BlockStore_Stats,
+    Longtail_CancelAPI,
+    Longtail_CancelAPI_CancelToken,
+    Longtail_ChangeVersion,
+    Longtail_ChangeVersion2,
+    Longtail_CopyBlockIndex,
+    Longtail_CreateArchiveBlockStore,
+    Longtail_CreateBlockStoreStorageAPI,
+    Longtail_CreateCacheBlockStoreAPI,
+    Longtail_CreateCompressBlockStoreAPI,
+    Longtail_CreateFSBlockStoreAPI,
+    Longtail_CreateLRUBlockStoreAPI,
+    Longtail_CreateShareBlockStoreAPI,
+    Longtail_DisposeAPI,
+    Longtail_GetBlockIndexSize,
+    Longtail_InitStoredBlockFromData,
+    Longtail_ProgressAPI,
+    Longtail_ReadBlockIndexFromBuffer,
+    Longtail_ReadStoreIndexFromBuffer,
+    Longtail_ReadStoredBlockFromBuffer,
+    Longtail_StorageAPI,
+    Longtail_StoredBlock,
+    Longtail_WriteStoredBlockToBuffer,
+    NativeBuffer,
+    ProgressAPIProxy,
+    StorageAPI,
+    StoreIndex,
+    VersionDiff,
+    VersionIndex,
 };
 use std::{
-    ops::{Deref, DerefMut},
+    ops::{
+        Deref,
+        DerefMut,
+    },
     path::Path,
     ptr::null_mut,
 };
@@ -202,7 +242,8 @@ impl Drop for BlockstoreAPI {
             "(Would be) Dropping BlockstoreAPI {:p}",
             self.blockstore_api
         );
-        // unsafe { Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as
+        // *mut Longtail_API) };
     }
 }
 
@@ -364,8 +405,8 @@ impl BlockstoreAPI {
         }
     }
 
-    // TODO: All of these functions that take many arguments would probably benefit from a builder
-    // or something else to make them easier to use.
+    // TODO: All of these functions that take many arguments would probably benefit
+    // from a builder or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
     pub fn change_version(
         &self,
@@ -573,7 +614,8 @@ pub trait Blockstore {
     fn flush(&self, async_complete_api: AsyncFlushAPIProxy) -> Result<(), i32>;
 }
 
-// This proxies a blockstore implementation to the Longtail_BlockStoreAPI C interface.
+// This proxies a blockstore implementation to the Longtail_BlockStoreAPI C
+// interface.
 #[repr(C)]
 #[derive(Debug)]
 pub struct BlockstoreAPIProxy {
@@ -597,7 +639,8 @@ impl DerefMut for BlockstoreAPIProxy {
 impl Drop for BlockstoreAPIProxy {
     fn drop(&mut self) {
         debug!("(Would be) Dropping BlockstoreAPIProxy {:p}", self.context);
-        // let _ = unsafe { Box::from_raw(self.context as *mut Box<dyn Blockstore>) };
+        // let _ = unsafe { Box::from_raw(self.context as *mut Box<dyn
+        // Blockstore>) };
     }
 }
 
@@ -779,13 +822,13 @@ pub unsafe extern "C" fn blockstore_api_flush(
 //         let jobs = crate::BikeshedJobAPI::new(1, 1);
 //         let storage_api = crate::StorageAPI::new_inmem();
 //         let blockstore_api =
-//             crate::BlockstoreAPI::new_fs(&jobs, &storage_api, "content", None, false);
-//         assert!(!blockstore_api.is_null());
+//             crate::BlockstoreAPI::new_fs(&jobs, &storage_api, "content",
+// None, false);         assert!(!blockstore_api.is_null());
 //
 //         let result = unsafe {
 //             let async_complete_api = std::ptr::null_mut();
-//             blockstore_api.put_stored_block(&mut stored_block, async_complete_api)
-//         };
+//             blockstore_api.put_stored_block(&mut stored_block,
+// async_complete_api)         };
 //         assert_eq!(result, Ok(()));
 //     }
 // }
