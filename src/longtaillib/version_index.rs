@@ -1,22 +1,10 @@
 use crate::{
-    hash::HashType,
-    BikeshedJobAPI,
-    ChunkerAPI,
-    FileInfos,
-    HashAPI,
-    Longtail_CreateVersionIndex,
-    Longtail_Free,
-    Longtail_ProgressAPI,
-    Longtail_ReadVersionIndexFromBuffer,
-    Longtail_VersionIndex,
-    ProgressAPIProxy,
-    StorageAPI,
+    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
+    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
+    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
 };
 use std::{
-    ops::{
-        Deref,
-        DerefMut,
-    },
+    ops::{Deref, DerefMut},
     ptr::null_mut,
 };
 

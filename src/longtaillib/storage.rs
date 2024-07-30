@@ -1,10 +1,7 @@
 use crate::*;
 use std::{
     ffi::c_char,
-    ops::{
-        Deref,
-        DerefMut,
-    },
+    ops::{Deref, DerefMut},
 };
 
 #[repr(C)]

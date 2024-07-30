@@ -1,14 +1,8 @@
 use crate::{
-    HashAPI,
-    Longtail_CreateVersionDiff,
-    Longtail_GetRequiredChunkHashes,
-    Longtail_VersionDiff,
+    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
     VersionIndex,
 };
-use std::ops::{
-    Deref,
-    DerefMut,
-};
+use std::ops::{Deref, DerefMut};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -122,10 +116,7 @@ impl VersionDiff {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        HashRegistry,
-        HashType,
-    };
+    use crate::{HashRegistry, HashType};
 
     use super::*;
     use std::io::Read;

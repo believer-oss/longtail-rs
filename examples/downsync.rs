@@ -6,11 +6,7 @@ use std::collections::HashMap;
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
-use tracing::{
-    debug,
-    error,
-    info,
-};
+use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

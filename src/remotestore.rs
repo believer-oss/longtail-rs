@@ -1,46 +1,17 @@
 // use std::{collections::HashMap, path::Path, ptr::null_mut, sync::Mutex};
-use std::{
-    path::Path,
-    ptr::null_mut,
-};
+use std::{path::Path, ptr::null_mut};
 
 use crate::{
-    async_apis::{
-        AsyncGetExistingContentAPI,
-        AsyncPreflightStartedAPI,
-    },
-    read_blob,
-    read_from_uri,
-    AsyncFlushAPIProxy,
-    AsyncGetExistingContentAPIProxy,
-    AsyncGetStoredBlockAPI,
-    AsyncGetStoredBlockAPIProxy,
-    AsyncPreflightStartedAPIProxy,
-    AsyncPruneBlocksAPIProxy,
-    AsyncPutStoredBlockAPI,
-    AsyncPutStoredBlockAPIProxy,
-    BikeshedJobAPI,
-    BlobClient,
-    BlobStore,
-    BlockIndex,
-    Blockstore,
-    BlockstoreAPI,
-    BlockstoreAPIProxy,
-    FsBlobStore,
-    S3BlobStore,
-    S3Options,
-    StorageAPI,
-    StoreIndex,
-    StoredBlock,
+    async_apis::{AsyncGetExistingContentAPI, AsyncPreflightStartedAPI},
+    read_blob, read_from_uri, AsyncFlushAPIProxy, AsyncGetExistingContentAPIProxy,
+    AsyncGetStoredBlockAPI, AsyncGetStoredBlockAPIProxy, AsyncPreflightStartedAPIProxy,
+    AsyncPruneBlocksAPIProxy, AsyncPutStoredBlockAPI, AsyncPutStoredBlockAPIProxy, BikeshedJobAPI,
+    BlobClient, BlobStore, BlockIndex, Blockstore, BlockstoreAPI, BlockstoreAPIProxy, FsBlobStore,
+    S3BlobStore, S3Options, StorageAPI, StoreIndex, StoredBlock,
 };
 
 use http::Uri;
-use tracing::{
-    debug,
-    error,
-    info,
-    warn,
-};
+use tracing::{debug, error, info, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AccessType {
@@ -623,10 +594,7 @@ pub fn create_block_store_for_uri(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        BlobStore,
-        Longtail_StoredBlock,
-    };
+    use crate::{BlobStore, Longtail_StoredBlock};
 
     static BUCKET: &str = "build-artifacts20230504001207614000000001";
     static PREFIX: &str = "cmtest";

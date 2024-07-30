@@ -2,10 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::fmt::{
-    Display,
-    Formatter,
-};
+use std::fmt::{Display, Formatter};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
