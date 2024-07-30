@@ -1,15 +1,8 @@
-use std::ops::{
-    Deref,
-    DerefMut,
-};
+use std::ops::{Deref, DerefMut};
 
 #[allow(unused_imports)]
 use crate::{
-    Longtail_API,
-    Longtail_Alloc,
-    Longtail_Free,
-    Longtail_MakePathFilterAPI,
-    Longtail_PathFilterAPI,
+    Longtail_API, Longtail_Alloc, Longtail_Free, Longtail_MakePathFilterAPI, Longtail_PathFilterAPI,
 };
 
 // Trait for testing the metadata of a file or directory against a filter

@@ -1,9 +1,5 @@
 #[allow(unused_imports)]
-use crate::{
-    Longtail_API,
-    Longtail_DisposeAPI,
-    Longtail_ProgressAPI,
-};
+use crate::{Longtail_API, Longtail_DisposeAPI, Longtail_ProgressAPI};
 
 pub trait ProgressAPI {
     fn on_progress(&self, total_count: u32, done_count: u32);

@@ -2,10 +2,7 @@ use longtail_sys::*;
 
 use std::ffi::c_void;
 
-use strum::{
-    EnumString,
-    FromRepr,
-};
+use strum::{EnumString, FromRepr};
 
 pub mod longtaillib;
 

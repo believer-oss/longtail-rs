@@ -1,39 +1,14 @@
 use crate::{
-    create_block_store_for_uri,
-    get_files_recursively,
-    normalize_file_system_path,
-    read_from_uri,
-    AccessType,
-    BikeshedJobAPI,
-    BlockstoreAPI,
-    ChunkerAPI,
-    CompressionRegistry,
-    ConcurrentChunkWriteAPI,
-    FolderScanner,
-    HashRegistry,
-    HashType,
-    PathFilterAPIProxy,
-    ProgressAPI,
-    ProgressAPIProxy,
-    RegexPathFilter,
-    StorageAPI,
-    StoreIndex,
-    VersionDiff,
-    VersionIndex,
-    VersionIndexReader,
-    LONGTAIL_NO_COMPRESSION_TYPE,
+    create_block_store_for_uri, get_files_recursively, normalize_file_system_path, read_from_uri,
+    AccessType, BikeshedJobAPI, BlockstoreAPI, ChunkerAPI, CompressionRegistry,
+    ConcurrentChunkWriteAPI, FolderScanner, HashRegistry, HashType, PathFilterAPIProxy,
+    ProgressAPI, ProgressAPIProxy, RegexPathFilter, StorageAPI, StoreIndex, VersionDiff,
+    VersionIndex, VersionIndexReader, LONGTAIL_NO_COMPRESSION_TYPE,
 };
 
-use crate::error::{
-    LongtailError,
-    LongtailInternalError,
-};
+use crate::error::{LongtailError, LongtailInternalError};
 use std::collections::HashMap;
-use tracing::{
-    debug,
-    error,
-    info,
-};
+use tracing::{debug, error, info};
 
 #[allow(clippy::too_many_arguments)]
 pub fn downsync(
@@ -450,10 +425,9 @@ pub fn get(
     target_path: &str,
     progress_api: Option<Box<dyn ProgressAPI>>,
 ) -> Result<(), LongtailError> {
-    let buf = read_from_uri(url, None).map_err(|e| LongtailError::Misc(e))?;
-    let s = std::str::from_utf8(&buf).map_err(|e| LongtailError::UTF8Error(e))?;
-    let json =
-        serde_json::from_str::<serde_json::Value>(s).map_err(|e| LongtailError::JSONError(e))?;
+    let buf = read_from_uri(url, None).map_err(LongtailError::Misc)?;
+    let s = std::str::from_utf8(&buf).map_err(LongtailError::UTF8Error)?;
+    let json = serde_json::from_str::<serde_json::Value>(s).map_err(LongtailError::JSONError)?;
 
     let source_path = json["source-path"].as_str().unwrap();
     let storage_uri = json["storage-uri"].as_str().unwrap();

@@ -1,23 +1,13 @@
 use std::{
     collections::HashMap,
     result::Result,
-    sync::{
-        Arc,
-        Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 use thiserror::Error;
-use tracing::{
-    debug,
-    warn,
-};
+use tracing::{debug, warn};
 
-use crate::{
-    BlobClient,
-    BlobObject,
-    BlobStore,
-};
+use crate::{BlobClient, BlobObject, BlobStore};
 
 #[derive(Debug)]
 pub struct MemBlob {

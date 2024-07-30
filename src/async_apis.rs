@@ -1,22 +1,11 @@
-use std::ops::{
-    Deref,
-    DerefMut,
-};
+use std::ops::{Deref, DerefMut};
 
-use tracing::{
-    debug,
-    warn,
-};
+use tracing::{debug, warn};
 
 use crate::{
-    Longtail_API,
-    Longtail_AsyncFlushAPI,
-    Longtail_AsyncGetExistingContentAPI,
-    Longtail_AsyncGetStoredBlockAPI,
-    Longtail_AsyncPreflightStartedAPI,
-    Longtail_AsyncPruneBlocksAPI,
-    Longtail_AsyncPutStoredBlockAPI,
-    Longtail_StoreIndex,
+    Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
+    Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
+    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_StoreIndex,
     Longtail_StoredBlock,
 };
 

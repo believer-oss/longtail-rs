@@ -3,10 +3,7 @@
 use std::collections::HashMap;
 
 use lazy_static::lazy_static;
-use longtail::{
-    BlobStore,
-    MemBlobStore,
-};
+use longtail::{BlobStore, MemBlobStore};
 
 lazy_static! {
     static ref V1_FILES: HashMap<&'static str, &'static str> = HashMap::from([

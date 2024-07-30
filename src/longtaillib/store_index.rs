@@ -1,13 +1,7 @@
 use crate::*;
 use std::{
-    ops::{
-        Deref,
-        DerefMut,
-    },
-    sync::{
-        Arc,
-        Mutex,
-    },
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
 };
 
 #[repr(C)]

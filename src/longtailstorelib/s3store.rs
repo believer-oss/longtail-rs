@@ -2,11 +2,7 @@ use std::io::Write;
 
 use aws_sdk_s3::Client as S3Client;
 
-use crate::{
-    BlobClient,
-    BlobObject,
-    BlobStore,
-};
+use crate::{BlobClient, BlobObject, BlobStore};
 
 #[derive(Debug, Clone)]
 pub struct S3Options {

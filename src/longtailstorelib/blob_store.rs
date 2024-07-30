@@ -3,11 +3,7 @@ use http::Uri;
 
 #[allow(unused_imports)]
 use crate::UNC_PREFIX;
-use crate::{
-    FsBlobStore,
-    S3BlobStore,
-    S3Options,
-};
+use crate::{FsBlobStore, S3BlobStore, S3Options};
 
 pub fn create_blob_store_for_uri(uri: &str, opts: Option<S3Options>) -> Box<dyn BlobStore> {
     match uri {
