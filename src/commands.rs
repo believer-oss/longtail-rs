@@ -9,6 +9,7 @@ use crate::{
     VersionIndex, VersionIndexReader,
 };
 
+use crate::error::{LongtailError, LongtailInternalError};
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 
@@ -422,10 +423,11 @@ pub fn get(
     url: &str,
     target_path: &str,
     progress_api: Option<Box<dyn ProgressAPI>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let buf = read_from_uri(url, None)?;
-    let s = std::str::from_utf8(&buf)?;
-    let json = serde_json::from_str::<serde_json::Value>(s)?;
+) -> Result<(), LongtailError> {
+    let buf = read_from_uri(url, None).map_err(|e| LongtailError::Misc(e))?;
+    let s = std::str::from_utf8(&buf).map_err(|e| LongtailError::UTF8Error(e))?;
+    let json =
+        serde_json::from_str::<serde_json::Value>(s).map_err(|e| LongtailError::JSONError(e))?;
 
     let source_path = json["source-path"].as_str().unwrap();
     let storage_uri = json["storage-uri"].as_str().unwrap();
@@ -449,9 +451,6 @@ pub fn get(
         false,
         progress_api,
     )
-    .map_err(|err| {
-        let err = format!("failed to downsync: {}", err);
-        err
-    })?;
+    .map_err(|err| LongtailError::Internal(LongtailInternalError::new(err)))?;
     Ok(())
 }
