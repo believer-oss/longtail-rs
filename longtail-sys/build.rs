@@ -1,8 +1,18 @@
-use sha2::{Digest, Sha256};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::{env, fs, io};
+use sha2::{
+    Digest,
+    Sha256,
+};
+use std::{
+    env,
+    fs,
+    io,
+    io::Write,
+    path::{
+        Path,
+        PathBuf,
+    },
+    process::Command,
+};
 
 const UPSTREAM_RELEASE_BASE_URL: &str =
     "https://github.com/DanEngelbrecht/longtail/releases/download";
@@ -170,7 +180,8 @@ fn setup_linux_debug(_dst: PathBuf) -> PathBuf {
         .canonicalize()
         .expect("cannot canonicalize path");
 
-    // println!("cargo:rustc-link-search=longtail/build/linux_x64/longtail_static/debug");
+    // println!("cargo:rustc-link-search=longtail/build/linux_x64/longtail_static/
+    // debug");
     println!(
         "cargo:rustc-link-search={}",
         search_path
@@ -181,7 +192,8 @@ fn setup_linux_debug(_dst: PathBuf) -> PathBuf {
     println!("cargo:rustc-link-lib=static=longtail_static");
     // Neither of these worked, ended up making a .cargo/config.toml file
     // println!("cargo:rustc-codegen=relocation-model=dynamic-no-pic");
-    // println!("cargo::rustc-env=CARGO_ENCODED_RUSTFLAGS=-C relocation-model=dynamic-no-pic");
+    // println!("cargo::rustc-env=CARGO_ENCODED_RUSTFLAGS=-C
+    // relocation-model=dynamic-no-pic");
 
     libdir_path
 }
@@ -207,8 +219,8 @@ fn upstream_dist() {
         .expect("Path is not a valid string");
 
     let builder = if windows {
-        // On windows, we need to add the include path for the archiveblockstore to resolve
-        // relative includes of the longtail.h in lib files.
+        // On windows, we need to add the include path for the archiveblockstore to
+        // resolve relative includes of the longtail.h in lib files.
         bindgen::Builder::default()
             .header(longtail_header_path_str)
             .clang_arg(format!(
@@ -262,7 +274,8 @@ fn vendored() {
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
 
-    // Disable warnings for mismatched declarations, because longtail redefines free's signature
+    // Disable warnings for mismatched declarations, because longtail redefines
+    // free's signature
     #[cfg(not(target_env = "msvc"))]
     cfg.flag("-Wno-builtin-declaration-mismatch");
 
@@ -418,6 +431,7 @@ fn vendored() {
         .iter()
         .fold(builder, |builder, header| builder.header(header));
 
+    #[rustfmt::skip]
     // These are implemented in rust currently because the macros are not supported in bindgen
     // https://github.com/rust-lang/rust-bindgen/pull/2369
     // let builder = builder
