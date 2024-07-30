@@ -1,8 +1,15 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 #[allow(unused_imports)]
 use crate::{
-    Longtail_API, Longtail_Alloc, Longtail_Free, Longtail_MakePathFilterAPI, Longtail_PathFilterAPI,
+    Longtail_API,
+    Longtail_Alloc,
+    Longtail_Free,
+    Longtail_MakePathFilterAPI,
+    Longtail_PathFilterAPI,
 };
 
 // Trait for testing the metadata of a file or directory against a filter
@@ -55,8 +62,8 @@ impl Drop for PathFilterAPIProxy {
 }
 
 impl PathFilterAPIProxy {
-    // TODO: Does this need to have it's memory managed by C? It doesn't seem necessary?
-    // implemented using rust to manage this in ProgressAPIProxy.
+    // TODO: Does this need to have it's memory managed by C? It doesn't seem
+    // necessary? implemented using rust to manage this in ProgressAPIProxy.
     pub fn new_proxy_ptr(path_filter: Box<dyn PathFilterAPI>) -> *mut Self {
         let context = Box::into_raw(Box::new(path_filter)) as *mut std::ffi::c_void;
         let api_mem = unsafe {

@@ -53,12 +53,13 @@ struct Args {
     #[clap(name = "exclude-filter-regex", long)]
     exclude_filter_regex: Option<String>,
 
-    /// Enables scanning of target folder before write. Disable it to only add/write content to a
-    /// folder.
+    /// Enables scanning of target folder before write. Disable it to only
+    /// add/write content to a folder.
     #[clap(name = "scan-target", long, default_value = "true")]
     scan_target: bool,
 
-    /// Stores a copy version index for the target folder and uses it if it exists, skipping folder scanning
+    /// Stores a copy version index for the target folder and uses it if it
+    /// exists, skipping folder scanning
     #[clap(name = "cache-target-index", long, default_value = "true")]
     cache_target_index: bool,
 

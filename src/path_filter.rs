@@ -156,8 +156,8 @@ impl PathFilterAPI for RegexPathFilter {
     }
 }
 
-// TODO: This is a direct port from golongtail. Probably better to make this idiomatic rust at some
-// point
+// TODO: This is a direct port from golongtail. Probably better to make this
+// idiomatic rust at some point
 impl RegexPathFilter {
     pub fn new(
         include_filter_regex: Option<String>,

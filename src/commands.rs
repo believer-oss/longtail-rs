@@ -1,17 +1,39 @@
-use crate::LONGTAIL_NO_COMPRESSION_TYPE;
 use crate::{
-    create_block_store_for_uri, get_files_recursively, normalize_file_system_path, read_from_uri,
-};
-use crate::{
-    AccessType, BikeshedJobAPI, BlockstoreAPI, ChunkerAPI, CompressionRegistry,
-    ConcurrentChunkWriteAPI, FolderScanner, HashRegistry, HashType, PathFilterAPIProxy,
-    ProgressAPI, ProgressAPIProxy, RegexPathFilter, StorageAPI, StoreIndex, VersionDiff,
-    VersionIndex, VersionIndexReader,
+    create_block_store_for_uri,
+    get_files_recursively,
+    normalize_file_system_path,
+    read_from_uri,
+    AccessType,
+    BikeshedJobAPI,
+    BlockstoreAPI,
+    ChunkerAPI,
+    CompressionRegistry,
+    ConcurrentChunkWriteAPI,
+    FolderScanner,
+    HashRegistry,
+    HashType,
+    PathFilterAPIProxy,
+    ProgressAPI,
+    ProgressAPIProxy,
+    RegexPathFilter,
+    StorageAPI,
+    StoreIndex,
+    VersionDiff,
+    VersionIndex,
+    VersionIndexReader,
+    LONGTAIL_NO_COMPRESSION_TYPE,
 };
 
-use crate::error::{LongtailError, LongtailInternalError};
+use crate::error::{
+    LongtailError,
+    LongtailInternalError,
+};
 use std::collections::HashMap;
-use tracing::{debug, error, info};
+use tracing::{
+    debug,
+    error,
+    info,
+};
 
 #[allow(clippy::too_many_arguments)]
 pub fn downsync(
@@ -50,8 +72,8 @@ pub fn downsync(
     //  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
 
-    // This creates a callback function that is used to check if a given file should be included or
-    // excluded from the recursive file scan.
+    // This creates a callback function that is used to check if a given file should
+    // be included or excluded from the recursive file scan.
     let regex_path_filter = RegexPathFilter::new(include_filter_regex, exclude_filter_regex)
         .map_err(|err| {
             let err = format!("failed to create regex path filter: {}", err);
@@ -120,21 +142,22 @@ pub fn downsync(
     // TODO: Handle multiple source paths
     //  var sourceVersionIndex longtaillib.Longtail_VersionIndex
     //  for index, sourceFilePath := range sourceFilePaths {
-    //  oneVersionIndex, err := readVersionIndex(sourceFilePath, longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
+    //  oneVersionIndex, err := readVersionIndex(sourceFilePath,
+    // longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
     //  if err != nil {
-    //    err = errors.Wrapf(err, "Cant read version index from `%s`", sourceFilePath)
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
+    //    err = errors.Wrapf(err, "Cant read version index from `%s`",
+    // sourceFilePath)    return storeStats, timeStats, errors.Wrap(err, fname)
     //  }
     //  if index == 0 {
     //    sourceVersionIndex = oneVersionIndex
     //    continue
     //  }
-    //  mergedVersionIndex, err := longtaillib.MergeVersionIndex(sourceVersionIndex, oneVersionIndex)
-    //  if err != nil {
+    //  mergedVersionIndex, err := longtaillib.MergeVersionIndex(sourceVersionIndex,
+    // oneVersionIndex)  if err != nil {
     //    sourceVersionIndex.Dispose()
     //    oneVersionIndex.Dispose()
-    //    err = errors.Wrapf(err, "Cant mnerge version index from `%s`", sourceFilePath)
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
+    //    err = errors.Wrapf(err, "Cant mnerge version index from `%s`",
+    // sourceFilePath)    return storeStats, timeStats, errors.Wrap(err, fname)
     //  }
     //  sourceVersionIndex.Dispose()
     //  oneVersionIndex.Dispose()
@@ -168,8 +191,8 @@ pub fn downsync(
         .expect("Failed to get hash type");
     let target_chunk_size = source_version_index.get_target_chunk_size();
 
-    // This builds an index of the current target directory, which is used to compare against the
-    // source version index.
+    // This builds an index of the current target directory, which is used to
+    // compare against the source version index.
     info!("Building target index");
     let target_index_reader = VersionIndexReader::get_folder_index(
         &resolved_target_folder_path,
@@ -190,10 +213,12 @@ pub fn downsync(
     info!("Setting up local file writing");
     let creg = CompressionRegistry::create_full_compression_registry();
     let localfs = StorageAPI::new_fs();
-    // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the remote index settings
-    // remoteIndexStore, err := remotestore.CreateBlockStoreForURI(blobStoreURI, versionLocalStoreIndexPaths, jobs, numWorkerCount, 8388608, 1024, remotestore.ReadOnly, enableFileMapping, longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
-    // if err != nil {
-    //  return storeStats, timeStats, errors.Wrap(err, fname)
+    // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the
+    // remote index settings remoteIndexStore, err :=
+    // remotestore.CreateBlockStoreForURI(blobStoreURI, versionLocalStoreIndexPaths,
+    // jobs, numWorkerCount, 8388608, 1024, remotestore.ReadOnly, enableFileMapping,
+    // longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI)) if err !=
+    // nil {  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
     // defer remoteIndexStore.Dispose()
     // let fake_remotefs = BlockstoreAPI::new_fs(
@@ -392,10 +417,11 @@ pub fn downsync(
                     let file_permissions = validate_version_index.get_asset_permissions(i as u32);
                     if file_permissions != permissions {
                         // error!(
-                        //     "Validation failed: asset permissions mismatch for `{}`",
-                        //     validate_path
+                        //     "Validation failed: asset permissions mismatch
+                        // for `{}`",     validate_path
                         // );
-                        // error!("Expected: {:o}, Got: {:o}", permissions, file_permissions);
+                        // error!("Expected: {:o}, Got: {:o}", permissions,
+                        // file_permissions);
                         // return Err(-1);
                     }
                 }

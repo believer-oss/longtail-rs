@@ -1,11 +1,14 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
 // longtail headers are exporting the underlying defines as functions.
-// Another approach was attempted where we could copy the existing defines into header_contents
-// blocks in build.rs, but that is blocked by:
+// Another approach was attempted where we could copy the existing defines into
+// header_contents blocks in build.rs, but that is blocked by:
 // https://github.com/rust-lang/rust-bindgen/pull/2369
 const LONGTAIL_MEOW_HASH_TYPE: usize =
     (('m' as usize) << 24) + (('e' as usize) << 16) + (('o' as usize) << 8) + ('w' as usize);
@@ -23,7 +26,8 @@ pub struct HashAPI {
 
 impl Drop for HashAPI {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.hash_api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.hash_api).m_API as *mut
+        // Longtail_API) };
     }
 }
 

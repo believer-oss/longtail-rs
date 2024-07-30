@@ -1,5 +1,9 @@
 #[allow(unused_imports)]
-use crate::{Longtail_API, Longtail_DisposeAPI, Longtail_ProgressAPI};
+use crate::{
+    Longtail_API,
+    Longtail_DisposeAPI,
+    Longtail_ProgressAPI,
+};
 
 pub trait ProgressAPI {
     fn on_progress(&self, total_count: u32, done_count: u32);
@@ -15,7 +19,8 @@ pub struct ProgressAPIProxy {
 // TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for ProgressAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
+        // Longtail_API) };
     }
 }
 

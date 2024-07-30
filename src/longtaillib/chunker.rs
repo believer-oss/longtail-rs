@@ -1,9 +1,18 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 use crate::{
-    Longtail_API, Longtail_ChunkerAPI, Longtail_ConcurrentChunkWriteAPI,
-    Longtail_CreateConcurrentChunkWriteAPI, Longtail_CreateHPCDCChunkerAPI, Longtail_DisposeAPI,
-    StorageAPI, VersionDiff, VersionIndex,
+    Longtail_API,
+    Longtail_ChunkerAPI,
+    Longtail_ConcurrentChunkWriteAPI,
+    Longtail_CreateConcurrentChunkWriteAPI,
+    Longtail_CreateHPCDCChunkerAPI,
+    Longtail_DisposeAPI,
+    StorageAPI,
+    VersionDiff,
+    VersionIndex,
 };
 
 #[repr(C)]

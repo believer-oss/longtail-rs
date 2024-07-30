@@ -3,8 +3,10 @@ mod common;
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
-use longtail_sys::permissions_to_string;
-use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
+use longtail_sys::{
+    permissions_to_string,
+    LONGTAIL_LOG_LEVEL_DEBUG,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -13,7 +15,8 @@ struct Args {
     // #[clap(name = "s3-endpoint-resolver-url", long)]
     // s3_endpoint_resolver_url: Option<String>,
 
-    /// URI to version index (local file system and S3 bucket URI (soon!) supported)
+    /// URI to version index (local file system and S3 bucket URI (soon!)
+    /// supported)
     #[clap(name = "version-index-path", long)]
     version_index_path: String,
 

@@ -1,17 +1,46 @@
 // use std::{collections::HashMap, path::Path, ptr::null_mut, sync::Mutex};
-use std::{path::Path, ptr::null_mut};
+use std::{
+    path::Path,
+    ptr::null_mut,
+};
 
 use crate::{
-    async_apis::{AsyncGetExistingContentAPI, AsyncPreflightStartedAPI},
-    read_blob, read_from_uri, AsyncFlushAPIProxy, AsyncGetExistingContentAPIProxy,
-    AsyncGetStoredBlockAPI, AsyncGetStoredBlockAPIProxy, AsyncPreflightStartedAPIProxy,
-    AsyncPruneBlocksAPIProxy, AsyncPutStoredBlockAPI, AsyncPutStoredBlockAPIProxy, BikeshedJobAPI,
-    BlobClient, BlobStore, BlockIndex, Blockstore, BlockstoreAPI, BlockstoreAPIProxy, FsBlobStore,
-    S3BlobStore, S3Options, StorageAPI, StoreIndex, StoredBlock,
+    async_apis::{
+        AsyncGetExistingContentAPI,
+        AsyncPreflightStartedAPI,
+    },
+    read_blob,
+    read_from_uri,
+    AsyncFlushAPIProxy,
+    AsyncGetExistingContentAPIProxy,
+    AsyncGetStoredBlockAPI,
+    AsyncGetStoredBlockAPIProxy,
+    AsyncPreflightStartedAPIProxy,
+    AsyncPruneBlocksAPIProxy,
+    AsyncPutStoredBlockAPI,
+    AsyncPutStoredBlockAPIProxy,
+    BikeshedJobAPI,
+    BlobClient,
+    BlobStore,
+    BlockIndex,
+    Blockstore,
+    BlockstoreAPI,
+    BlockstoreAPIProxy,
+    FsBlobStore,
+    S3BlobStore,
+    S3Options,
+    StorageAPI,
+    StoreIndex,
+    StoredBlock,
 };
 
 use http::Uri;
-use tracing::{debug, error, info, warn};
+use tracing::{
+    debug,
+    error,
+    info,
+    warn,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AccessType {
@@ -390,8 +419,8 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
 }
 
 impl<S: BlobStore> RemoteBlockStore<S> {
-    // TODO: The on_complete should take the result, instead of the call returning Result for all
-    // of these methods
+    // TODO: The on_complete should take the result, instead of the call returning
+    // Result for all of these methods
     pub fn put_stored_block(
         &self,
         stored_block: StoredBlock,
@@ -445,8 +474,9 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         }
     }
 
-    // NOTE: We don't signal the completion here, since it's handled by the pendingPrefetchedBlock
-    // struct and the fetch_block method... or at least it should be
+    // NOTE: We don't signal the completion here, since it's handled by the
+    // pendingPrefetchedBlock struct and the fetch_block method... or at least
+    // it should be
     pub fn get_stored_block(
         &self,
         block_hash: u64,
@@ -466,14 +496,14 @@ impl<S: BlobStore> RemoteBlockStore<S> {
     }
 
     // TODO: Add prefetching
-    // pub fn fetch_block(&self, block_hash: u64, complete_callback: Box<dyn AsyncGetStoredBlockAPI>) {
-    //     let mut _prefetch_blocks = self.prefetchBlocks.lock().unwrap();
-    //     // if there's an entry, we've already fetched the block
-    //     let prefetched_block = _prefetch_blocks.remove(&block_hash);
-    //     if let Some(prefetched_block) = prefetched_block {
-    //         let stored_block = &prefetched_block.stored_block;
-    //         complete_callback.on_complete(**stored_block, 0);
-    //         return;
+    // pub fn fetch_block(&self, block_hash: u64, complete_callback: Box<dyn
+    // AsyncGetStoredBlockAPI>) {     let mut _prefetch_blocks =
+    // self.prefetchBlocks.lock().unwrap();     // if there's an entry, we've
+    // already fetched the block     let prefetched_block =
+    // _prefetch_blocks.remove(&block_hash);     if let Some(prefetched_block) =
+    // prefetched_block {         let stored_block =
+    // &prefetched_block.stored_block;         complete_callback.on_complete(**
+    // stored_block, 0);         return;
     //     }
     //     let prefetched_block = pending_prefetch_blocks {
     //         stored_block: StoredBlock::new(),
@@ -593,8 +623,10 @@ pub fn create_block_store_for_uri(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BlobStore;
-    use crate::Longtail_StoredBlock;
+    use crate::{
+        BlobStore,
+        Longtail_StoredBlock,
+    };
 
     static BUCKET: &str = "build-artifacts20230504001207614000000001";
     static PREFIX: &str = "cmtest";

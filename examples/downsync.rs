@@ -6,7 +6,11 @@ use std::collections::HashMap;
 use clap::Parser;
 use common::version_index_from_file;
 use longtail::*;
-use tracing::{debug, error, info};
+use tracing::{
+    debug,
+    error,
+    info,
+};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -56,12 +60,13 @@ struct Args {
     #[clap(name = "exclude-filter-regex", long)]
     exclude_filter_regex: Option<String>,
 
-    /// Enables scanning of target folder before write. Disable it to only add/write content to a
-    /// folder.
+    /// Enables scanning of target folder before write. Disable it to only
+    /// add/write content to a folder.
     #[clap(name = "scan-target", long, default_value = "true")]
     scan_target: bool,
 
-    /// Stores a copy version index for the target folder and uses it if it exists, skipping folder scanning
+    /// Stores a copy version index for the target folder and uses it if it
+    /// exists, skipping folder scanning
     #[clap(name = "cache-target-index", long, default_value = "true")]
     cache_target_index: bool,
 
@@ -110,8 +115,8 @@ pub fn downsync(
     //  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
 
-    // This creates a callback function that is used to check if a given file should be included or
-    // excluded from the recursive file scan.
+    // This creates a callback function that is used to check if a given file should
+    // be included or excluded from the recursive file scan.
     let regex_path_filter = RegexPathFilter::new(include_filter_regex, exclude_filter_regex)
         .map_err(|err| {
             let err = format!("failed to create regex path filter: {}", err);
@@ -122,16 +127,17 @@ pub fn downsync(
 
     // TODO: Fixup target-path
     // if targetFolderPath == "" {
-    //  normalizedSourceFilePath := longtailstorelib.NormalizeFileSystemPath(sourceFilePaths[0])
-    //  normalizedSourceFilePath = strings.ReplaceAll(normalizedSourceFilePath, "\\", "/")
-    //  urlSplit := strings.Split(normalizedSourceFilePath, "/")
+    //  normalizedSourceFilePath :=
+    // longtailstorelib.NormalizeFileSystemPath(sourceFilePaths[0])
+    //  normalizedSourceFilePath = strings.ReplaceAll(normalizedSourceFilePath,
+    // "\\", "/")  urlSplit := strings.Split(normalizedSourceFilePath, "/")
     //  sourceName := urlSplit[len(urlSplit)-1]
     //  sourceNameSplit := strings.Split(sourceName, ".")
     //  resolvedTargetFolderPath = sourceNameSplit[0]
     //  if resolvedTargetFolderPath == "" {
-    //    err = fmt.Errorf("unable to resolve target path using `%s` as base", sourceFilePaths[0])
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
-    //  }
+    //    err = fmt.Errorf("unable to resolve target path using `%s` as base",
+    // sourceFilePaths[0])    return storeStats, timeStats, errors.Wrap(err,
+    // fname)  }
     // } else {
     //  resolvedTargetFolderPath = targetFolderPath
     // }
@@ -176,21 +182,22 @@ pub fn downsync(
     // TODO: Handle multiple source paths
     //  var sourceVersionIndex longtaillib.Longtail_VersionIndex
     //  for index, sourceFilePath := range sourceFilePaths {
-    //  oneVersionIndex, err := readVersionIndex(sourceFilePath, longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
+    //  oneVersionIndex, err := readVersionIndex(sourceFilePath,
+    // longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
     //  if err != nil {
-    //    err = errors.Wrapf(err, "Cant read version index from `%s`", sourceFilePath)
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
+    //    err = errors.Wrapf(err, "Cant read version index from `%s`",
+    // sourceFilePath)    return storeStats, timeStats, errors.Wrap(err, fname)
     //  }
     //  if index == 0 {
     //    sourceVersionIndex = oneVersionIndex
     //    continue
     //  }
-    //  mergedVersionIndex, err := longtaillib.MergeVersionIndex(sourceVersionIndex, oneVersionIndex)
-    //  if err != nil {
+    //  mergedVersionIndex, err := longtaillib.MergeVersionIndex(sourceVersionIndex,
+    // oneVersionIndex)  if err != nil {
     //    sourceVersionIndex.Dispose()
     //    oneVersionIndex.Dispose()
-    //    err = errors.Wrapf(err, "Cant mnerge version index from `%s`", sourceFilePath)
-    //    return storeStats, timeStats, errors.Wrap(err, fname)
+    //    err = errors.Wrapf(err, "Cant mnerge version index from `%s`",
+    // sourceFilePath)    return storeStats, timeStats, errors.Wrap(err, fname)
     //  }
     //  sourceVersionIndex.Dispose()
     //  oneVersionIndex.Dispose()
@@ -206,8 +213,8 @@ pub fn downsync(
         .expect("Failed to get hash type");
     let target_chunk_size = source_version_index.get_target_chunk_size();
 
-    // This builds an index of the current target directory, which is used to compare against the
-    // source version index.
+    // This builds an index of the current target directory, which is used to
+    // compare against the source version index.
     info!("Building target index");
     let target_index_reader = VersionIndexReader::get_folder_index(
         resolved_target_folder_path,
@@ -228,10 +235,12 @@ pub fn downsync(
     info!("Setting up local file writing");
     let creg = CompressionRegistry::create_full_compression_registry();
     let localfs = StorageAPI::new_fs();
-    // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the remote index settings
-    // remoteIndexStore, err := remotestore.CreateBlockStoreForURI(blobStoreURI, versionLocalStoreIndexPaths, jobs, numWorkerCount, 8388608, 1024, remotestore.ReadOnly, enableFileMapping, longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI))
-    // if err != nil {
-    //  return storeStats, timeStats, errors.Wrap(err, fname)
+    // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the
+    // remote index settings remoteIndexStore, err :=
+    // remotestore.CreateBlockStoreForURI(blobStoreURI, versionLocalStoreIndexPaths,
+    // jobs, numWorkerCount, 8388608, 1024, remotestore.ReadOnly, enableFileMapping,
+    // longtailutils.WithS3EndpointResolverURI(s3EndpointResolverURI)) if err !=
+    // nil {  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
     // defer remoteIndexStore.Dispose()
     let fake_remotefs = BlockstoreAPI::new_fs(
@@ -242,16 +251,17 @@ pub fn downsync(
         enable_file_mapping,
     );
 
-    // let (compress_block_store, cache_block_store, local_index_store) = match cache_path.is_empty() {
-    //     true => {
-    //         let block_store = BlockstoreAPI::new_compressed(&fake_remotefs, &creg);
-    //         (block_store, None, None)
+    // let (compress_block_store, cache_block_store, local_index_store) = match
+    // cache_path.is_empty() {     true => {
+    //         let block_store = BlockstoreAPI::new_compressed(&fake_remotefs,
+    // &creg);         (block_store, None, None)
     //     }
     //     false => {
     //         let local_index_store =
-    //             BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
-    //         let cache_block_store = BlockstoreAPI::new_compressed(&local_index_store, &creg);
-    //         let block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
+    //             BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""),
+    // enable_file_mapping);         let cache_block_store =
+    // BlockstoreAPI::new_compressed(&local_index_store, &creg);         let
+    // block_store = BlockstoreAPI::new_compressed(&cache_block_store, &creg);
     //         (
     //             block_store,
     //             Some(cache_block_store),
@@ -423,10 +433,11 @@ pub fn downsync(
                     let file_permissions = validate_version_index.get_asset_permissions(i as u32);
                     if file_permissions != permissions {
                         // error!(
-                        //     "Validation failed: asset permissions mismatch for `{}`",
-                        //     validate_path
+                        //     "Validation failed: asset permissions mismatch
+                        // for `{}`",     validate_path
                         // );
-                        // error!("Expected: {:o}, Got: {:o}", permissions, file_permissions);
+                        // error!("Expected: {:o}, Got: {:o}", permissions,
+                        // file_permissions);
                         // return Err(-1);
                     }
                 }

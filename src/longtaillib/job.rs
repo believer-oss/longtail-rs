@@ -1,5 +1,8 @@
 use crate::*;
-use std::ops::{Deref, DerefMut};
+use std::ops::{
+    Deref,
+    DerefMut,
+};
 
 // If we want to implement our own job api, we'll need some changes here...
 
