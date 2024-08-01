@@ -130,6 +130,7 @@ func splitRegexes(regexes string) ([]string, []*regexp.Regexp, error) {
 */
 
 use regex::Regex;
+use tracing::debug;
 
 use crate::PathFilterAPI;
 
@@ -228,7 +229,7 @@ impl RegexPathFilter {
         if let Some(compiled_exclude_regexes) = &self.compiled_exclude_regexes {
             for (i, r) in compiled_exclude_regexes.iter().enumerate() {
                 if r.is_match(asset_path) {
-                    println!(
+                    debug!(
                         "Excluded file `{}` (match for `{}`)",
                         asset_path,
                         self.exclude_regexes.as_ref().unwrap().get(i).unwrap()
@@ -236,7 +237,7 @@ impl RegexPathFilter {
                     return false;
                 }
                 if is_dir && r.is_match(&format!("{}/", asset_path)) {
-                    println!(
+                    debug!(
                         "Excluded dir `{}/` (match for `{}`)",
                         asset_path,
                         self.exclude_regexes.as_ref().unwrap().get(i).unwrap()
@@ -251,7 +252,7 @@ impl RegexPathFilter {
         if let Some(compiled_include_regexes) = &self.compiled_include_regexes {
             for (i, r) in compiled_include_regexes.iter().enumerate() {
                 if r.is_match(asset_path) {
-                    println!(
+                    debug!(
                         "Included file `{}` (match for `{}`)",
                         asset_path,
                         self.include_regexes.as_ref().unwrap().get(i).unwrap()
@@ -259,7 +260,7 @@ impl RegexPathFilter {
                     return true;
                 }
                 if is_dir && r.is_match(&format!("{}/", asset_path)) {
-                    println!(
+                    debug!(
                         "Included dir `{}/` (match for `{}`)",
                         asset_path,
                         self.include_regexes.as_ref().unwrap().get(i).unwrap()
@@ -268,7 +269,7 @@ impl RegexPathFilter {
                 }
             }
         }
-        println!("Skipping `{}`", asset_path);
+        debug!("Skipping `{}`", asset_path);
         false
     }
 }

@@ -32,3 +32,4 @@ echo -n "another test" >testdir/testfile
 
 # No clue why longtail isn't cleaning up this lock file on linux
 rm -f storage/testdir/store.lsi.sync
+popd || exit

@@ -4,6 +4,27 @@ use crate::{
 };
 use std::ops::{Deref, DerefMut};
 
+#[rustfmt::skip]
+// Version Diff API
+// pub fn Longtail_CreateVersionDiff( hash_api: *mut Longtail_HashAPI, source_version: *const Longtail_VersionIndex, target_version: *const Longtail_VersionIndex, out_version_diff: *mut *mut Longtail_VersionDiff,) -> ::std::os::raw::c_int;
+//
+// struct Longtail_VersionDiff
+// {
+//     uint32_t* m_SourceRemovedCount;
+//     uint32_t* m_TargetAddedCount;
+//     uint32_t* m_ModifiedContentCount;
+//     uint32_t* m_ModifiedPermissionsCount;
+//     uint32_t* m_SourceRemovedAssetIndexes;
+//     uint32_t* m_TargetAddedAssetIndexes;
+//     uint32_t* m_SourceContentModifiedAssetIndexes;
+//     uint32_t* m_TargetContentModifiedAssetIndexes;
+//     uint32_t* m_SourcePermissionsModifiedAssetIndexes;
+//     uint32_t* m_TargetPermissionsModifiedAssetIndexes;
+// };
+
+
+/// A version diff in the Longtail API consists of pointers to counters and indexes of removed,
+/// modified, and added assets calculated between two version indexes.
 #[repr(C)]
 #[derive(Clone)]
 pub struct VersionDiff {
@@ -11,11 +32,12 @@ pub struct VersionDiff {
     _pin: std::marker::PhantomPinned,
 }
 
-// impl Drop for VersionDiff {
-//     fn drop(&mut self) {
-//         // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as
-// *mut Longtail_API) };     }
-// }
+impl Drop for VersionDiff {
+    fn drop(&mut self) {
+        // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut Longtail_API) };
+    }
+}
+
 impl Deref for VersionDiff {
     type Target = *mut Longtail_VersionDiff;
     fn deref(&self) -> &Self::Target {
@@ -68,6 +90,7 @@ impl std::fmt::Debug for VersionDiff {
 }
 
 impl VersionDiff {
+    /// Produce a new `VersionDiff` from a source and target version index.
     pub fn diff(
         hash: &HashAPI,
         source_version_index: &VersionIndex,
@@ -91,6 +114,7 @@ impl VersionDiff {
         })
     }
 
+    /// Get the required chunk hashes to update the source version index to this target version
     pub fn get_required_chunk_hashes(
         &self,
         source_version_index: &VersionIndex,

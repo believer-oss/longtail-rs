@@ -1,9 +1,9 @@
-// use crate::*;
-
 pub const UNC_PREFIX: &str = "\\\\?\\";
 const NETWORK_PREFIX: &str = "\\";
 
 // TODO: Not sure if this is the correct implementation...
+/// Normalize a file system path, based on the golongtail code. This function appears to be
+/// primarily used to normalize Windows paths.
 pub fn normalize_file_system_path(path: String) -> String {
     match path {
         path if path.starts_with(UNC_PREFIX) => {

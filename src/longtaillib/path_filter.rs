@@ -5,7 +5,13 @@ use crate::{
     Longtail_API, Longtail_Alloc, Longtail_Free, Longtail_MakePathFilterAPI, Longtail_PathFilterAPI,
 };
 
-// Trait for testing the metadata of a file or directory against a filter
+#[rustfmt::skip]
+// Path Filter API
+// pub fn Longtail_GetPathFilterAPISize() -> u64;
+// pub fn Longtail_MakePathFilterAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, include_filter_func: Longtail_PathFilter_IncludeFunc,) -> *mut Longtail_PathFilterAPI;
+// pub fn Longtail_PathFilter_Include( path_filter_api: *mut Longtail_PathFilterAPI, root_path: *const ::std::os::raw::c_char, asset_path: *const ::std::os::raw::c_char, asset_name: *const ::std::os::raw::c_char, is_dir: ::std::os::raw::c_int, size: u64, permissions: u16,) -> ::std::os::raw::c_int;
+
+/// Trait for testing the metadata of a file or directory against a filter
 pub trait PathFilterAPI: std::fmt::Debug {
     fn include(
         &self,
@@ -18,8 +24,8 @@ pub trait PathFilterAPI: std::fmt::Debug {
     ) -> bool;
 }
 
-// Proxy struct to hold the PathFilterAPI trait object for use in C, and a
-// context pointer to a Box<dyn PathFilterAPI> we create in rust
+/// Proxy struct to hold the PathFilterAPI trait object for use in C, and a
+/// context pointer to a Box<dyn PathFilterAPI> we create in rust.
 #[repr(C)]
 pub struct PathFilterAPIProxy {
     pub api: Longtail_PathFilterAPI,
@@ -40,10 +46,8 @@ impl DerefMut for PathFilterAPIProxy {
     }
 }
 
-// TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for PathFilterAPIProxy {
     fn drop(&mut self) {
-        println!("Dropping PathFilterAPIProxy");
         // Take ownership of the Box<dyn PathFilterAPI> and drop it
         let _ = unsafe { Box::from_raw(self.context as *mut Box<dyn PathFilterAPI>) };
         // Free the C struct
@@ -132,7 +136,6 @@ pub unsafe extern "C" fn path_filter_include(
 
 #[no_mangle]
 pub extern "C" fn path_filter_dispose(api: *mut Longtail_API) {
-    println!("Disposing path filter");
     let context = unsafe { (*(api as *mut PathFilterAPIProxy)).context };
     let _path_filter = unsafe { Box::from_raw(context as *mut Box<dyn PathFilterAPI>) };
 }
