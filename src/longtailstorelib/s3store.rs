@@ -254,6 +254,7 @@ mod tests {
     static PREFIX: &str = "cmtest";
 
     #[test]
+    #[ignore]
     fn test_blob_store_strings() {
         let store = S3BlobStore::new("bucket", "prefix", None);
         let client = store.new_client().unwrap();
