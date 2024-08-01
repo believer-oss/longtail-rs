@@ -1,16 +1,16 @@
 //! # Longtail Bindings for Rust
 //!
-//! These bindings provide a safe interface to the Longtail C API. They are currently incomplete,
-//! with the significant usage only on the ```longtail get``` equivalent command.
+//! These bindings provide a safe interface to the Longtail C API. They are
+//! currently incomplete, with the significant usage only on the ```longtail
+//! get``` equivalent command.
 //!
 //! The bindings are generated using the [bindgen](https://github.com/rust-lang/rust-bindgen) tool,
-//! and the bindings are in the ```longtail_sys``` module. The bindings are then wrapped in a
-//! higher-level Rust API in the ```longtail``` module.
+//! and the bindings are in the ```longtail_sys``` module. The bindings are then
+//! wrapped in a higher-level Rust API in the ```longtail``` module.
 //!
 //! Since this code was originally ported from
 //! [golongtail](https://github.com/DanEngelbrecht/golongtail/), there are many places where the
 //! code be more idiomatic Rust.
-//!
 
 use longtail_sys::*;
 
@@ -43,8 +43,9 @@ mod error;
 
 pub use commands::*;
 
-/// A native buffer that can be used to pass data to and from the Longtail C API. This buffer is
-/// expected to be allocated by the C API and must be freed by calling Longtail_Free(buffer).
+/// A native buffer that can be used to pass data to and from the Longtail C
+/// API. This buffer is expected to be allocated by the C API and must be freed
+/// by calling Longtail_Free(buffer).
 pub(crate) struct NativeBuffer {
     pub buffer: *mut c_void,
     pub size: usize,

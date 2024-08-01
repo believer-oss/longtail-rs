@@ -196,8 +196,8 @@ impl std::fmt::Debug for VersionIndex {
 }
 
 impl VersionIndex {
-    /// Create a new `VersionIndex` from a `FileInfos` struct, by chunking each file and hashing
-    /// the resulting chunks.
+    /// Create a new `VersionIndex` from a `FileInfos` struct, by chunking each
+    /// file and hashing the resulting chunks.
     #[allow(clippy::too_many_arguments)]
     pub fn new_from_fileinfos(
         storage_api: &StorageAPI,

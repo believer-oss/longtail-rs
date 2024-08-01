@@ -34,7 +34,8 @@ pub struct VersionDiff {
 
 impl Drop for VersionDiff {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut Longtail_API) };
+        // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -114,7 +115,8 @@ impl VersionDiff {
         })
     }
 
-    /// Get the required chunk hashes to update the source version index to this target version
+    /// Get the required chunk hashes to update the source version index to this
+    /// target version
     pub fn get_required_chunk_hashes(
         &self,
         source_version_index: &VersionIndex,

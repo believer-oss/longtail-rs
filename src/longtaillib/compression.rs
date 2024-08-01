@@ -84,7 +84,8 @@ const LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE
 pub const LONGTAIL_NO_COMPRESSION_TYPE: u32 = 0;
 
 // TODO: Remove strum dependency
-/// The CompressionType enum represents the different types of compression that can be used.
+/// The CompressionType enum represents the different types of compression that
+/// can be used.
 #[derive(EnumString, FromRepr, Debug, PartialEq)]
 #[repr(usize)]
 pub enum CompressionType {
@@ -116,7 +117,8 @@ pub enum CompressionType {
     ZstdLow = LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE,
 }
 
-/// The Compression API provides functions for compressing and decompressing data.
+/// The Compression API provides functions for compressing and decompressing
+/// data.
 #[repr(C)]
 pub struct CompressionRegistry {
     pub compression_registry: *mut Longtail_CompressionRegistryAPI,

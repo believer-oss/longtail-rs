@@ -66,8 +66,8 @@ impl Drop for BlockstoreAPI {
     fn drop(&mut self) {
         // TODO: Is this needed? It's a small memory leak if so.
         // unsafe {
-        //  Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut Longtail_API)
-        // };
+        //  Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut
+        // Longtail_API) };
     }
 }
 
@@ -85,9 +85,10 @@ impl DerefMut for BlockstoreAPI {
 }
 
 impl BlockstoreAPI {
-    /// Create a Longtail C File System block store. If no block extension is provided, defaults to
-    /// '.lrb' in the C implementation. If enable_file_mapping is true, the C implementation will
-    /// use memory mapping to read files.
+    /// Create a Longtail C File System block store. If no block extension is
+    /// provided, defaults to '.lrb' in the C implementation. If
+    /// enable_file_mapping is true, the C implementation will use memory
+    /// mapping to read files.
     pub fn new_fs(
         jobs: &BikeshedJobAPI,
         storage_api: &StorageAPI,
@@ -116,7 +117,8 @@ impl BlockstoreAPI {
         }
     }
 
-    /// Create a local caching block store that uses a remote block store as the backing store.
+    /// Create a local caching block store that uses a remote block store as the
+    /// backing store.
     pub fn new_cached(
         jobs: &BikeshedJobAPI,
         cache_blockstore: &BlockstoreAPI,
@@ -152,8 +154,9 @@ impl BlockstoreAPI {
         }
     }
 
-    /// Create a shared block store that aggregates multiple gets for the same block into a single
-    /// get. The async on_completion callback will be called once for each get.
+    /// Create a shared block store that aggregates multiple gets for the same
+    /// block into a single get. The async on_completion callback will be
+    /// called once for each get.
     pub fn new_share(backing_blockstore: &BlockstoreAPI) -> BlockstoreAPI {
         let blockstore_api = unsafe { Longtail_CreateShareBlockStoreAPI(**backing_blockstore) };
         BlockstoreAPI {
@@ -162,9 +165,10 @@ impl BlockstoreAPI {
         }
     }
 
-    /// Creates an LRU in-memory cache block store that wraps a backing block store. The cache will
-    /// evict blocks based on the least recently used policy. The max_cache_size is the maximum
-    /// number of blocks to keep in the cache.
+    /// Creates an LRU in-memory cache block store that wraps a backing block
+    /// store. The cache will evict blocks based on the least recently used
+    /// policy. The max_cache_size is the maximum number of blocks to keep
+    /// in the cache.
     pub fn new_lru(backing_blockstore: &BlockstoreAPI, max_cache_size: u32) -> BlockstoreAPI {
         let blockstore_api =
             unsafe { Longtail_CreateLRUBlockStoreAPI(**backing_blockstore, max_cache_size) };
@@ -174,8 +178,8 @@ impl BlockstoreAPI {
         }
     }
 
-    // TODO: This function is unsafe because we haven't wrapped the ArchiveIndex into a safe Rust
-    // struct yet.
+    // TODO: This function is unsafe because we haven't wrapped the ArchiveIndex
+    // into a safe Rust struct yet.
     /// # Safety
     /// This function is unsafe because it dereferences a raw pointer.
     pub unsafe fn new_archive(
@@ -199,8 +203,9 @@ impl BlockstoreAPI {
         }
     }
 
-    /// Create a new block store from a BlockstoreAPIProxy. This allows us to create a new block
-    /// store from a Rust implementation of the block store trait.
+    /// Create a new block store from a BlockstoreAPIProxy. This allows us to
+    /// create a new block store from a Rust implementation of the block
+    /// store trait.
     pub fn new_from_proxy(proxy: Box<BlockstoreAPIProxy>) -> BlockstoreAPI {
         tracing::debug!("Creating new blockstore from proxy: {:p}", proxy);
         let proxy = Box::into_raw(proxy);
@@ -211,8 +216,8 @@ impl BlockstoreAPI {
     }
 
     // TODO: Is this the appropriate place for this function?
-    // TODO: Further testing on ChangeVersion2 is needed. It is not correct on Linux, but may be
-    // fine on Windows.
+    // TODO: Further testing on ChangeVersion2 is needed. It is not correct on
+    // Linux, but may be fine on Windows.
     // TODO: All of these functions that take many arguments would probably benefit
     // from a builder or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
@@ -257,7 +262,8 @@ impl BlockstoreAPI {
     }
 }
 
-// These implementations dispatch the blockstore API calls to the Longtail C API.
+// These implementations dispatch the blockstore API calls to the Longtail C
+// API.
 impl Blockstore for BlockstoreAPI {
     fn get_existing_content(
         &self,
