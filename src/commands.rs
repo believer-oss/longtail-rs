@@ -186,7 +186,7 @@ pub fn downsync(
 
     // Setup prerequisites for local file writing
     info!("Setting up local file writing");
-    let creg = CompressionRegistry::create_full_compression_registry();
+    let creg = CompressionRegistry::new();
     let localfs = StorageAPI::new_fs();
     // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the
     // remote index settings remoteIndexStore, err :=
@@ -207,7 +207,7 @@ pub fn downsync(
     let remote_index_store = create_block_store_for_uri(
         storage_uri,
         version_local_store_index_paths,
-        &jobs,
+        Some(&jobs),
         1,
         AccessType::ReadOnly,
         enable_file_mapping,

@@ -42,7 +42,7 @@ fn main() {
     )
     .unwrap();
     let store_index = store_index;
-    let block_store = BlockstoreAPI::new_block_store(
+    let block_store = StorageAPI::new(
         &hash,
         &jobs,
         &fake_block_store,

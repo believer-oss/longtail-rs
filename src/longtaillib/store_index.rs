@@ -4,6 +4,49 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[rustfmt::skip]
+// Store Index API
+// pub fn Longtail_StoreIndex_GetVersion(store_index: *const Longtail_StoreIndex) -> u32;
+// pub fn Longtail_StoreIndex_GetHashIdentifier(store_index: *const Longtail_StoreIndex) -> u32;
+// pub fn Longtail_StoreIndex_GetBlockCount(store_index: *const Longtail_StoreIndex) -> u32;
+// pub fn Longtail_StoreIndex_GetChunkCount(store_index: *const Longtail_StoreIndex) -> u32;
+// pub fn Longtail_StoreIndex_GetBlockHashes( store_index: *const Longtail_StoreIndex,) -> *const TLongtail_Hash;
+// pub fn Longtail_StoreIndex_GetChunkHashes( store_index: *const Longtail_StoreIndex,) -> *const TLongtail_Hash;
+// pub fn Longtail_StoreIndex_GetBlockChunksOffsets( store_index: *const Longtail_StoreIndex,) -> *const u32;
+// pub fn Longtail_StoreIndex_GetBlockChunkCounts( store_index: *const Longtail_StoreIndex,) -> *const u32;
+// pub fn Longtail_StoreIndex_GetBlockTags(store_index: *const Longtail_StoreIndex) -> *const u32;
+// pub fn Longtail_StoreIndex_GetChunkSizes(store_index: *const Longtail_StoreIndex) -> *const u32;
+// pub fn Longtail_GetStoreIndexSize(block_count: u32, chunk_count: u32) -> usize;
+// pub fn Longtail_CreateStoreIndex( hash_api: *mut Longtail_HashAPI, chunk_count: u32, chunk_hashes: *const TLongtail_Hash, chunk_sizes: *const u32, optional_chunk_tags: *const u32, max_block_size: u32, max_chunks_per_block: u32, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_CreateStoreIndexFromBlocks( block_count: u32, block_indexes: *mut *const Longtail_BlockIndex, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_MergeStoreIndex( local_store_index: *const Longtail_StoreIndex, remote_store_index: *const Longtail_StoreIndex, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_PruneStoreIndex( source_store_index: *const Longtail_StoreIndex, keep_block_count: u32, keep_block_hashes: *const TLongtail_Hash, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_GetExistingStoreIndex( store_index: *const Longtail_StoreIndex, chunk_count: u32, chunks: *const TLongtail_Hash, min_block_usage_percent: u32, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_ValidateStore( store_index: *const Longtail_StoreIndex, version_index: *const Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_CopyStoreIndex( store_index: *const Longtail_StoreIndex,) -> *mut Longtail_StoreIndex;
+// pub fn Longtail_SplitStoreIndex( store_index: *mut Longtail_StoreIndex, split_size: usize, out_store_indexes: *mut *mut *mut Longtail_StoreIndex, out_count: *mut u64,) -> ::std::os::raw::c_int;
+// pub fn Longtail_WriteStoreIndexToBuffer( store_index: *const Longtail_StoreIndex, out_buffer: *mut *mut ::std::os::raw::c_void, out_size: *mut usize,) -> ::std::os::raw::c_int;
+// pub fn Longtail_ReadStoreIndexFromBuffer( buffer: *const ::std::os::raw::c_void, size: usize, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_WriteStoreIndex( storage_api: *mut Longtail_StorageAPI, store_index: *mut Longtail_StoreIndex, path: *const ::std::os::raw::c_char,) -> ::std::os::raw::c_int;
+// pub fn Longtail_ReadStoreIndex( storage_api: *mut Longtail_StorageAPI, path: *const ::std::os::raw::c_char, out_store_index: *mut *mut Longtail_StoreIndex,) -> ::std::os::raw::c_int;
+//
+// struct Longtail_StoreIndex
+// {
+//     uint32_t* m_Version;
+//     uint32_t* m_HashIdentifier;
+//     uint32_t* m_BlockCount;             // Total number of blocks
+//     uint32_t* m_ChunkCount;             // Total number of chunks across all blocks - chunk hashes may occur more than once
+//     TLongtail_Hash* m_BlockHashes;      // [] m_BlockHashes is the hash of each block
+//     TLongtail_Hash* m_ChunkHashes;      // [] For each m_BlockChunkCount[n] there are n consecutive chunk hashes in m_ChunkHashes[]
+//     uint32_t* m_BlockChunksOffsets;     // [] m_BlockChunksOffsets[n] is the offset in m_ChunkSizes[] and m_ChunkHashes[]
+//     uint32_t* m_BlockChunkCounts;       // [] m_BlockChunkCounts[n] is number of chunks in block m_BlockHash[n]
+//     uint32_t* m_BlockTags;              // [] m_BlockTags is the tag for each block
+//     uint32_t* m_ChunkSizes;             // [] m_ChunkSizes is the size of each chunk
+// };
+
+
+/// A store index in the Longtail API consists of pointers to block hashes and their constituent
+/// chunk hashes. The store index is used to describe a subset of the store.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct StoreIndex {
@@ -13,7 +56,6 @@ pub struct StoreIndex {
 
 impl Drop for StoreIndex {
     fn drop(&mut self) {
-        tracing::debug!("Dropping StoreIndex");
         // unsafe { Longtail_Free((self.store_index as *mut c_char) as *mut
         // std::ffi::c_void) };
     }
@@ -33,21 +75,25 @@ impl DerefMut for StoreIndex {
 }
 
 impl StoreIndex {
-    pub fn new() -> StoreIndex {
+    // TODO: This creates a null pointer, so it should ideally be a StoreIndexNull type.
+    pub(crate) fn new_null_index() -> StoreIndex {
         StoreIndex {
             store_index: std::ptr::null_mut::<Longtail_StoreIndex>(),
             _pin: std::marker::PhantomPinned,
         }
     }
 
-    pub fn new_from_lt(store_index: *mut Longtail_StoreIndex) -> StoreIndex {
+    pub(crate) fn new_from_lt(store_index: *mut Longtail_StoreIndex) -> StoreIndex {
+        assert!(!store_index.is_null());
         StoreIndex {
             store_index,
             _pin: std::marker::PhantomPinned,
         }
     }
 
+    /// Deserialize a `StoreIndex` from a buffer
     pub fn new_from_buffer(buffer: &[u8]) -> Result<StoreIndex, i32> {
+        assert!(!buffer.is_empty());
         let mut store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
         let result = unsafe {
             Longtail_ReadStoreIndexFromBuffer(
@@ -65,6 +111,7 @@ impl StoreIndex {
         })
     }
 
+    /// Create a new `StoreIndex` from a set of BlockIndex structs
     pub fn new_from_blocks(block_indexes: Vec<BlockIndex>) -> Result<StoreIndex, i32> {
         let mut store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
         let result = unsafe {
@@ -83,6 +130,7 @@ impl StoreIndex {
         })
     }
 
+    /// Create a new `StoreIndex` from a `VersionIndex`
     pub fn new_from_version_index(
         hash_api: &HashAPI,
         version_index: &VersionIndex,
@@ -111,11 +159,13 @@ impl StoreIndex {
         })
     }
 
+    /// Create a new `StoreIndex` from a union of the current index and a set of block indexes
     pub fn add_blocks(&self, block_indexes: Vec<BlockIndex>) -> Result<StoreIndex, i32> {
         let added_store_index = Self::new_from_blocks(block_indexes)?;
         self.merge_store_index(&added_store_index)
     }
 
+    /// Get the hashes contained in the store index
     pub fn get_block_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.store_index).m_BlockCount } as usize;
         let indexes =
@@ -168,6 +218,8 @@ impl StoreIndex {
         }
     }
 
+    /// Creates a store index from a given set of chunk hashes, while keeping the existing store
+    /// index blocks in use as long as the block usage is above the given minimum block usage threshold.
     pub fn get_existing_store_index(
         &self,
         chunk_hashes: Vec<u64>,
@@ -192,19 +244,7 @@ impl StoreIndex {
         Ok(StoreIndex::new_from_lt(store_index))
     }
 
-    // TODO: Need BlockIndex struct
-    // pub fn new_from_blocks(block_indexes: Vec<BlockIndex>) -> Result<StoreIndex,
-    // i32> {     let mut store_index =
-    // std::ptr::null_mut::<Longtail_StoreIndex>();     let result = unsafe {
-    // Longtail_CreateStoreIndexFromBlocks() };     if result != 0 {
-    //         return Err(result);
-    //     }
-    //     Ok(StoreIndex {
-    //         store_index,
-    //         _pin: std::marker::PhantomPinned,
-    //     })
-    // }
-
+    /// Remove blocks from the store index that are not in the given list of block hashes
     pub fn prune_store_index(
         store_index: &StoreIndex,
         keep_block_hashes: Vec<u64>,
@@ -227,6 +267,7 @@ impl StoreIndex {
         })
     }
 
+    /// Merge the current store index with another
     pub fn merge_store_index(&self, other: &StoreIndex) -> Result<StoreIndex, i32> {
         let mut merged_store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
         let result = unsafe { Longtail_MergeStoreIndex(**self, **other, &mut merged_store_index) };
@@ -239,15 +280,9 @@ impl StoreIndex {
         })
     }
 
+    /// The store index is valid if it is not null
+    /// Note: This is not a full check, as the store index could be invalid.
     pub fn is_valid(&self) -> bool {
         !self.store_index.is_null()
-    }
-}
-
-// FIXME: This generates an invalid StoreIndex by default, which doesn't seem
-// right, but is used in the golang code. This should be fixed.
-impl Default for StoreIndex {
-    fn default() -> Self {
-        Self::new()
     }
 }

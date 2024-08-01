@@ -241,8 +241,14 @@ impl<'a> BlobObject for S3BlobObject<'a> {
 
 #[cfg(test)]
 mod tests {
+    use longtail_sys::Longtail_StoredBlock;
+    use tracing::info;
+
     use super::*;
-    use crate::BlobStore;
+    use crate::{
+        create_block_store_for_uri, AccessType, AsyncGetStoredBlockAPI,
+        AsyncGetStoredBlockAPIProxy, BikeshedJobAPI, BlobStore, StoredBlock,
+    };
 
     static BUCKET: &str = "build-artifacts20230504001207614000000001";
     static PREFIX: &str = "cmtest";
@@ -292,5 +298,40 @@ mod tests {
         assert!(object.exists().unwrap());
         object.delete().unwrap();
         assert!(!object.exists().unwrap());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_s3blob_store_uri() {
+        let _guard = crate::init_logging().unwrap();
+        info!("test_s3blob_store_uri");
+        #[derive(Debug)]
+        struct TestGetStoredBlockCompletion {}
+        impl AsyncGetStoredBlockAPI for TestGetStoredBlockCompletion {
+            fn on_complete(&self, stored_block: *mut Longtail_StoredBlock, err: i32) {
+                let stored_block = StoredBlock::new_from_lt(stored_block);
+                info!("Stored block: {:?}", stored_block);
+                info!("Error: {:?}", err);
+            }
+        }
+        let mut async_complete_api =
+            AsyncGetStoredBlockAPIProxy::new(Box::new(TestGetStoredBlockCompletion {}));
+        info!("async_complete_api: {:?}", async_complete_api);
+
+        let uri = format!("s3://{}/{}/store", BUCKET, PREFIX);
+        let store = create_block_store_for_uri(
+            &uri,
+            None,
+            Some(&BikeshedJobAPI::new(1, 1)),
+            1,
+            AccessType::ReadOnly,
+            true,
+            None,
+        )
+        .unwrap();
+        let hash = 0xd1006a10ce6543f6;
+        let result =
+            crate::Blockstore::get_stored_block(&store, hash, &mut async_complete_api as *mut _);
+        assert!(result.is_ok());
     }
 }

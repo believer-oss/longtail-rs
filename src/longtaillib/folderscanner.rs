@@ -1,98 +1,13 @@
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
-    BikeshedJobAPI, ChunkerAPI, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
+    BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
     Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy, ProgressAPI,
     ProgressAPIProxy, StorageAPI, VersionIndex,
 };
 use std::{io::Read, ptr::null_mut};
 
-#[derive(Debug)]
-pub struct FileInfos(pub *mut Longtail_FileInfos);
-
-impl FileInfos {
-    pub fn get_file_count(&self) -> u32 {
-        unsafe { (*self.0).m_Count }
-    }
-    fn get_path_data_size(&self) -> u32 {
-        unsafe { (*self.0).m_PathDataSize }
-    }
-    fn get_sizes_ptr(&self) -> *const u64 {
-        unsafe { (*self.0).m_Sizes }
-    }
-    fn get_permissions_ptr(&self) -> *const u16 {
-        unsafe { (*self.0).m_Permissions }
-    }
-    fn get_path_data_ptr(&self) -> *const u8 {
-        unsafe { (*self.0).m_PathData as *const _ }
-    }
-
-    fn get_path_start_offsets(&self, index: u32) -> u32 {
-        // The index should be less than the file count
-        assert!(index < self.get_file_count());
-        let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *(*self.0).m_PathStartOffsets.offset(index) }
-    }
-    pub fn get_file_path(&self, index: u32) -> String {
-        let offset = self.get_path_start_offsets(index);
-
-        // The offset should be less than the path data size
-        assert!(offset < self.get_path_data_size());
-        let offset = usize::try_from(offset).expect("Failed to convert offset to usize");
-        unsafe {
-            let data = self.get_path_data_ptr().add(offset);
-            std::ffi::CStr::from_ptr(data as *const _)
-                .to_string_lossy()
-                .into_owned()
-        }
-    }
-    pub fn get_file_size(&self, index: u32) -> u64 {
-        // The index should be less than the file count
-        assert!(index < self.get_file_count());
-        let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *self.get_sizes_ptr().offset(index) }
-    }
-    pub fn get_file_permissions(&self, index: u32) -> u16 {
-        // The index should be less than the file count
-        assert!(index < self.get_file_count());
-        let index = isize::try_from(index).expect("Failed to convert index to isize");
-        unsafe { *self.get_permissions_ptr().offset(index) }
-    }
-    pub fn iter(&self) -> FileInfosIterator {
-        FileInfosIterator {
-            file_infos: self,
-            index: 0,
-        }
-    }
-    pub fn get_compression_types_for_files(&self, compression_type: u32) -> *const u32 {
-        let len = self
-            .get_file_count()
-            .try_into()
-            .expect("Failed to convert usize to u32");
-        vec![compression_type; len].as_ptr()
-    }
-}
-
-pub struct FileInfosIterator<'a> {
-    file_infos: &'a FileInfos,
-    index: u32,
-}
-type FileInfosItem = (String, u64, u16);
-
-impl Iterator for FileInfosIterator<'_> {
-    type Item = FileInfosItem;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.file_infos.get_file_count() {
-            return None;
-        }
-        let path = (*self.file_infos).get_file_path(self.index);
-        let size = (*self.file_infos).get_file_size(self.index);
-        let permissions = (*self.file_infos).get_file_permissions(self.index);
-        self.index += 1;
-        Some((path, size, permissions))
-    }
-}
-
+// TODO: This implementation is a direct port from golang and needs to be rewritten to be idiomatic Rust.
 #[repr(C)]
 #[derive(Debug)]
 pub struct FolderScanner {
@@ -227,7 +142,7 @@ impl VersionIndexReader {
             struct ProgressHandler {}
             impl ProgressAPI for ProgressHandler {
                 fn on_progress(&self, _total_count: u32, _done_count: u32) {
-                    println!("GetFolderIndex Progress: {}/{}", _done_count, _total_count);
+                    debug!("GetFolderIndex Progress: {}/{}", _done_count, _total_count);
                 }
             }
             let file_infos = scanner.get_file_infos();
@@ -263,7 +178,7 @@ impl VersionIndexReader {
                 return Err(result);
             }
             Ok(VersionIndexReader {
-                version_index: VersionIndex::from_longtail_versionindex(vindex),
+                version_index: VersionIndex::new_from_lt(vindex),
                 hash_api: hash,
             })
         } else {

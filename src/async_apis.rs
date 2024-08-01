@@ -100,13 +100,8 @@ impl AsyncGetExistingContentAPIProxy {
 
     pub fn get_context(&self) -> Option<Box<Box<dyn AsyncGetExistingContentAPI>>> {
         if self.context.is_null() || self.mark != [0xf0, 0x0f, 0xf0, 0x0f] {
-            tracing::warn!("AsyncGetExistingContentAPIProxy::get_context: context is null");
             None
         } else {
-            tracing::debug!(
-                "AsyncGetExistingContentAPIProxy::get_context: context: {:?}",
-                self.context
-            );
             Some(unsafe { Box::from_raw(self.context) })
         }
     }
@@ -412,28 +407,14 @@ impl AsyncGetStoredBlockAPIProxy {
                 _pin: std::marker::PhantomPinned,
             }))
         } else {
-            // warn!("AsyncGetStoredBlockAPIProxy::new_from_api: context is null");
-            // let api = unsafe { *async_api };
-            // let context = std::ptr::null_mut();
-            // AsyncGetStoredBlockAPIProxy {
-            //     api,
-            //     context,
-            //     mark: [0; 4],
-            //     _pin: std::marker::PhantomPinned,
-            // }
             async_api as *mut AsyncGetStoredBlockAPIProxy
         }
     }
 
     pub fn get_context(&self) -> Option<Box<Box<dyn AsyncGetStoredBlockAPI>>> {
         if self.context.is_null() || self.mark != *b"ltrs" {
-            warn!("AsyncGetStoredBlockAPIProxy::get_context: context is null");
             None
         } else {
-            debug!(
-                "AsyncGetStoredBlockAPIProxy::get_context: context: {:?}",
-                self.context
-            );
             Some(unsafe { Box::from_raw(self.context) })
         }
     }

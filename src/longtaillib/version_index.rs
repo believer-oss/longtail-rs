@@ -8,6 +8,54 @@ use std::{
     ptr::null_mut,
 };
 
+#[rustfmt::skip]
+// Version Index API
+// pub fn Longtail_VersionIndex_GetVersion(version_index: *const Longtail_VersionIndex) -> u32;
+// pub fn Longtail_VersionIndex_GetHashAPI(version_index: *const Longtail_VersionIndex) -> u32;
+// pub fn Longtail_VersionIndex_GetAssetCount(version_index: *const Longtail_VersionIndex) -> u32;
+// pub fn Longtail_VersionIndex_GetChunkCount(version_index: *const Longtail_VersionIndex) -> u32;
+// pub fn Longtail_VersionIndex_GetChunkHashes( version_index: *const Longtail_VersionIndex,) -> *const TLongtail_Hash;
+// pub fn Longtail_VersionIndex_GetChunkSizes( version_index: *const Longtail_VersionIndex,) -> *const u32;
+// pub fn Longtail_VersionIndex_GetChunkTags( version_index: *const Longtail_VersionIndex,) -> *const u32;
+// pub fn Longtail_BuildVersionIndex( mem: *mut ::std::os::raw::c_void, mem_size: usize, file_infos: *const Longtail_FileInfos, path_hashes: *const TLongtail_Hash, content_hashes: *const TLongtail_Hash, asset_chunk_index_starts: *const u32, asset_chunk_counts: *const u32, asset_chunk_index_count: u32, asset_chunk_indexes: *const u32, chunk_count: u32, chunk_sizes: *const u32, chunk_hashes: *const TLongtail_Hash, optional_chunk_tags: *const u32, hash_api_identifier: u32, target_chunk_size: u32, out_version_index: *mut *mut Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_CreateVersionIndex( storage_api: *mut Longtail_StorageAPI, hash_api: *mut Longtail_HashAPI, chunker_api: *mut Longtail_ChunkerAPI, job_api: *mut Longtail_JobAPI, progress_api: *mut Longtail_ProgressAPI, optional_cancel_api: *mut Longtail_CancelAPI, optional_cancel_token: Longtail_CancelAPI_HCancelToken, root_path: *const ::std::os::raw::c_char, file_infos: *const Longtail_FileInfos, optional_asset_tags: *const u32, target_chunk_size: u32, enable_file_map: ::std::os::raw::c_int, out_version_index: *mut *mut Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_MergeVersionIndex( base_version_index: *const Longtail_VersionIndex, overlay_version_index: *const Longtail_VersionIndex, out_version_index: *mut *mut Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_WriteVersionIndexToBuffer( version_index: *const Longtail_VersionIndex, out_buffer: *mut *mut ::std::os::raw::c_void, out_size: *mut usize,) -> ::std::os::raw::c_int;
+// pub fn Longtail_ReadVersionIndexFromBuffer( buffer: *const ::std::os::raw::c_void, size: usize, out_version_index: *mut *mut Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_WriteVersionIndex( storage_api: *mut Longtail_StorageAPI, version_index: *mut Longtail_VersionIndex, path: *const ::std::os::raw::c_char,) -> ::std::os::raw::c_int;
+// pub fn Longtail_ReadVersionIndex( storage_api: *mut Longtail_StorageAPI, path: *const ::std::os::raw::c_char, out_version_index: *mut *mut Longtail_VersionIndex,) -> ::std::os::raw::c_int;
+// pub fn Longtail_GetVersionIndexSize( asset_count: u32, chunk_count: u32, asset_chunk_index_count: u32, path_data_size: u32,) -> usize;
+// pub fn Longtail_GetRequiredChunkHashes( version_index: *const Longtail_VersionIndex, version_diff: *const Longtail_VersionDiff, out_chunk_count: *mut u32, out_chunk_hashes: *mut TLongtail_Hash,) -> ::std::os::raw::c_int;
+//
+// struct Longtail_VersionIndex
+// {
+//     uint32_t* m_Version;
+//     uint32_t* m_HashIdentifier;
+//     uint32_t* m_TargetChunkSize;
+//     uint32_t* m_AssetCount;
+//     uint32_t* m_ChunkCount;
+//     uint32_t* m_AssetChunkIndexCount;
+//     TLongtail_Hash* m_PathHashes;       // []
+//     TLongtail_Hash* m_ContentHashes;    // []
+//     uint64_t* m_AssetSizes;             // []
+//     uint32_t* m_AssetChunkCounts;       // []
+//     // uint64_t* m_CreationDates;       // []
+//     // uint64_t* m_ModificationDates;   // []
+//     uint32_t* m_AssetChunkIndexStarts;  // []
+//     uint32_t* m_AssetChunkIndexes;      // []
+//     TLongtail_Hash* m_ChunkHashes;      // []
+//
+//     uint32_t* m_ChunkSizes;             // []
+//     uint32_t* m_ChunkTags;              // []
+//
+//     uint32_t* m_NameOffsets;            // []
+//     uint32_t m_NameDataSize;
+//     uint16_t* m_Permissions;            // []
+//     char* m_NameData;
+// };
+
+/// A version index in the Longtail API consists of pointers to the internal version identifier,
+/// hash type, path data, and all of the chunks needed to reconstruct this version from the store.
 #[repr(C)]
 pub struct VersionIndex {
     pub version_index: *mut Longtail_VersionIndex,
@@ -148,6 +196,8 @@ impl std::fmt::Debug for VersionIndex {
 }
 
 impl VersionIndex {
+    /// Create a new `VersionIndex` from a `FileInfos` struct, by chunking each file and hashing
+    /// the resulting chunks.
     #[allow(clippy::too_many_arguments)]
     pub fn new_from_fileinfos(
         storage_api: &StorageAPI,
@@ -188,6 +238,7 @@ impl VersionIndex {
         })
     }
 
+    /// Deserialize a `VersionIndex` from a buffer.
     pub fn new_from_buffer(buffer: &mut [u8]) -> Result<VersionIndex, i32> {
         let buffer_size = buffer.len();
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
@@ -208,49 +259,59 @@ impl VersionIndex {
         })
     }
 
-    pub fn from_longtail_versionindex(version_index: *mut Longtail_VersionIndex) -> VersionIndex {
+    pub(crate) fn new_from_lt(version_index: *mut Longtail_VersionIndex) -> VersionIndex {
         VersionIndex {
             version_index,
             _pin: std::marker::PhantomPinned,
         }
     }
 
+    /// Get the internal version identifier for this version index
     pub fn get_version(&self) -> u32 {
         unsafe { *(*self.version_index).m_Version }
     }
+    /// Get the hash identifier for this version index
     pub fn get_hash_identifier(&self) -> u32 {
         unsafe { *(*self.version_index).m_HashIdentifier }
     }
+    /// Get the target chunk size for this version index
     pub fn get_target_chunk_size(&self) -> u32 {
         unsafe { *(*self.version_index).m_TargetChunkSize }
     }
+    /// Get the number of assets in this version index
     pub fn get_asset_count(&self) -> u32 {
         unsafe { *(*self.version_index).m_AssetCount }
     }
+    /// Get the paths to the files in this version index
     pub fn get_asset_path(&self, index: u32) -> String {
         let offset = unsafe { *(*self.version_index).m_NameOffsets.offset(index as isize) };
         let name_data_start = unsafe { (*self.version_index).m_NameData.add(offset as usize) };
         let c_str = unsafe { std::ffi::CStr::from_ptr(name_data_start) };
         String::from_utf8_lossy(c_str.to_bytes()).to_string()
     }
+    /// Get the hashes of the assets in this version index
     pub fn get_asset_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let hashes =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_ContentHashes, count) };
         hashes.to_vec()
     }
+    /// Get the asset sizes of the assets in this version index
     pub fn get_asset_size(&self, index: u32) -> u64 {
         unsafe { *(*self.version_index).m_AssetSizes.offset(index as isize) }
     }
+    /// Get the permissions of the assets in this version index
     pub fn get_asset_permissions(&self, index: u32) -> u16 {
         unsafe { *(*self.version_index).m_Permissions.offset(index as isize) }
     }
+    /// Get the number of chunks in this version index
     pub fn get_asset_chunk_counts(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let chunk_counts =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_AssetChunkCounts, count) };
         chunk_counts.to_vec()
     }
+    /// Get the start indexes of the asset chunks in this version index
     pub fn get_asset_chunk_index_starts(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let starts = unsafe {
@@ -258,17 +319,21 @@ impl VersionIndex {
         };
         starts.to_vec()
     }
+    /// Get the indexes of the asset chunks in this version index
     pub fn get_asset_chunk_indexes(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_AssetChunkIndexCount } as usize;
         let indexes =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_AssetChunkIndexes, count) };
         indexes.to_vec()
     }
+    /// Get the number of chunks in this version index
     pub fn get_chunk_count(&self) -> u32 {
         unsafe { *(*self.version_index).m_ChunkCount }
     }
+    /// Get the hashes of the chunks in this version index
     pub fn get_chunk_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.version_index).m_ChunkCount } as isize;
+
         // This prevents unaligned access to the chunk hashes.
         let unaligned = unsafe { (*self.version_index).m_ChunkHashes } as *const u64;
         let mut hashes = Vec::with_capacity(count.try_into().unwrap());
@@ -278,47 +343,56 @@ impl VersionIndex {
         }
         hashes
     }
+    /// Get the sizes of the chunks in this version index
     pub fn get_chunk_sizes(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_ChunkCount } as usize;
         let sizes =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_ChunkSizes, count) };
         sizes.to_vec()
     }
+    /// Get the sizes of the assets in this version index
     pub fn get_asset_sizes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let sizes =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_AssetSizes, count) };
         sizes.to_vec()
     }
+    /// Get the tags of the chunks in this version
     pub fn get_chunk_tags(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_ChunkCount } as usize;
         let tags = unsafe { std::slice::from_raw_parts((*self.version_index).m_ChunkTags, count) };
         tags.to_vec()
     }
+    /// Get the number of asset chunk indexes in this version index
     pub fn get_asset_chunk_index_count(&self) -> u32 {
         unsafe { *(*self.version_index).m_AssetChunkIndexCount }
     }
+    /// Get the hashes of the asset paths in this version index
     pub fn get_path_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let hashes =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_PathHashes, count) };
         hashes.to_vec()
     }
+    /// Get the offsets of the asset names in this version index
     pub fn get_name_offsets(&self) -> Vec<u32> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let offsets =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_NameOffsets, count) };
         offsets.to_vec()
     }
+    /// Get the sizes of the asset names in this version index
     pub fn get_name_data_size(&self) -> u32 {
         unsafe { (*self.version_index).m_NameDataSize }
     }
+    /// Get the permissions of the assets in this version index
     pub fn get_permissions(&self) -> Vec<u16> {
         let count = unsafe { *(*self.version_index).m_AssetCount } as usize;
         let permissions =
             unsafe { std::slice::from_raw_parts((*self.version_index).m_Permissions, count) };
         permissions.to_vec()
     }
+    /// Get the paths of the assets in this version index
     pub fn get_name_data(&self) -> Vec<String> {
         let size = self.get_name_data_size() as usize;
         let name_data: &[u8] = unsafe {
@@ -378,29 +452,5 @@ mod tests {
                 panic!("Error reading version index from buffer: {:?}", e);
             }
         }
-        // assert_eq!(
-        //     result,
-        //     Ok(Longtail_VersionIndex {
-        //         m_Version: 2,
-        //         m_HashIdentifier: 1651272499,
-        //         m_TargetChunkSize: 32768,
-        //         m_AssetCount: 1,
-        //         m_ChunkCount: 1,
-        //         m_AssetChunkIndexCount: 1,
-        //         m_PathHashes: [17453309618399787745],
-        //         m_ContentHashes: [15623113628389385483],
-        //         m_AssetSizes: [5],
-        //         m_AssetChunkCounts: [1],
-        //         m_AssetChunkIndexStarts: [0],
-        //         m_AssetChunkIndexes: [0],
-        //         m_ChunkHashes: [13038361456346964702],
-        //         m_ChunkSizes: [5],
-        //         m_ChunkTags: [2054448178],
-        //         m_NameOffsets: [0],
-        //         m_NameDataSize: 9,
-        //         m_Permissions: [420],
-        //         m_NameData: CString::new("testfile").unwrap().into_raw(),
-        //     })
-        // );
     }
 }

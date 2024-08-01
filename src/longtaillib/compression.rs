@@ -2,6 +2,53 @@ use std::ops::{Deref, DerefMut};
 
 use crate::*;
 
+#[rustfmt::skip]
+// Compression API
+// pub fn Longtail_GetCompressionAPISize() -> u64;
+// pub fn Longtail_MakeCompressionAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, get_max_compressed_size_func: Longtail_CompressionAPI_GetMaxCompressedSizeFunc, compress_func: Longtail_CompressionAPI_CompressFunc, decompress_func: Longtail_CompressionAPI_DecompressFunc,) -> *mut Longtail_CompressionAPI;
+// pub fn Longtail_GetCompressionRegistryAPISize() -> u64;
+// pub fn Longtail_MakeCompressionRegistryAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, get_compression_api_func: Longtail_CompressionRegistry_GetCompressionAPIFunc,) -> *mut Longtail_CompressionRegistryAPI;
+// pub fn Longtail_GetCompressionRegistry_GetCompressionAPI( compression_registry: *mut Longtail_CompressionRegistryAPI, compression_type: u32, out_compression_api: *mut *mut Longtail_CompressionAPI, out_settings_id: *mut u32,) -> ::std::os::raw::c_int;
+// pub fn Longtail_CreateDefaultCompressionRegistry( compression_api_count: u32, create_api_funcs: *const Longtail_CompressionRegistry_CreateForTypeFunc,) -> *mut Longtail_CompressionRegistryAPI;
+// pub fn Longtail_CreateFullCompressionRegistry() -> *mut Longtail_CompressionRegistryAPI;
+// // Brotli
+// pub fn Longtail_CreateBrotliCompressionAPI() -> *mut Longtail_CompressionAPI;
+// pub fn Longtail_GetBrotliGenericMinQuality() -> u32;
+// pub fn Longtail_GetBrotliGenericDefaultQuality() -> u32;
+// pub fn Longtail_GetBrotliGenericMaxQuality() -> u32;
+// pub fn Longtail_GetBrotliTextMinQuality() -> u32;
+// pub fn Longtail_GetBrotliTextDefaultQuality() -> u32;
+// pub fn Longtail_GetBrotliTextMaxQuality() -> u32;
+// pub fn Longtail_CompressionRegistry_CreateForBrotli( compression_type: u32, out_settings: *mut u32,) -> *mut Longtail_CompressionAPI;
+// // LZ4
+// pub fn Longtail_CompressionRegistry_CreateForLZ4( compression_type: u32, out_settings: *mut u32,) -> *mut Longtail_CompressionAPI;
+// pub fn Longtail_CreateLZ4CompressionAPI() -> *mut Longtail_CompressionAPI;
+// pub fn Longtail_GetLZ4DefaultQuality() -> u32;
+// // ZStd
+// pub fn Longtail_CreateZStdCompressionRegistry() -> *mut Longtail_CompressionRegistryAPI;
+// pub fn Longtail_CreateZStdCompressionAPI() -> *mut Longtail_CompressionAPI;
+// pub fn Longtail_GetZStdMinQuality() -> u32;
+// pub fn Longtail_GetZStdDefaultQuality() -> u32;
+// pub fn Longtail_GetZStdMaxQuality() -> u32;
+// pub fn Longtail_GetZStdHighQuality() -> u32;
+// pub fn Longtail_GetZStdLowQuality() -> u32;
+// pub fn Longtail_CompressionRegistry_CreateForZstd( compression_type: u32, out_settings: *mut u32,) -> *mut Longtail_CompressionAPI;
+//
+// struct Longtail_CompressionAPI
+// {
+//     struct Longtail_API m_API;
+//     Longtail_CompressionAPI_GetMaxCompressedSizeFunc GetMaxCompressedSize;
+//     Longtail_CompressionAPI_CompressFunc Compress;
+//     Longtail_CompressionAPI_DecompressFunc Decompress;
+// };
+//
+// struct Longtail_CompressionRegistryAPI
+// {
+//     struct Longtail_API m_API;
+//     Longtail_CompressionRegistry_GetCompressionAPIFunc GetCompressionAPI;
+// };
+
+
 // Redefining these consts here because enum values need to be const, and the
 // longtail headers are exporting the underlying defines as functions.
 // Another approach was attempted where we could copy the existing defines into
@@ -36,6 +83,8 @@ const LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE: usize = LONGTAIL_ZSTD_COMPRESSION_TYPE
 
 pub const LONGTAIL_NO_COMPRESSION_TYPE: u32 = 0;
 
+// TODO: Remove strum dependency
+/// The CompressionType enum represents the different types of compression that can be used.
 #[derive(EnumString, FromRepr, Debug, PartialEq)]
 #[repr(usize)]
 pub enum CompressionType {
@@ -67,6 +116,7 @@ pub enum CompressionType {
     ZstdLow = LONGTAIL_ZSTD_LOW_COMPRESSION_TYPE,
 }
 
+/// The Compression API provides functions for compressing and decompressing data.
 #[repr(C)]
 pub struct CompressionRegistry {
     pub compression_registry: *mut Longtail_CompressionRegistryAPI,
@@ -108,6 +158,8 @@ impl CompressionRegistry {
             _pin: std::marker::PhantomPinned,
         }
     }
+
+    /// Get the compression API for a specific compression type.
     pub fn get_compression_api(
         &self,
         compression_type: CompressionType,
@@ -127,12 +179,5 @@ impl CompressionRegistry {
             return Err(result);
         }
         Ok(compression_api)
-    }
-
-    pub fn create_full_compression_registry() -> CompressionRegistry {
-        CompressionRegistry {
-            compression_registry: unsafe { Longtail_CreateFullCompressionRegistry() },
-            _pin: std::marker::PhantomPinned,
-        }
     }
 }

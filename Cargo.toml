@@ -8,6 +8,7 @@ itertools = "0.13.0"
 clap = { version = "4.5.7", features = ["derive"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 lazy_static = "1.5.0"
+tempfile = "3.10.1"
 
 [dependencies]
 longtail-sys = { path = "longtail-sys" }
@@ -23,3 +24,4 @@ thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
 tracing = { version = "0.1.40", features = ["log"] }
 serde_json = "1.0.120"
+libc = "0.2.155"

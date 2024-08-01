@@ -33,7 +33,7 @@ impl BlobStore for FsBlobStore {
         }))
     }
     fn get_string(&self) -> String {
-        "fsblob".to_string()
+        "fsblob://".to_string()
     }
 }
 
@@ -67,6 +67,7 @@ impl BlobClient for FsBlobClient {
         &self,
         path: String,
     ) -> Result<Box<dyn crate::BlobObject + '_>, Box<dyn std::error::Error>> {
+        let path = format!("{}/{}", self.store.prefix, path);
         let path = normalize_file_system_path(path);
         Ok(Box::new(FsBlobObject {
             client: self.clone(),
@@ -193,6 +194,7 @@ impl FsBlobObject {
 impl BlobObject for FsBlobObject {
     fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
         let metadata = std::fs::metadata(&self.path);
+        tracing::info!("FsBlobObject::exists({}) -> {:?}", self.path, metadata);
         match metadata {
             Ok(_) => Ok(true),
             Err(e) => {
@@ -282,6 +284,60 @@ impl BlobObject for FsBlobObject {
     }
 
     fn get_string(&self) -> String {
-        format!("{}/{}", self.client.get_string(), self.path)
+        format!("{}{}", self.client.get_string(), self.path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BlobStore;
+
+    #[test]
+    fn test_fs_blob_store() {
+        let _guard = crate::init_logging().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir_path = temp_dir.path().to_str().unwrap();
+        let store = FsBlobStore::new(temp_dir_path, false);
+        assert_eq!(store.get_string(), "fsblob://");
+        let client = store.new_client().unwrap();
+        assert_eq!(client.get_string(), "fsblob://");
+        let objects = client.get_objects("".to_string()).unwrap();
+        assert_eq!(objects.len(), 0);
+    }
+    #[test]
+    fn test_fs_blob_object() {
+        let _guard = crate::init_logging().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir_path = temp_dir.path().to_str().unwrap();
+        let store = FsBlobStore::new(temp_dir_path, false);
+        let client = store.new_client().unwrap();
+        let object = client.new_object("test.txt".to_string()).unwrap();
+        assert_eq!(
+            object.get_string(),
+            format!("fsblob://{}/test.txt", temp_dir_path)
+        );
+        assert!(!object.exists().unwrap());
+        assert!(object.read().is_err());
+        assert!(object.write("hello".as_bytes()).is_ok());
+        assert!(object.exists().unwrap());
+        assert_eq!(object.read().unwrap(), "hello".as_bytes());
+        assert!(object.write("world".as_bytes()).is_ok());
+        assert_eq!(object.read().unwrap(), "world".as_bytes());
+        assert!(object.delete().is_ok());
+        assert!(!object.exists().unwrap());
+    }
+    #[test]
+    fn test_fs_blob_locking() {
+        let _guard = crate::init_logging().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir_path = temp_dir.path().to_str().unwrap();
+        let store = FsBlobStore::new(temp_dir_path, true);
+        let client = store.new_client().unwrap();
+        let mut object = client.new_object("test.txt".to_string()).unwrap();
+        assert!(!object.exists().unwrap());
+        assert!(object.lock_write_version().unwrap());
+        assert!(!object.exists().unwrap());
+        assert!(object.write("hello".as_bytes()).is_ok());
     }
 }

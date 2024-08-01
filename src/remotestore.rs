@@ -39,6 +39,125 @@ pub struct RemoteBlockStore<S> {
     access_type: AccessType,
 }
 
+impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
+    fn put_stored_block(
+        &self,
+        stored_block: &StoredBlock,
+        async_complete_api: AsyncPutStoredBlockAPIProxy,
+    ) -> Result<(), i32> {
+        if self.access_type == AccessType::ReadOnly {
+            error!("Attempted to write to a read-only store");
+            async_complete_api.on_complete(1);
+            return Ok(());
+        }
+        info!("put_stored_block: {:?}", stored_block);
+        let stored_block = stored_block.clone();
+        self.put_stored_block(stored_block, async_complete_api);
+        Ok(())
+    }
+
+    fn preflight_get(
+        &self,
+        block_hashes: Vec<u64>,
+        async_complete_api: Option<AsyncPreflightStartedAPIProxy>,
+    ) -> Result<(), i32> {
+        warn!("preflight_get not implemented");
+        if let Some(async_complete_api) = async_complete_api {
+            async_complete_api.on_complete(block_hashes, 0);
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    fn get_stored_block(
+        &self,
+        block_hash: u64,
+        async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
+    ) -> Result<(), i32> {
+        info!("get_stored_block: {:?}", block_hash);
+        let stored_block = self.get_stored_block(block_hash);
+        tracing::debug!("stored_block: {:?}", stored_block);
+        tracing::debug!("async_complete_api: {:p}", async_complete_api);
+        tracing::debug!("context: {:?}", unsafe {
+            async_complete_api.as_ref().unwrap().get_context()
+        });
+        match stored_block {
+            Ok(stored_block) => unsafe {
+                async_complete_api
+                    .as_ref()
+                    .expect("Failed to get async_complete_api")
+                    .on_complete(*stored_block, 0)
+            },
+            Err(e) => {
+                error!("Failed to get stored block: {:?}", e);
+                unsafe {
+                    async_complete_api
+                        .as_ref()
+                        .expect("Failed to get async_complete_api")
+                        .on_complete(*StoredBlock::new_from_lt(null_mut()), 1)
+                };
+            }
+        }
+        Ok(())
+    }
+
+    fn get_existing_content(
+        &self,
+        chunk_hashes: Vec<u64>,
+        min_block_usage_percent: u32,
+        mut async_complete_api: AsyncGetExistingContentAPIProxy,
+    ) -> Result<(), i32> {
+        debug!("get_existing_content: {:?}", chunk_hashes);
+        debug!(
+            "get_existing_content min_block_usage_percent: {:?}",
+            min_block_usage_percent
+        );
+        debug!(
+            "get_existing_content async_complete_api: {:?}",
+            async_complete_api
+        );
+        let store_index = StoreIndex::new_null_index();
+        let added_block_indexes = Vec::new();
+        let (store_index, _additional_store_indexes) = self.get_current_store_index(
+            &self.store_index_paths,
+            &self.access_type,
+            store_index,
+            added_block_indexes,
+        )?;
+        let existing_store_index = store_index
+            .get_existing_store_index(chunk_hashes, min_block_usage_percent)
+            .map_err(|e| {
+                error!("Failed to get existing store index: {}", e);
+                1
+            })?;
+
+        assert!(existing_store_index.is_valid());
+        async_complete_api.on_complete(*existing_store_index, 0);
+        Ok(())
+    }
+
+    fn prune_blocks(
+        &self,
+        _block_keep_hashes: Vec<u64>,
+        _async_complete_api: AsyncPruneBlocksAPIProxy,
+    ) -> Result<(), i32> {
+        todo!()
+    }
+
+    fn get_stats(&self) -> Result<crate::Longtail_BlockStore_Stats, i32> {
+        info!("get_stats not implemented");
+        Ok(crate::Longtail_BlockStore_Stats { m_StatU64: [0; 22] })
+    }
+
+    fn flush(&self, mut async_complete_api: AsyncFlushAPIProxy) -> Result<(), i32> {
+        info!("flush not implemented");
+        if let Some(on_complete) = async_complete_api.api.OnComplete {
+            unsafe { on_complete(&mut async_complete_api.api, 0) };
+        }
+        Ok(())
+    }
+}
+
 impl<S: BlobStore> RemoteBlockStore<S> {
     pub fn new_remote_block_store(
         // job_api: BikeshedJobAPI,
@@ -136,7 +255,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
     ) -> Result<(StoreIndex, Vec<String>), Box<dyn std::error::Error>> {
         tracing::debug!("Merging store index items: {:?}", items);
         let mut used_items = Vec::new();
-        let mut store_index = StoreIndex::new();
+        let mut store_index = StoreIndex::new_null_index();
         for item in items {
             let tmp_store_index = Self::read_store_store_index_from_path(client.as_ref(), &item)
                 .inspect_err(|e| tracing::debug!("Error: {:?}", e))?;
@@ -164,7 +283,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
             tracing::debug!("Found {} store index items", items.len());
             if items.is_empty() {
                 warn!("No store index found");
-                return Ok(StoreIndex::new());
+                return Ok(StoreIndex::new_null_index());
             }
             let client = store.new_client()?;
             let (store_index, used_items) = Self::merge_store_index_items(client, items)?;
@@ -188,7 +307,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         access_type: &AccessType,
         _worker_count: i32,
     ) -> Result<StoreIndex, Box<dyn std::error::Error>> {
-        let mut store_index = StoreIndex::new();
+        let mut store_index = StoreIndex::new_null_index();
         match access_type {
             AccessType::Init => {
                 // TODO: This is only used in for new remote stores, skipping for now
@@ -268,128 +387,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         let updated_store_index = store_index.add_blocks(added_block_indexes)?;
         Ok((store_index, Some(updated_store_index)))
     }
-}
 
-impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
-    fn put_stored_block(
-        &self,
-        stored_block: &StoredBlock,
-        async_complete_api: AsyncPutStoredBlockAPIProxy,
-    ) -> Result<(), i32> {
-        if self.access_type == AccessType::ReadOnly {
-            error!("Attempted to write to a read-only store");
-            async_complete_api.on_complete(1);
-            return Ok(());
-        }
-        info!("put_stored_block: {:?}", stored_block);
-        let stored_block = stored_block.clone();
-        self.put_stored_block(stored_block, async_complete_api);
-        Ok(())
-    }
-
-    fn preflight_get(
-        &self,
-        block_hashes: Vec<u64>,
-        async_complete_api: Option<AsyncPreflightStartedAPIProxy>,
-    ) -> Result<(), i32> {
-        warn!("preflight_get not implemented");
-        if let Some(async_complete_api) = async_complete_api {
-            async_complete_api.on_complete(block_hashes, 0);
-        }
-        Ok(())
-    }
-
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    fn get_stored_block(
-        &self,
-        block_hash: u64,
-        async_complete_api: *mut AsyncGetStoredBlockAPIProxy,
-    ) -> Result<(), i32> {
-        info!("get_stored_block: {:?}", block_hash);
-        let stored_block = self.get_stored_block(block_hash);
-        tracing::debug!("stored_block: {:?}", stored_block);
-        tracing::debug!("async_complete_api: {:p}", async_complete_api);
-        tracing::debug!("context: {:?}", unsafe {
-            async_complete_api.as_ref().unwrap().get_context()
-        });
-        match stored_block {
-            Ok(stored_block) => unsafe {
-                async_complete_api
-                    .as_ref()
-                    .expect("Failed to get async_complete_api")
-                    .on_complete(*stored_block, 0)
-            },
-            Err(e) => {
-                error!("Failed to get stored block: {}", e);
-                unsafe {
-                    async_complete_api
-                        .as_ref()
-                        .expect("Failed to get async_complete_api")
-                        .on_complete(*StoredBlock::new_from_lt(null_mut()), 1)
-                };
-            }
-        }
-        Ok(())
-    }
-
-    fn get_existing_content(
-        &self,
-        chunk_hashes: Vec<u64>,
-        min_block_usage_percent: u32,
-        mut async_complete_api: AsyncGetExistingContentAPIProxy,
-    ) -> Result<(), i32> {
-        debug!("get_existing_content: {:?}", chunk_hashes);
-        debug!(
-            "get_existing_content min_block_usage_percent: {:?}",
-            min_block_usage_percent
-        );
-        debug!(
-            "get_existing_content async_complete_api: {:?}",
-            async_complete_api
-        );
-        let store_index = StoreIndex::new();
-        let added_block_indexes = Vec::new();
-        let (store_index, _additional_store_indexes) = self.get_current_store_index(
-            &self.store_index_paths,
-            &self.access_type,
-            store_index,
-            added_block_indexes,
-        )?;
-        let existing_store_index = store_index
-            .get_existing_store_index(chunk_hashes, min_block_usage_percent)
-            .map_err(|e| {
-                error!("Failed to get existing store index: {}", e);
-                1
-            })?;
-
-        assert!(existing_store_index.is_valid());
-        async_complete_api.on_complete(*existing_store_index, 0);
-        Ok(())
-    }
-
-    fn prune_blocks(
-        &self,
-        _block_keep_hashes: Vec<u64>,
-        _async_complete_api: AsyncPruneBlocksAPIProxy,
-    ) -> Result<(), i32> {
-        todo!()
-    }
-
-    fn get_stats(&self) -> Result<crate::Longtail_BlockStore_Stats, i32> {
-        info!("get_stats not implemented");
-        Ok(crate::Longtail_BlockStore_Stats { m_StatU64: [0; 22] })
-    }
-
-    fn flush(&self, mut async_complete_api: AsyncFlushAPIProxy) -> Result<(), i32> {
-        info!("flush not implemented");
-        if let Some(on_complete) = async_complete_api.api.OnComplete {
-            unsafe { on_complete(&mut async_complete_api.api, 0) };
-        }
-        Ok(())
-    }
-}
-
-impl<S: BlobStore> RemoteBlockStore<S> {
     // TODO: The on_complete should take the result, instead of the call returning
     // Result for all of these methods
     pub fn put_stored_block(
@@ -505,29 +503,44 @@ impl<S: BlobStore> RemoteBlockStore<S> {
     }
 }
 
+/// Parse a URI and create the corresponding block store
+///
+/// # Arguments
+///
+/// * `uri` - A URI string, either a filesystem path or "s3://", "fsblob://", or
+///   "file://"
+/// * `store_index_paths` - Optional location of a store index optimized for a
+///   specific version
+/// * `job_api` - Optional job API for longtail operations. Unused for s3 and
+///   fsblob uris
+/// * `num_worker_count` - Number of workers passed to the block store
+/// * `access_type` - Access type for the block store
+/// * `enable_file_mapping` - Enable file mapping for the block store
+/// * `opts` - Optional S3 options for "s3://" uris
 pub fn create_block_store_for_uri(
     uri: &str,
     store_index_paths: Option<Vec<String>>,
-    job_api: &BikeshedJobAPI,
+    job_api: Option<&BikeshedJobAPI>,
     num_worker_count: i32,
     access_type: AccessType,
     enable_file_mapping: bool,
     opts: Option<S3Options>,
 ) -> Result<BlockstoreAPI, Box<dyn std::error::Error>> {
     match uri {
+        // Filesystem blob store in rust
         s if s.starts_with("fsblob://") => {
             let fs_blob_store = FsBlobStore::new(&uri[9..], true);
             let fs_block_store = RemoteBlockStore::new_remote_block_store(
-                // job_api,
                 fs_blob_store,
                 store_index_paths,
                 num_worker_count,
                 access_type,
-                // opts,
             )?;
             let blockstore_apiproxy = BlockstoreAPIProxy::new(Box::new(fs_block_store));
             Ok(BlockstoreAPI::new_from_proxy(Box::new(blockstore_apiproxy)))
         }
+
+        // S3 blob store
         s if s.starts_with("s3://") => {
             let uri = uri.parse::<Uri>().unwrap();
             let bucket_name = uri.host().unwrap().to_string();
@@ -540,49 +553,30 @@ pub fn create_block_store_for_uri(
             if !prefix.is_empty() {
                 prefix.push('/');
             }
-            warn!("Creating S3BlobStore: {:?}", prefix);
-            let s3_blob_store = S3BlobStore::new(&bucket_name, &prefix, opts.clone());
-            info!("Creating S3BlobStore: {:?}", s3_blob_store);
-            info!(
-                "Address of S3BlobStore: {:?}",
-                std::ptr::addr_of!(s3_blob_store)
-            );
+            let s3_blob_store = S3BlobStore::new(&bucket_name, &prefix, opts);
             let s3_block_store = RemoteBlockStore::new_remote_block_store(
-                // job_api,
                 s3_blob_store,
                 store_index_paths,
                 num_worker_count,
                 access_type,
-                // opts,
             )?;
-            info!("Creating RemoteBlockStore: {:?}", s3_block_store);
-            info!(
-                "Address of RemoteBlockStore: {:?}",
-                std::ptr::addr_of!(s3_block_store)
-            );
             let blockstore_apiproxy = BlockstoreAPIProxy::new(Box::new(s3_block_store));
-            info!("Creating BlockstoreAPIProxy: {:?}", blockstore_apiproxy);
-            info!(
-                "Address of BlockstoreAPIProxy: {:?}",
-                std::ptr::addr_of!(blockstore_apiproxy)
-            );
             let block_store = BlockstoreAPI::new_from_proxy(Box::new(blockstore_apiproxy));
-            info!("Creating BlockstoreAPI: {:?}", block_store);
-            info!(
-                "Address of BlockstoreAPI: {:?}",
-                std::ptr::addr_of!(block_store)
-            );
             Ok(block_store)
         }
+
+        // Longtail Filesystem block store
         s if s.starts_with("file://") => Ok(BlockstoreAPI::new_fs(
-            job_api,
+            job_api.ok_or("Job API required for file:// uri")?,
             &StorageAPI::new_fs(),
             &uri[7..],
             Some(".lsb"),
             enable_file_mapping,
         )),
+
+        // Longtail Filesystem block store
         _ => Ok(BlockstoreAPI::new_fs(
-            job_api,
+            job_api.ok_or("Job API required for filesystem uri")?,
             &StorageAPI::new_fs(),
             uri,
             Some(".lsb"),
@@ -591,59 +585,20 @@ pub fn create_block_store_for_uri(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{BlobStore, Longtail_StoredBlock};
-
-    static BUCKET: &str = "build-artifacts20230504001207614000000001";
-    static PREFIX: &str = "cmtest";
-
-    #[test]
-    fn test_blob_store_strings() {
-        let store = S3BlobStore::new(BUCKET, PREFIX, None);
-        let client = store.new_client().unwrap();
-        let uri = format!("s3://{}/{}", BUCKET, PREFIX);
-        assert_eq!(client.get_string(), uri);
-    }
-
-    #[test]
-    fn test_s3blob_store_uri() {
-        let _guard = crate::init_logging().unwrap();
-        info!("test_s3blob_store_uri");
-        #[derive(Debug)]
-        struct TestGetStoredBlockCompletion {}
-        impl AsyncGetStoredBlockAPI for TestGetStoredBlockCompletion {
-            fn on_complete(&self, stored_block: *mut Longtail_StoredBlock, err: i32) {
-                let stored_block = StoredBlock::new_from_lt(stored_block);
-                info!("Stored block: {:?}", stored_block);
-                info!("Error: {:?}", err);
-            }
-        }
-        let mut async_complete_api =
-            AsyncGetStoredBlockAPIProxy::new(Box::new(TestGetStoredBlockCompletion {}));
-        info!("async_complete_api: {:?}", async_complete_api);
-
-        let uri = format!("s3://{}/{}/store", BUCKET, PREFIX);
-        let store = create_block_store_for_uri(
-            &uri,
-            None,
-            &BikeshedJobAPI::new(1, 1),
-            1,
-            AccessType::ReadOnly,
-            true,
-            None,
-        )
-        .unwrap();
-        let hash = 0xd1006a10ce6543f6;
-        let result = store.get_stored_block(hash, &mut async_complete_api as *mut _);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_fs_blob_store_string() {
-        let store = FsBlobStore::new("test", true);
-        let client = store.new_client().unwrap();
-        assert_eq!(client.get_string(), "fsblob");
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     #[ignore = "Not finished"]
+//     fn test_fs_blob_store_uri() {
+//         let _guard = crate::init_logging().unwrap();
+//         let temp_dir = tempfile::tempdir().unwrap();
+//         let temp_dir_path = temp_dir.path().to_str().unwrap();
+//
+//         let uri = format!("fsblob://{}", temp_dir_path);
+//         let fs_block_store =
+//             create_block_store_for_uri(&uri, None, None, 1, AccessType::ReadWrite, false, None);
+//
+//     }
+// }
