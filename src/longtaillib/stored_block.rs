@@ -109,7 +109,8 @@ impl StoredBlock {
         BlockIndex::new_from_lt(unsafe { (*self.stored_block).m_BlockIndex })
     }
 
-    /// Return the size of the `StoredBlock`, including the block index and block data
+    /// Return the size of the `StoredBlock`, including the block index and
+    /// block data
     // Longtail_GetStoredBlockSize?
     pub fn get_block_size(&self) -> usize {
         let block_index = self.get_block_index();

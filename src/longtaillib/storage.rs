@@ -245,8 +245,9 @@ impl DerefMut for StorageAPI {
     }
 }
 
-// TODO: Do we want to expose the full implmentation here? If so, we need to wrap the
-// rest of the C pointers in Rust types. If not, restrict visibility to the public API.
+// TODO: Do we want to expose the full implmentation here? If so, we need to
+// wrap the rest of the C pointers in Rust types. If not, restrict visibility to
+// the public API.
 #[allow(dead_code)]
 impl StorageAPI {
     pub fn new(

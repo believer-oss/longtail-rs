@@ -7,7 +7,8 @@ use crate::{
 };
 use std::{io::Read, ptr::null_mut};
 
-// TODO: This implementation is a direct port from golang and needs to be rewritten to be idiomatic Rust.
+// TODO: This implementation is a direct port from golang and needs to be
+// rewritten to be idiomatic Rust.
 #[repr(C)]
 #[derive(Debug)]
 pub struct FolderScanner {

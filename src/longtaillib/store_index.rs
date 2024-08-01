@@ -75,7 +75,8 @@ impl DerefMut for StoreIndex {
 }
 
 impl StoreIndex {
-    // TODO: This creates a null pointer, so it should ideally be a StoreIndexNull type.
+    // TODO: This creates a null pointer, so it should ideally be a StoreIndexNull
+    // type.
     pub(crate) fn new_null_index() -> StoreIndex {
         StoreIndex {
             store_index: std::ptr::null_mut::<Longtail_StoreIndex>(),
@@ -159,7 +160,8 @@ impl StoreIndex {
         })
     }
 
-    /// Create a new `StoreIndex` from a union of the current index and a set of block indexes
+    /// Create a new `StoreIndex` from a union of the current index and a set of
+    /// block indexes
     pub fn add_blocks(&self, block_indexes: Vec<BlockIndex>) -> Result<StoreIndex, i32> {
         let added_store_index = Self::new_from_blocks(block_indexes)?;
         self.merge_store_index(&added_store_index)
@@ -218,8 +220,9 @@ impl StoreIndex {
         }
     }
 
-    /// Creates a store index from a given set of chunk hashes, while keeping the existing store
-    /// index blocks in use as long as the block usage is above the given minimum block usage threshold.
+    /// Creates a store index from a given set of chunk hashes, while keeping
+    /// the existing store index blocks in use as long as the block usage is
+    /// above the given minimum block usage threshold.
     pub fn get_existing_store_index(
         &self,
         chunk_hashes: Vec<u64>,
@@ -244,7 +247,8 @@ impl StoreIndex {
         Ok(StoreIndex::new_from_lt(store_index))
     }
 
-    /// Remove blocks from the store index that are not in the given list of block hashes
+    /// Remove blocks from the store index that are not in the given list of
+    /// block hashes
     pub fn prune_store_index(
         store_index: &StoreIndex,
         keep_block_hashes: Vec<u64>,

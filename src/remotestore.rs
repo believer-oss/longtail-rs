@@ -598,7 +598,8 @@ pub fn create_block_store_for_uri(
 //
 //         let uri = format!("fsblob://{}", temp_dir_path);
 //         let fs_block_store =
-//             create_block_store_for_uri(&uri, None, None, 1, AccessType::ReadWrite, false, None);
+//             create_block_store_for_uri(&uri, None, None, 1,
+// AccessType::ReadWrite, false, None);
 //
 //     }
 // }
