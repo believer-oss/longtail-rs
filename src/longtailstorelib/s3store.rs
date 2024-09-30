@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use aws_sdk_s3::Client as S3Client;
 
 use crate::{BlobClient, BlobObject, BlobStore};
@@ -184,21 +182,20 @@ impl<'a> BlobObject for S3BlobObject<'a> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let mut inner = rt
-            .block_on(
-                self.client
-                    .s3_client
-                    .get_object()
-                    .bucket(self.client.store.bucket_name.clone())
-                    .key(self.object_key.clone())
-                    .send(),
-            )
-            .inspect_err(|e| tracing::debug!("Error reading!:{:?}", e))?;
-        let mut buf = Vec::<u8>::new();
-        while let Some(bytes) = rt.block_on(inner.body.try_next())? {
-            buf.write_all(&bytes)?;
-        }
-        Ok(buf)
+        rt.block_on(async {
+            let inner = self
+                .client
+                .s3_client
+                .get_object()
+                .bucket(self.client.store.bucket_name.clone())
+                .key(self.object_key.clone())
+                .send()
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+            let body = inner.body.collect().await?;
+            Ok(body.to_vec())
+        })
     }
     fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let rt = tokio::runtime::Builder::new_current_thread()
