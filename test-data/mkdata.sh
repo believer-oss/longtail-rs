@@ -1,8 +1,15 @@
 #!/bin/bash
 
-wget "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.3/longtail-linux-x64"
-mv longtail-linux-x64 longtail
-chmod +x longtail
+if [ "$(uname -o)" == "Darwin" ]; then
+  curl -LO \
+    "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.3/longtail-macos-x64"
+  mv longtail-macos-x64 longtail
+  chmod +x longtail
+else
+  wget "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.3/longtail-linux-x64"
+  mv longtail-linux-x64 longtail
+  chmod +x longtail
+fi
 
 rm -rf small medium large
 
