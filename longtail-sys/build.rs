@@ -20,6 +20,16 @@ const UPSTREAM_FILENAME: &str = "linux-x64.zip";
 #[cfg(target_os = "linux")]
 const SHA256: &str = "f915dafe38a7efae92b3f6ae2c11f1b5ff94efddf7fc5f3df14a6f904cc386e6";
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const UPSTREAM_FILENAME: &str = "darwin-x64.zip";
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const SHA256: &str = "904f8084cd1da4ac7b0fe951d9a7bf104509f0f2";
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const UPSTREAM_FILENAME: &str = "darwin-arm64.zip";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const SHA256: &str = "694cd910756fb6bee00f728f08c82ab7531886fd";
+
 const EXTRA_HEADERS: [(&str, &str); 27] = [
     ("archiveblockstore", "longtail_archiveblockstore.h"),
     ("atomiccancel", "longtail_atomiccancel.h"),
@@ -268,7 +278,7 @@ fn vendored() {
 
     // Disable warnings for mismatched declarations, because longtail redefines
     // free's signature
-    #[cfg(not(target_env = "msvc"))]
+    #[cfg(target_os = "linux")]
     cfg.flag("-Wno-builtin-declaration-mismatch");
 
     // Setup default build flags
