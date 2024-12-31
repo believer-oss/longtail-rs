@@ -1,28 +1,3 @@
-use tracing::debug;
-
-use crate::{
-    AsyncFlushAPIProxy, AsyncGetExistingContentAPIProxy, AsyncGetStoredBlockAPIProxy,
-    AsyncPreflightStartedAPIProxy, AsyncPruneBlocksAPIProxy, AsyncPutStoredBlockAPIProxy,
-    BikeshedJobAPI, CompressionRegistry, ConcurrentChunkWriteAPI, HashAPI, Longtail_API,
-    Longtail_ArchiveIndex, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
-    Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
-    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_BlockStoreAPI,
-    Longtail_BlockStore_Flush, Longtail_BlockStore_GetExistingContent,
-    Longtail_BlockStore_GetStats, Longtail_BlockStore_GetStoredBlock,
-    Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PruneBlocks,
-    Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats, Longtail_CancelAPI,
-    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion, Longtail_CreateArchiveBlockStore,
-    Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
-    Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
-    Longtail_CreateShareBlockStoreAPI, Longtail_ProgressAPI, Longtail_StorageAPI,
-    Longtail_StoredBlock, ProgressAPIProxy, StorageAPI, StoreIndex, StoredBlock, VersionDiff,
-    VersionIndex,
-};
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::null_mut,
-};
-
 #[rustfmt::skip]
 // Blockstore API
 // pub fn Longtail_GetBlockStoreAPISize() -> u64;
@@ -53,8 +28,33 @@ use std::{
 //     Longtail_BlockStore_FlushFunc Flush;
 // };
 
-/// A block store in the Longtail API consists of pointers to functions that implement a backing block
-/// store.
+use tracing::debug;
+
+use crate::{
+    AsyncFlushAPIProxy, AsyncGetExistingContentAPIProxy, AsyncGetStoredBlockAPIProxy,
+    AsyncPreflightStartedAPIProxy, AsyncPruneBlocksAPIProxy, AsyncPutStoredBlockAPIProxy,
+    BikeshedJobAPI, CompressionRegistry, ConcurrentChunkWriteAPI, HashAPI, Longtail_API,
+    Longtail_ArchiveIndex, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
+    Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
+    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_BlockStoreAPI,
+    Longtail_BlockStore_Flush, Longtail_BlockStore_GetExistingContent,
+    Longtail_BlockStore_GetStats, Longtail_BlockStore_GetStoredBlock,
+    Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PruneBlocks,
+    Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats, Longtail_CancelAPI,
+    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion, Longtail_CreateArchiveBlockStore,
+    Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
+    Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
+    Longtail_CreateShareBlockStoreAPI, Longtail_ProgressAPI, Longtail_StorageAPI,
+    Longtail_StoredBlock, ProgressAPIProxy, StorageAPI, StoreIndex, StoredBlock, VersionDiff,
+    VersionIndex,
+};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::null_mut,
+};
+
+/// A block store in the Longtail API consists of pointers to functions that
+/// implement a backing block store.
 #[repr(C)]
 #[derive(Debug)]
 pub struct BlockstoreAPI {
@@ -501,7 +501,7 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
         min_block_usage_percent,
         async_complete_api,
     );
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
@@ -518,7 +518,7 @@ pub unsafe extern "C" fn blockstore_api_put_stored_block(
     let stored_block = StoredBlock::new_from_lt(stored_block);
     let async_complete_api = AsyncPutStoredBlockAPIProxy::new_from_api(*async_complete_api);
     let result = blockstore.put_stored_block(&stored_block, async_complete_api);
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
@@ -542,7 +542,7 @@ pub unsafe extern "C" fn blockstore_api_preflight_get(
         None
     };
     let result = blockstore.preflight_get(chunk_hashes.to_vec(), async_complete_api);
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
@@ -558,7 +558,7 @@ pub unsafe extern "C" fn blockstore_api_get_stored_block(
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let async_complete_api = AsyncGetStoredBlockAPIProxy::new_from_api(async_complete_api);
     let result = blockstore.get_stored_block(block_hash, async_complete_api);
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
@@ -577,7 +577,7 @@ pub unsafe extern "C" fn blockstore_api_prune_blocks(
         unsafe { std::slice::from_raw_parts(block_keep_hashes, block_count as usize) };
     let async_complete_api = AsyncPruneBlocksAPIProxy::new_from_api(*async_complete_api);
     let result = blockstore.prune_blocks(block_keep_hashes.to_vec(), async_complete_api);
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
 
@@ -591,7 +591,7 @@ pub unsafe extern "C" fn blockstore_api_get_stats(
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let result = blockstore.get_stats();
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     match result {
         Ok(stats) => {
             unsafe {
@@ -614,6 +614,6 @@ pub unsafe extern "C" fn blockstore_api_flush(
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let async_complete_api = unsafe { AsyncFlushAPIProxy::new_from_api(*async_complete_api) };
     let result = blockstore.flush(async_complete_api);
-    Box::into_raw(blockstore);
+    let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }

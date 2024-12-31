@@ -1,13 +1,3 @@
-use crate::{
-    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
-    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
-    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
-};
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::null_mut,
-};
-
 #[rustfmt::skip]
 // Version Index API
 // pub fn Longtail_VersionIndex_GetVersion(version_index: *const Longtail_VersionIndex) -> u32;
@@ -54,8 +44,19 @@ use std::{
 //     char* m_NameData;
 // };
 
-/// A version index in the Longtail API consists of pointers to the internal version identifier,
-/// hash type, path data, and all of the chunks needed to reconstruct this version from the store.
+use crate::{
+    hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
+    Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
+    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
+};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::null_mut,
+};
+
+/// A version index in the Longtail API consists of pointers to the internal
+/// version identifier, hash type, path data, and all of the chunks needed to
+/// reconstruct this version from the store.
 #[repr(C)]
 pub struct VersionIndex {
     pub version_index: *mut Longtail_VersionIndex,

@@ -1,9 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
-use crate::{
-    Longtail_API, Longtail_ChunkerAPI, Longtail_CreateHPCDCChunkerAPI, Longtail_DisposeAPI,
-};
-
 #[rustfmt::skip]
 // Chunker API
 // pub fn Longtail_GetChunkerAPISize() -> u64;
@@ -25,9 +19,14 @@ use crate::{
 //     Longtail_Chunker_NextChunkFromBufferFunc NextChunkFromBuffer;
 // };
 
+use std::ops::{Deref, DerefMut};
 
-/// The Chunker API provides functions for chunking data into smaller pieces. This is implemented
-/// in Longtail using the algorithm described on this site:
+use crate::{
+    Longtail_API, Longtail_ChunkerAPI, Longtail_CreateHPCDCChunkerAPI, Longtail_DisposeAPI,
+};
+
+/// The Chunker API provides functions for chunking data into smaller pieces.
+/// This is implemented in Longtail using the algorithm described on this site:
 /// [HDCDC](https://moinakg.wordpress.com/2013/06/22/high-performance-content-defined-chunking/)
 ///
 /// This is currently the only chunker algorithm implemented in Longtail.

@@ -169,7 +169,7 @@ impl VersionIndexReader {
                     std::ptr::null_mut(),
                     source_folder_path.as_ptr(),
                     file_infos.0,
-                    compression_types,
+                    compression_types.as_ptr(),
                     target_chunk_size,
                     enable_file_mappping as i32,
                     &mut vindex,

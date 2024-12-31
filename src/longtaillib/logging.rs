@@ -1,6 +1,3 @@
-use crate::*;
-use tracing::Level;
-
 #[rustfmt::skip]
 /// Utility functions
 // pub fn Longtail_SetAssert(assert_func: Longtail_Assert);
@@ -12,8 +9,11 @@ use tracing::Level;
 //
 // TODO: Implement more utility functions
 
-/// This macro allows us to log dynamically based on the log level indicated by longtail.
-/// [Tokio issue](https://github.com/tokio-rs/tracing/issues/2730#issuecomment-1943022805)
+use crate::*;
+use tracing::Level;
+
+/// This macro allows us to log dynamically based on the log level indicated by
+/// longtail. [Tokio issue](https://github.com/tokio-rs/tracing/issues/2730#issuecomment-1943022805)
 #[macro_export]
 macro_rules! dyn_event {
     ($lvl:ident, $($arg:tt)+) => {

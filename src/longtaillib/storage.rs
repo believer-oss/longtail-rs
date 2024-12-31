@@ -1,9 +1,3 @@
-use crate::*;
-use std::{
-    ffi::c_char,
-    ops::{Deref, DerefMut},
-};
-
 #[rustfmt::skip]
 /// Storage API
 // pub fn Longtail_GetStorageAPISize() -> u64;
@@ -77,6 +71,11 @@ use std::{
 //     Longtail_Storage_OpenAppendFileFunc OpenAppendFile;
 // };
 
+use crate::*;
+use std::{
+    ffi::c_char,
+    ops::{Deref, DerefMut},
+};
 
 /// Represents a full path in the storage API.
 #[repr(C)]

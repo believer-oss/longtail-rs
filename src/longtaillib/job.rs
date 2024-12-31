@@ -1,6 +1,3 @@
-use crate::*;
-use std::ops::{Deref, DerefMut};
-
 #[rustfmt::skip]
 // Job API
 // pub fn Longtail_GetJobAPISize() -> u64;
@@ -29,8 +26,11 @@ use std::ops::{Deref, DerefMut};
 //     Longtail_Job_GetMaxBatchCountFunc GetMaxBatchCount;
 // };
 
-/// The Job API provides functions for managing jobs and workers. This is implemented in Longtail
-/// using the [Bikeshed](https://github.com/DanEngelbrecht/bikeshed) job system.
+use crate::*;
+use std::ops::{Deref, DerefMut};
+
+/// The Job API provides functions for managing jobs and workers. This is
+/// implemented in Longtail using the [Bikeshed](https://github.com/DanEngelbrecht/bikeshed) job system.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct BikeshedJobAPI {
