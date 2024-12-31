@@ -1,9 +1,3 @@
-use crate::{
-    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
-    VersionIndex,
-};
-use std::ops::{Deref, DerefMut};
-
 #[rustfmt::skip]
 // Version Diff API
 // pub fn Longtail_CreateVersionDiff( hash_api: *mut Longtail_HashAPI, source_version: *const Longtail_VersionIndex, target_version: *const Longtail_VersionIndex, out_version_diff: *mut *mut Longtail_VersionDiff,) -> ::std::os::raw::c_int;
@@ -22,9 +16,15 @@ use std::ops::{Deref, DerefMut};
 //     uint32_t* m_TargetPermissionsModifiedAssetIndexes;
 // };
 
+use crate::{
+    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
+    VersionIndex,
+};
+use std::ops::{Deref, DerefMut};
 
-/// A version diff in the Longtail API consists of pointers to counters and indexes of removed,
-/// modified, and added assets calculated between two version indexes.
+/// A version diff in the Longtail API consists of pointers to counters and
+/// indexes of removed, modified, and added assets calculated between two
+/// version indexes.
 #[repr(C)]
 #[derive(Clone)]
 pub struct VersionDiff {

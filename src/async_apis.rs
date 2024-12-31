@@ -115,7 +115,7 @@ impl AsyncGetExistingContentAPI for AsyncGetExistingContentAPIProxy {
         let context = self.get_context();
         if let Some(mut context) = context {
             context.on_complete(store_index, err);
-            Box::into_raw(context);
+            let _ = Box::into_raw(context);
         } else {
             let oncomplete = self.api.OnComplete.unwrap();
             tracing::debug!(
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn async_get_existing_content_api_on_complete(
     let inner = proxy.as_ref().expect("couldn't get ref").get_context();
     if let Some(mut inner) = inner {
         inner.on_complete(store_index, err);
-        Box::into_raw(inner);
+        let _ = Box::into_raw(inner);
     } else {
         unsafe { (*proxy).api.OnComplete.unwrap()(context, store_index, err) }
     }
@@ -217,7 +217,7 @@ impl AsyncPutStoredBlockAPI for AsyncPutStoredBlockAPIProxy {
         let async_put_stored_block_api =
             unsafe { Box::from_raw(context as *mut Box<dyn AsyncPutStoredBlockAPI>) };
         async_put_stored_block_api.on_complete(err);
-        Box::into_raw(async_put_stored_block_api);
+        let _ = Box::into_raw(async_put_stored_block_api);
     }
 }
 
@@ -230,7 +230,7 @@ pub extern "C" fn async_put_stored_block_api_on_complete(
     let async_put_stored_block_api =
         unsafe { Box::from_raw(context as *mut Box<dyn AsyncPutStoredBlockAPI>) };
     async_put_stored_block_api.on_complete(err);
-    Box::into_raw(async_put_stored_block_api);
+    let _ = Box::into_raw(async_put_stored_block_api);
 }
 
 pub extern "C" fn async_put_stored_block_api_dispose(api: *mut Longtail_API) {
@@ -307,7 +307,7 @@ impl AsyncPreflightStartedAPI for AsyncPreflightStartedAPIProxy {
         let async_preflight_started_api =
             unsafe { Box::from_raw(context as *mut Box<dyn AsyncPreflightStartedAPI>) };
         async_preflight_started_api.on_complete(block_hashes, err);
-        Box::into_raw(async_preflight_started_api);
+        let _ = Box::into_raw(async_preflight_started_api);
     }
 }
 
@@ -325,7 +325,7 @@ pub unsafe extern "C" fn async_preflight_started_api_on_complete(
         unsafe { Box::from_raw(context as *mut Box<dyn AsyncPreflightStartedAPI>) };
     let block_hashes = unsafe { std::slice::from_raw_parts(block_hashes, block_count as usize) };
     async_preflight_started_api.on_complete(block_hashes.to_vec(), err);
-    Box::into_raw(async_preflight_started_api);
+    let _ = Box::into_raw(async_preflight_started_api);
 }
 
 pub extern "C" fn async_preflight_started_api_dispose(api: *mut Longtail_API) {
@@ -432,7 +432,7 @@ impl AsyncGetStoredBlockAPI for AsyncGetStoredBlockAPIProxy {
         let context = self.get_context();
         if let Some(context) = context {
             context.on_complete(stored_block, err);
-            Box::into_raw(context);
+            let _ = Box::into_raw(context);
         } else {
             let oncomplete = self.api.OnComplete.unwrap();
             unsafe { oncomplete(&mut (*proxy).api, stored_block, err) };
@@ -454,7 +454,7 @@ pub extern "C" fn async_get_stored_block_api_on_complete(
     let inner = unsafe { proxy.as_ref().expect("couldn't get ref").get_context() };
     if let Some(inner) = inner {
         inner.on_complete(stored_block, err);
-        Box::into_raw(inner);
+        let _ = Box::into_raw(inner);
     } else {
         unsafe { (*proxy).api.OnComplete.unwrap()(context, stored_block, err) };
     }
@@ -532,7 +532,7 @@ impl AsyncPruneBlocksAPI for AsyncPruneBlocksAPIProxy {
         let mut async_prune_blocks_api =
             unsafe { Box::from_raw(context as *mut Box<dyn AsyncPruneBlocksAPI>) };
         async_prune_blocks_api.on_complete(pruned_block_count, err);
-        Box::into_raw(async_prune_blocks_api);
+        let _ = Box::into_raw(async_prune_blocks_api);
     }
 }
 
@@ -546,7 +546,7 @@ pub extern "C" fn async_prune_blocks_api_on_complete(
     let mut async_prune_blocks_api =
         unsafe { Box::from_raw(context as *mut Box<dyn AsyncPruneBlocksAPI>) };
     async_prune_blocks_api.on_complete(pruned_block_count, err);
-    Box::into_raw(async_prune_blocks_api);
+    let _ = Box::into_raw(async_prune_blocks_api);
 }
 
 pub extern "C" fn async_prune_blocks_api_dispose(api: *mut Longtail_API) {
@@ -614,7 +614,7 @@ pub extern "C" fn async_flush_api_on_complete(context: *mut Longtail_AsyncFlushA
     let context = unsafe { (*proxy).context };
     let mut async_flush_api = unsafe { Box::from_raw(context as *mut Box<dyn AsyncFlushAPI>) };
     async_flush_api.on_complete(err);
-    Box::into_raw(async_flush_api);
+    let _ = Box::into_raw(async_flush_api);
 }
 
 pub extern "C" fn async_flush_api_dispose(api: *mut Longtail_API) {

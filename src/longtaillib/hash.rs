@@ -1,7 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
-use crate::*;
-
 #[rustfmt::skip]
 // Hash API
 // pub fn Longtail_GetHashAPISize() -> u64;
@@ -43,6 +39,10 @@ use crate::*;
 //     struct Longtail_API m_API;
 //     Longtail_HashRegistry_GetHashAPIFunc GetHashAPI;
 // };
+
+use std::ops::{Deref, DerefMut};
+
+use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
 // longtail headers are exporting the underlying defines as functions.

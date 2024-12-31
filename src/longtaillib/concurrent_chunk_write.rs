@@ -1,10 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
-use crate::{
-    Longtail_API, Longtail_ConcurrentChunkWriteAPI, Longtail_CreateConcurrentChunkWriteAPI,
-    Longtail_DisposeAPI, StorageAPI, VersionDiff, VersionIndex,
-};
-
 #[rustfmt::skip]
 // Concurrent Write API
 // pub fn Longtail_GetConcurrentChunkWriteAPISize() -> u64;
@@ -26,8 +19,15 @@ use crate::{
 //     Longtail_ConcurrentChunkWrite_FlushFunc Flush;
 // };
 
-/// The Concurrent Chunk Write API provides functions for high performance writing of chunks to
-/// storage.
+use std::ops::{Deref, DerefMut};
+
+use crate::{
+    Longtail_API, Longtail_ConcurrentChunkWriteAPI, Longtail_CreateConcurrentChunkWriteAPI,
+    Longtail_DisposeAPI, StorageAPI, VersionDiff, VersionIndex,
+};
+
+/// The Concurrent Chunk Write API provides functions for high performance
+/// writing of chunks to storage.
 #[repr(C)]
 pub struct ConcurrentChunkWriteAPI {
     concurrent_chunk_write_api: *mut Longtail_ConcurrentChunkWriteAPI,

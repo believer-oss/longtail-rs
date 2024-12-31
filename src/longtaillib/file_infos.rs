@@ -1,5 +1,3 @@
-use crate::Longtail_FileInfos;
-
 #[rustfmt::skip]
 // File Infos API
 // pub fn Longtail_FileInfos_GetCount(file_infos: *const Longtail_FileInfos) -> u32;
@@ -16,6 +14,8 @@ use crate::Longtail_FileInfos;
 //     uint16_t* m_Permissions;
 //     char* m_PathData;
 // };
+
+use crate::Longtail_FileInfos;
 
 #[derive(Debug)]
 pub struct FileInfos(pub *mut Longtail_FileInfos);
@@ -74,12 +74,12 @@ impl FileInfos {
             index: 0,
         }
     }
-    pub fn get_compression_types_for_files(&self, compression_type: u32) -> *const u32 {
+    pub fn get_compression_types_for_files(&self, compression_type: u32) -> Vec<u32> {
         let len = self
             .get_file_count()
             .try_into()
             .expect("Failed to convert usize to u32");
-        vec![compression_type; len].as_ptr()
+        vec![compression_type; len]
     }
 }
 

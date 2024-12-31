@@ -45,7 +45,7 @@ pub struct FsExclusiveLockGuard {
 
 impl Drop for FsExclusiveLockGuard {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        let _ = FileExt::unlock(&self.file);
         std::fs::remove_file(&self.lock_path).unwrap()
     }
 }

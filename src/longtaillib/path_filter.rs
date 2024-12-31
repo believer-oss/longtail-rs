@@ -1,15 +1,15 @@
+#[rustfmt::skip]
+// Path Filter API
+// pub fn Longtail_GetPathFilterAPISize() -> u64;
+// pub fn Longtail_MakePathFilterAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, include_filter_func: Longtail_PathFilter_IncludeFunc,) -> *mut Longtail_PathFilterAPI;
+// pub fn Longtail_PathFilter_Include( path_filter_api: *mut Longtail_PathFilterAPI, root_path: *const ::std::os::raw::c_char, asset_path: *const ::std::os::raw::c_char, asset_name: *const ::std::os::raw::c_char, is_dir: ::std::os::raw::c_int, size: u64, permissions: u16,) -> ::std::os::raw::c_int;
+
 use std::ops::{Deref, DerefMut};
 
 #[allow(unused_imports)]
 use crate::{
     Longtail_API, Longtail_Alloc, Longtail_Free, Longtail_MakePathFilterAPI, Longtail_PathFilterAPI,
 };
-
-#[rustfmt::skip]
-// Path Filter API
-// pub fn Longtail_GetPathFilterAPISize() -> u64;
-// pub fn Longtail_MakePathFilterAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, include_filter_func: Longtail_PathFilter_IncludeFunc,) -> *mut Longtail_PathFilterAPI;
-// pub fn Longtail_PathFilter_Include( path_filter_api: *mut Longtail_PathFilterAPI, root_path: *const ::std::os::raw::c_char, asset_path: *const ::std::os::raw::c_char, asset_name: *const ::std::os::raw::c_char, is_dir: ::std::os::raw::c_int, size: u64, permissions: u16,) -> ::std::os::raw::c_int;
 
 /// Trait for testing the metadata of a file or directory against a filter
 pub trait PathFilterAPI: std::fmt::Debug {
@@ -130,7 +130,7 @@ pub unsafe extern "C" fn path_filter_include(
         size,
         permissions,
     ) as i32;
-    Box::into_raw(path_filter);
+    let _ = Box::into_raw(path_filter);
     result
 }
 

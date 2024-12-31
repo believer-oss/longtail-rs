@@ -1,14 +1,3 @@
-use longtail_sys::Longtail_StoredBlock_Dispose;
-
-use crate::{
-    BlockIndex, Longtail_GetBlockIndexSize, Longtail_ReadStoredBlockFromBuffer,
-    Longtail_StoredBlock, Longtail_WriteStoredBlockToBuffer, NativeBuffer,
-};
-use std::{
-    ops::{Deref, DerefMut},
-    path::Path,
-};
-
 #[rustfmt::skip]
 // Stored Block API
 // pub fn Longtail_StoredBlock_Dispose(stored_block: *mut Longtail_StoredBlock);
@@ -32,7 +21,19 @@ use std::{
 // On disk representation of a stored block:
 // [BlockIndex][BlockData]
 
-/// A stored block in the Longtail API consists of pointers to a block index and the associated block data.
+use longtail_sys::Longtail_StoredBlock_Dispose;
+
+use crate::{
+    BlockIndex, Longtail_GetBlockIndexSize, Longtail_ReadStoredBlockFromBuffer,
+    Longtail_StoredBlock, Longtail_WriteStoredBlockToBuffer, NativeBuffer,
+};
+use std::{
+    ops::{Deref, DerefMut},
+    path::Path,
+};
+
+/// A stored block in the Longtail API consists of pointers to a block index and
+/// the associated block data.
 #[repr(C)]
 // TODO: This Clone is sus... it's not a deep copy. The trait should be implemented properly.
 #[derive(Debug, Clone)]

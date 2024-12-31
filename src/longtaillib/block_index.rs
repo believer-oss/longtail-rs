@@ -1,11 +1,3 @@
-use crate::{
-    Longtail_BlockIndex, Longtail_CopyBlockIndex, Longtail_ReadBlockIndexFromBuffer, StoredBlock,
-};
-use std::{
-    ops::{Deref, DerefMut},
-    path::Path,
-};
-
 #[rustfmt::skip]
 // Block Index API
 // pub fn Longtail_MakeBlockIndex( store_index: *const Longtail_StoreIndex, block_index: u32, out_block_index: *mut Longtail_BlockIndex,) -> ::std::os::raw::c_int;
@@ -36,9 +28,17 @@ use std::{
 //     uint32_t* m_ChunkSizes; // []
 // };
 
-/// A block index in the Longtail API consists of pointers to the block hash, hash identifier, chunk
-/// count, tag, chunk hashes, and chunk sizes. The block index is used to describe the contents of a
-/// block.
+use crate::{
+    Longtail_BlockIndex, Longtail_CopyBlockIndex, Longtail_ReadBlockIndexFromBuffer, StoredBlock,
+};
+use std::{
+    ops::{Deref, DerefMut},
+    path::Path,
+};
+
+/// A block index in the Longtail API consists of pointers to the block hash,
+/// hash identifier, chunk count, tag, chunk hashes, and chunk sizes. The block
+/// index is used to describe the contents of a block.
 #[repr(C)]
 pub struct BlockIndex {
     pub block_index: *mut Longtail_BlockIndex,

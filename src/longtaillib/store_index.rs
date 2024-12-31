@@ -1,9 +1,3 @@
-use crate::*;
-use std::{
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
-};
-
 #[rustfmt::skip]
 // Store Index API
 // pub fn Longtail_StoreIndex_GetVersion(store_index: *const Longtail_StoreIndex) -> u32;
@@ -44,9 +38,15 @@ use std::{
 //     uint32_t* m_ChunkSizes;             // [] m_ChunkSizes is the size of each chunk
 // };
 
+use crate::*;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
+};
 
-/// A store index in the Longtail API consists of pointers to block hashes and their constituent
-/// chunk hashes. The store index is used to describe a subset of the store.
+/// A store index in the Longtail API consists of pointers to block hashes and
+/// their constituent chunk hashes. The store index is used to describe a subset
+/// of the store.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct StoreIndex {

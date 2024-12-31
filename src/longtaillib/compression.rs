@@ -1,7 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
-use crate::*;
-
 #[rustfmt::skip]
 // Compression API
 // pub fn Longtail_GetCompressionAPISize() -> u64;
@@ -48,6 +44,9 @@ use crate::*;
 //     Longtail_CompressionRegistry_GetCompressionAPIFunc GetCompressionAPI;
 // };
 
+use std::ops::{Deref, DerefMut};
+
+use crate::*;
 
 // Redefining these consts here because enum values need to be const, and the
 // longtail headers are exporting the underlying defines as functions.

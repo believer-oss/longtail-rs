@@ -1,12 +1,11 @@
-#[allow(unused_imports)]
-use crate::{Longtail_API, Longtail_DisposeAPI, Longtail_ProgressAPI};
-
 #[rustfmt::skip]
 /// Progress API
 // pub fn Longtail_GetProgressAPISize() -> u64;
 // pub fn Longtail_MakeProgressAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, on_progress_func: Longtail_Progress_OnProgressFunc,) -> *mut Longtail_ProgressAPI;
 // pub fn Longtail_Progress_OnProgress( progressAPI: *mut Longtail_ProgressAPI, total_count: u32, done_count: u32,);
 // pub fn Longtail_CreateRateLimitedProgress( progress_api: *mut Longtail_ProgressAPI, percent_rate_limit: u32,) -> *mut Longtail_ProgressAPI;
+
+use crate::{Longtail_API,  Longtail_ProgressAPI};
 
 pub trait ProgressAPI {
     fn on_progress(&self, total_count: u32, done_count: u32);
@@ -51,7 +50,7 @@ pub extern "C" fn progress_api_on_progress(
     let context = unsafe { (*proxy).context };
     let progress = unsafe { Box::from_raw(context as *mut Box<dyn ProgressAPI>) };
     progress.on_progress(total_count, done_count);
-    Box::into_raw(progress);
+    let _ = Box::into_raw(progress);
 }
 
 pub extern "C" fn progress_api_dispose(api: *mut Longtail_API) {

@@ -135,7 +135,7 @@ struct S3BlobObject<'a> {
     object_key: String,
 }
 
-impl<'a> BlobObject for S3BlobObject<'a> {
+impl BlobObject for S3BlobObject<'_> {
     fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
