@@ -8,27 +8,27 @@ use std::{
 
 const UPSTREAM_RELEASE_BASE_URL: &str =
     "https://github.com/DanEngelbrecht/longtail/releases/download";
-const UPSTREAM_VERSION: &str = "v0.4.2";
+const UPSTREAM_VERSION: &str = "v0.4.3";
 
 #[cfg(target_os = "windows")]
 const UPSTREAM_FILENAME: &str = "win32-x64.zip";
 #[cfg(target_os = "windows")]
-const SHA256: &str = "775d7a890f9d9ed6f5912e46e0035ac5ba796cbe4178ac720c5eddd97f91a8fb";
+const SHA256: &str = "5c136d4f3ff1809df559da1c971a0fd3b0c6a91323473893b6bafb07ac8425c8";
 
 #[cfg(target_os = "linux")]
 const UPSTREAM_FILENAME: &str = "linux-x64.zip";
 #[cfg(target_os = "linux")]
-const SHA256: &str = "f915dafe38a7efae92b3f6ae2c11f1b5ff94efddf7fc5f3df14a6f904cc386e6";
+const SHA256: &str = "2d101731c3005fbbd20cf3a9676090a0f65656a5b1a0fcf3228ca4d92a240cd0";
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 const UPSTREAM_FILENAME: &str = "darwin-x64.zip";
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const SHA256: &str = "904f8084cd1da4ac7b0fe951d9a7bf104509f0f2";
+const SHA256: &str = "956a2587554a4341ec9d76673e18211484e617260ca7322480da000faece548c";
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const UPSTREAM_FILENAME: &str = "darwin-arm64.zip";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const SHA256: &str = "694cd910756fb6bee00f728f08c82ab7531886fd";
+const SHA256: &str = "e5c94d6733149ebb4cb5f1efbb85dc8708a83fffb9067cc115a6355b2d66e257";
 
 const EXTRA_HEADERS: [(&str, &str); 27] = [
     ("archiveblockstore", "longtail_archiveblockstore.h"),
@@ -460,7 +460,6 @@ fn vendored() {
     //         const uint32_t LONGTAIL_BLAKE2_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'2');
     //         const uint32_t LONGTAIL_BLAKE3_HASH_TYPE = (((uint32_t)'b') << 24) + (((uint32_t)'l') << 16) + (((uint32_t)'k') << 8) + ((uint32_t)'3');
     //     ");
-
     let bindings = builder
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
