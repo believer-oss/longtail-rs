@@ -273,6 +273,8 @@ fn vendored() {
     // let windows = target.contains("windows");
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap());
 
+    let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
 
@@ -296,6 +298,11 @@ fn vendored() {
             .flag("-msse4.1");
     } else if arch == "aarch64" {
         cfg.flag("-march=armv8-a+crc+simd"); // untested, probably wrong
+    }
+
+    if rustflags.contains("sanitizer=address") {
+        println!("cargo:warning=Building with address sanitizer");
+        cfg.flag("-fsanitize=address");
     }
 
     // MSVC doesn't support this asm?
@@ -497,6 +504,7 @@ fn add_c_files(build: &mut cc::Build, path: impl AsRef<Path>) {
 }
 
 fn main() {
+    // by default, use the submodule version
     if cfg!(feature = "vendored") {
         vendored()
     } else {
