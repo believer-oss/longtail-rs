@@ -1,3 +1,4 @@
+use longtail_sys::Longtail_ChangeVersion2;
 #[rustfmt::skip]
 // Blockstore API
 // pub fn Longtail_GetBlockStoreAPISize() -> u64;
@@ -216,15 +217,13 @@ impl BlockstoreAPI {
     }
 
     // TODO: Is this the appropriate place for this function?
-    // TODO: Further testing on ChangeVersion2 is needed. It is not correct on
-    // Linux, but may be fine on Windows.
     // TODO: All of these functions that take many arguments would probably benefit
     // from a builder or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
     pub fn change_version(
         &self,
         version_storage_api: &StorageAPI,
-        _concurrent_chunk_write_api: &ConcurrentChunkWriteAPI,
+        concurrent_chunk_write_api: &ConcurrentChunkWriteAPI,
         hash_api: &HashAPI,
         job_api: &BikeshedJobAPI,
         progress_api: &ProgressAPIProxy,
@@ -238,10 +237,10 @@ impl BlockstoreAPI {
         let version_path = std::ffi::CString::new(version_path).unwrap();
         let store_index = store_index.store_index;
         let result = unsafe {
-            Longtail_ChangeVersion(
+            Longtail_ChangeVersion2(
                 self.blockstore_api,
                 **version_storage_api,
-                // **concurrent_chunk_write_api,
+                **concurrent_chunk_write_api,
                 **hash_api,
                 **job_api,
                 progress_api as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
