@@ -2,7 +2,10 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use std::fmt::{Display, Formatter};
+use std::{
+    ffi::CString,
+    fmt::{Display, Formatter},
+};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -42,5 +45,26 @@ impl Display for Longtail_StorageAPI_EntryProperties {
         let mode = permissions_to_string(self.m_Permissions);
 
         write!(f, "{dirbit}{mode} {size:16} {name}")
+    }
+}
+
+#[repr(transparent)]
+pub struct Longtail_Context(CString);
+
+impl Longtail_Context {
+    pub fn new(name: &str) -> Self {
+        Self(CString::new(name).expect("Longtail_Context::new cannot have null bytes"))
+    }
+}
+
+impl From<&str> for Longtail_Context {
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}
+
+impl From<&Longtail_Context> for *const std::os::raw::c_char {
+    fn from(context: &Longtail_Context) -> *const std::os::raw::c_char {
+        context.0.as_ptr()
     }
 }
