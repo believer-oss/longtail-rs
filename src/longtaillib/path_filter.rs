@@ -64,10 +64,11 @@ impl PathFilterAPIProxy {
     pub fn new_proxy_ptr(path_filter: Box<dyn PathFilterAPI>) -> *mut Self {
         let context = Box::into_raw(Box::new(path_filter)) as *mut std::ffi::c_void;
         let api_mem = unsafe {
-            let fn_context = std::ffi::CString::new("CreatePathFilterProxyAPI")
-                .unwrap()
-                .into_raw();
-            Longtail_Alloc(fn_context, std::mem::size_of::<PathFilterAPIProxy>())
+            let fn_context: longtail_sys::Longtail_Context = "CreatePathFilterProxyAPI".into();
+            Longtail_Alloc(
+                (&fn_context).into(),
+                std::mem::size_of::<PathFilterAPIProxy>(),
+            )
         };
         let api = unsafe {
             Longtail_MakePathFilterAPI(
