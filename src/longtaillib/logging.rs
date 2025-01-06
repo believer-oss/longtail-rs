@@ -46,8 +46,8 @@ pub fn logcontext(log_context: Longtail_LogContext, context: &str) {
     dyn_event!(
         level,
         context,
-        file = file.to_str().unwrap(),
-        function = function.to_str().unwrap(),
+        file = file.to_str().expect("no file name"),
+        function = function.to_str().expect("no function name"),
         line = log_context.line,
         fields = ?fields,
     );
@@ -60,7 +60,11 @@ unsafe extern "C" fn log_callback(
 ) {
     let log = unsafe { std::ffi::CStr::from_ptr(log) };
     let context = unsafe { *context };
-    logcontext(context, log.to_str().unwrap());
+    logcontext(
+        context,
+        log.to_str()
+            .expect("invalid log message, only utf-8 is supported"),
+    );
 }
 
 // TODO: Split this into an init_logging and set_longtail_loglevel function
