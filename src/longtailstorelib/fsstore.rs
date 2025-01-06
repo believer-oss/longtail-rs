@@ -67,7 +67,7 @@ impl BlobClient for FsBlobClient {
         &self,
         path: String,
     ) -> Result<Box<dyn crate::BlobObject + '_>, Box<dyn std::error::Error>> {
-        let path = format!("{}/{}", self.store.prefix, path);
+        let path = format!("{}{}{}", self.store.prefix, std::path::MAIN_SEPARATOR, path);
         let path = normalize_file_system_path(path);
         Ok(Box::new(FsBlobObject {
             client: self.clone(),
@@ -327,6 +327,12 @@ mod tests {
         let store = FsBlobStore::new(temp_dir_path, false);
         let client = store.new_client().unwrap();
         let object = client.new_object("test.txt".to_string()).unwrap();
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            object.get_string(),
+            format!("fsblob://{}\\test.txt", temp_dir_path)
+        );
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(
             object.get_string(),
             format!("fsblob://{}/test.txt", temp_dir_path)
