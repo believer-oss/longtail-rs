@@ -79,7 +79,10 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
         tracing::debug!("stored_block: {:?}", stored_block);
         tracing::debug!("async_complete_api: {:p}", async_complete_api);
         tracing::debug!("context: {:?}", unsafe {
-            async_complete_api.as_ref().unwrap().get_context()
+            async_complete_api
+                .as_ref()
+                .expect("Failed to get async_complete_api")
+                .get_context()
         });
         match stored_block {
             Ok(stored_block) => unsafe {
@@ -542,8 +545,8 @@ pub fn create_block_store_for_uri(
 
         // S3 blob store
         s if s.starts_with("s3://") => {
-            let uri = uri.parse::<Uri>().unwrap();
-            let bucket_name = uri.host().unwrap().to_string();
+            let uri = uri.parse::<Uri>().expect("could not parse uri");
+            let bucket_name = uri.host().expect("could not identify host").to_string();
             let mut prefix = uri.path().to_string();
             // Strip initial slash
             if prefix[0..1] == *"/" {

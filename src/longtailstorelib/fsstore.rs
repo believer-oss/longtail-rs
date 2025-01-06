@@ -46,7 +46,7 @@ pub struct FsExclusiveLockGuard {
 impl Drop for FsExclusiveLockGuard {
     fn drop(&mut self) {
         let _ = FileExt::unlock(&self.file);
-        std::fs::remove_file(&self.lock_path).unwrap()
+        std::fs::remove_file(&self.lock_path).expect("error removing lock file")
     }
 }
 
@@ -85,10 +85,13 @@ impl BlobClient for FsBlobClient {
         let meta = std::fs::metadata(search_path)?;
         if !meta.is_dir() {
             #[cfg(target_os = "windows")]
-            let size = meta.file_size().try_into().unwrap();
+            let size = meta
+                .file_size()
+                .try_into()
+                .expect("could not find file size");
 
             #[cfg(not(target_os = "windows"))]
-            let size = meta.size().try_into().unwrap();
+            let size = meta.size().try_into().expect("could not find file size");
 
             objects.push(crate::BlobProperties {
                 size,
@@ -106,9 +109,15 @@ impl BlobClient for FsBlobClient {
             if path.to_string_lossy().ends_with("._lck") {
                 continue;
             }
-            let path = path.strip_prefix(search_path).unwrap();
+            let path = path
+                .strip_prefix(search_path)
+                .expect("search_path is not a prefix of path");
             // TODO: Windows strings may fail here...
-            let leaf_path = normalize_file_system_path(path.to_str().unwrap().to_string());
+            let leaf_path = normalize_file_system_path(
+                path.to_str()
+                    .expect("could not convert path to utf-8")
+                    .to_string(),
+            );
             if leaf_path.len() < path_prefix.len() {
                 continue;
             }
@@ -145,7 +154,8 @@ impl FsBlobObject {
         let metapath = format!("{}.gen", self.path);
         match std::fs::read(metapath) {
             Ok(data) => {
-                let meta_generation = i64::from_le_bytes(data.try_into().unwrap());
+                let meta_generation =
+                    i64::from_le_bytes(data.try_into().expect("invalid meta generation"));
                 Ok(meta_generation)
             }
             Err(e) => {
@@ -246,7 +256,11 @@ impl BlobObject for FsBlobObject {
             None
         };
 
-        let _ = std::fs::create_dir_all(std::path::Path::new(&self.path).parent().unwrap());
+        let _ = std::fs::create_dir_all(
+            std::path::Path::new(&self.path)
+                .parent()
+                .expect("could not get parent of path"),
+        );
 
         if self.client.store.enable_locking && self.metageneration != -1 {
             let current_meta_generation = self.get_meta_generation()?;

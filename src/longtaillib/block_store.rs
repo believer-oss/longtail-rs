@@ -1,4 +1,3 @@
-use longtail_sys::Longtail_ChangeVersion2;
 #[rustfmt::skip]
 // Blockstore API
 // pub fn Longtail_GetBlockStoreAPISize() -> u64;
@@ -42,7 +41,7 @@ use crate::{
     Longtail_BlockStore_GetStats, Longtail_BlockStore_GetStoredBlock,
     Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PruneBlocks,
     Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats, Longtail_CancelAPI,
-    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion, Longtail_CreateArchiveBlockStore,
+    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion2, Longtail_CreateArchiveBlockStore,
     Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
     Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
     Longtail_CreateShareBlockStoreAPI, Longtail_ProgressAPI, Longtail_StorageAPI,
