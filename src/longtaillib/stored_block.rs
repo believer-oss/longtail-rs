@@ -21,8 +21,6 @@
 // On disk representation of a stored block:
 // [BlockIndex][BlockData]
 
-use longtail_sys::Longtail_StoredBlock_Dispose;
-
 use crate::{
     BlockIndex, Longtail_GetBlockIndexSize, Longtail_ReadStoredBlockFromBuffer,
     Longtail_StoredBlock, Longtail_WriteStoredBlockToBuffer, NativeBuffer,
@@ -57,7 +55,7 @@ impl DerefMut for StoredBlock {
 
 impl Drop for StoredBlock {
     fn drop(&mut self) {
-        unsafe { Longtail_StoredBlock_Dispose(self.stored_block) }
+        // unsafe { Longtail_StoredBlock_Dispose(self.stored_block) }
     }
 }
 

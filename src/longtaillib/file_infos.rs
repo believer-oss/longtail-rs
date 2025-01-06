@@ -20,6 +20,12 @@ use crate::Longtail_FileInfos;
 #[derive(Debug)]
 pub struct FileInfos(pub *mut Longtail_FileInfos);
 
+impl Drop for FileInfos {
+    fn drop(&mut self) {
+        unsafe { longtail_sys::Longtail_Free(self.0 as *mut std::ffi::c_void) }
+    }
+}
+
 impl FileInfos {
     pub fn get_file_count(&self) -> u32 {
         unsafe { (*self.0).m_Count }

@@ -64,10 +64,11 @@ pub struct BlockstoreAPI {
 
 impl Drop for BlockstoreAPI {
     fn drop(&mut self) {
-        // TODO: Is this needed? It's a small memory leak if so.
-        // unsafe {
-        //  Longtail_DisposeAPI(&mut (*self.blockstore_api).m_API as *mut
-        // Longtail_API) };
+        unsafe {
+            longtail_sys::Longtail_DisposeAPI(
+                &mut (*self.blockstore_api).m_API as *mut Longtail_API,
+            )
+        };
     }
 }
 

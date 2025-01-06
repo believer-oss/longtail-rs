@@ -17,7 +17,7 @@
 // };
 
 use crate::{
-    HashAPI, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
+    HashAPI, Longtail_Free, Longtail_CreateVersionDiff, Longtail_GetRequiredChunkHashes, Longtail_VersionDiff,
     VersionIndex,
 };
 use std::ops::{Deref, DerefMut};
@@ -34,8 +34,7 @@ pub struct VersionDiff {
 
 impl Drop for VersionDiff {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.version_diff).m_API as *mut
-        // Longtail_API) };
+        unsafe { Longtail_Free(self.version_diff as *mut std::ffi::c_void) }
     }
 }
 
