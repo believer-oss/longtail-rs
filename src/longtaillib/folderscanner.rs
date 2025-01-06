@@ -229,11 +229,10 @@ mod tests {
         let _guard = crate::init_logging().unwrap();
         let jobs = BikeshedJobAPI::new(1, 1);
         let fs = StorageAPI::new_fs();
-        let pf = Box::new(TestPathFilter {});
-        let path_filter = PathFilterAPIProxy::new_proxy_ptr(pf);
-        let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let root_path = "test-data/small/storage";
-        let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
+        let pf = TestPathFilter {};
+        let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
+        let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
+        let scanner = FolderScanner::scan("test-data/small/storage", path_filter_ref, &fs, &jobs);
         let file_infos = scanner.get_file_infos();
         assert_eq!(file_infos.get_file_count(), 7);
         for (path, size, permissions) in file_infos.iter() {
@@ -248,9 +247,8 @@ mod tests {
         let fs = StorageAPI::new_fs();
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
-        let path_filter = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let root_path = "test-data/small";
-        let scanner = FolderScanner::scan(root_path, path_filter, &fs, &jobs);
+        let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
+        let scanner = FolderScanner::scan("test-data/small", path_filter_ref, &fs, &jobs);
         let source_folder_path = "test-data/small";
         let source_index_path = "";
         let target_chunk_size = 64 * 1024;
@@ -263,7 +261,7 @@ mod tests {
             target_chunk_size,
             compression_type,
             hash_id,
-            path_filter,
+            path_filter_ref,
             &fs,
             &jobs,
             &hash_registry,

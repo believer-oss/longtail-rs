@@ -18,11 +18,9 @@ pub struct ProgressAPIProxy {
     _pin: std::marker::PhantomPinned,
 }
 
-// TODO: Unused, since we're relying on the dispose function to handle it?
 impl Drop for ProgressAPIProxy {
     fn drop(&mut self) {
-        // unsafe { Longtail_DisposeAPI(&mut (*self.api).m_API as *mut
-        // Longtail_API) };
+        let _context = unsafe { Box::from_raw(self.context as *mut Box<dyn ProgressAPI>) };
     }
 }
 
