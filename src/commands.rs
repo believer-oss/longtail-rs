@@ -62,7 +62,7 @@ pub fn downsync(
             normalize_file_system_path(source_paths[0].clone()).replace('\\', "/");
         let mut source_name_split = normalized_source_file_path
             .split('/')
-            .last()
+            .next_back()
             .unwrap()
             .split('.');
         let resolved_target_folder_path = source_name_split.next().unwrap();
