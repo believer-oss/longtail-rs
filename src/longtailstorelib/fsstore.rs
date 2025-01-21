@@ -7,7 +7,7 @@ use std::os::windows::fs::MetadataExt;
 use std::os::unix::fs::MetadataExt;
 
 use crate::{normalize_file_system_path, BlobClient, BlobObject, BlobStore};
-use fs4::FileExt;
+use fs4::fs_std::FileExt;
 
 #[derive(Debug, Clone)]
 pub struct FsBlobStore {
@@ -330,7 +330,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         assert_eq!(
             object.get_string(),
-            format!("fsblob://{}\\test.txt", temp_dir_path)
+            format!("fsblob://{}/test.txt", temp_dir_path.replace("\\", "/"))
         );
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
