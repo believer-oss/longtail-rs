@@ -70,8 +70,7 @@ impl NativeBuffer {
 #[cfg(test)]
 mod tests {
     use super::NativeBuffer;
-    use std::mem;
-    use std::os::raw::c_void;
+    use std::{mem, os::raw::c_void};
 
     #[test]
     fn test_new() {
@@ -105,7 +104,8 @@ mod tests {
         buffer.size = data.len();
         buffer.buffer = Box::into_raw(data.into_boxed_slice()) as *mut c_void;
         mem::drop(buffer);
-        // If the buffer was correctly dropped, we should be able to create a new one without any issues.
+        // If the buffer was correctly dropped, we should be able to create a new one
+        // without any issues.
         let _new_buffer = NativeBuffer::new();
     }
 }

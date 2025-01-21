@@ -27,16 +27,20 @@ impl S3BlobStore {
     }
 }
 
-// FIXME: Disabling stalled stream protection is a workaround until we plumb in better handling. We
-// currently get parallel downloads by virtue of the longtail JobAPI, which is set as the workers
-// argument to commands.rs:downsync. Ideally I think we would handle the ThroughputBelowMinimum
-// error by scaling down the concurrency of the S3 client, but that does not appear to be possible
-// with the JobAPI at runtime. We would also need to handle retrying the download, since I don't
-// believe there is any retry logic in longtail, but more research is needed. A better architecture
-// would be to run our own event loop for the S3 client and only pass messages from the longtail
-// JobAPI threads. This would allow us to handle the download concurrency and retries ourselves.
+// FIXME: Disabling stalled stream protection is a workaround until we plumb in
+// better handling. We currently get parallel downloads by virtue of the
+// longtail JobAPI, which is set as the workers argument to
+// commands.rs:downsync. Ideally I think we would handle the
+// ThroughputBelowMinimum error by scaling down the concurrency of the S3
+// client, but that does not appear to be possible with the JobAPI at runtime.
+// We would also need to handle retrying the download, since I don't
+// believe there is any retry logic in longtail, but more research is needed. A
+// better architecture would be to run our own event loop for the S3 client and
+// only pass messages from the longtail JobAPI threads. This would allow us to
+// handle the download concurrency and retries ourselves.
 //
-// In the mean time, we should disable the stalled stream protection to let the download complete.
+// In the mean time, we should disable the stalled stream protection to let the
+// download complete.
 impl BlobStore for S3BlobStore {
     fn new_client<'a>(&self) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error>> {
         let rt = tokio::runtime::Builder::new_current_thread()
