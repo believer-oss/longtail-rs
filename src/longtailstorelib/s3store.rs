@@ -4,10 +4,19 @@ use aws_sdk_s3::{config::StalledStreamProtectionConfig, Client as S3Client};
 
 use crate::{BlobClient, BlobObject, BlobStore};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct S3Options {
-    // TODO: Not implemented
-    endpoint_resolver_uri: String,
+    endpoint_resolver_uri: Option<String>,
+    s3_transfer_accel: Option<bool>,
+}
+
+impl S3Options {
+    pub fn new(endpoint_resolver_uri: Option<String>, s3_transfer_accel: Option<bool>) -> Self {
+        Self {
+            endpoint_resolver_uri,
+            s3_transfer_accel,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -43,29 +52,36 @@ impl S3BlobStore {
 // download complete.
 impl BlobStore for S3BlobStore {
     fn new_client<'a>(&self) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error>> {
+        let region_provider = aws_config::meta::region::RegionProviderChain::default_provider()
+            .or_else(aws_config::Region::new("us-east-1"));
+        let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::v2024_03_28())
+            .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
+            .region(region_provider);
+
+        if let Some(options) = &self.options {
+            if let Some(uri) = &options.endpoint_resolver_uri {
+                shared_config = shared_config.endpoint_url(uri.clone());
+            }
+        }
+
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let config = rt.block_on(async {
-            if let Some(options) = &self.options {
-                let region_provider =
-                    aws_config::meta::region::RegionProviderChain::default_provider()
-                        .or_else(aws_config::Region::new("us-east-1"));
 
-                aws_config::from_env()
-                    .region(region_provider)
-                    .endpoint_url(options.endpoint_resolver_uri.clone())
-                    .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
-                    .load()
-                    .await
+        let sdk_config = rt.block_on(async { shared_config.load().await });
+        let mut service_config = aws_sdk_s3::config::Builder::from(&sdk_config);
+
+        if let Some(options) = &self.options {
+            if let Some(accel) = options.s3_transfer_accel {
+                tracing::debug!("Setting s3 transfer acceleration: {}", accel);
+                service_config = service_config.accelerate(accel);
             } else {
-                aws_config::from_env()
-                    .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
-                    .load()
-                    .await
+                tracing::debug!("Not using s3 transfer acceleration");
             }
-        });
-        let s3_client = S3Client::new(&config);
+        }
+
+        let config = service_config.build();
+        let s3_client = S3Client::from_conf(config);
         Ok(Box::new(S3BlobClient {
             s3_client,
             store: self.clone(),

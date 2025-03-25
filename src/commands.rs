@@ -2,7 +2,7 @@ use crate::{
     create_block_store_for_uri, get_files_recursively, normalize_file_system_path, read_from_uri,
     AccessType, BikeshedJobAPI, BlockstoreAPI, ChunkerAPI, CompressionRegistry,
     ConcurrentChunkWriteAPI, FolderScanner, HashRegistry, HashType, PathFilterAPIProxy,
-    ProgressAPI, ProgressAPIProxy, RegexPathFilter, StorageAPI, StoreIndex, VersionDiff,
+    ProgressAPI, ProgressAPIProxy, RegexPathFilter, S3Options, StorageAPI, StoreIndex, VersionDiff,
     VersionIndex, VersionIndexReader, LONGTAIL_NO_COMPRESSION_TYPE,
 };
 
@@ -14,7 +14,8 @@ use tracing::{debug, error, info};
 pub fn downsync(
     workers: usize,
     storage_uri: &str,
-    _s3_endpoint_resolver_url: &str,
+    s3_endpoint_resolver_url: Option<String>,
+    s3_transfer_acceleration: Option<bool>,
     source_paths: &[String],
     target_path: &str,
     target_index_path: &str,
@@ -32,6 +33,11 @@ pub fn downsync(
 ) -> Result<(), i32> {
     // Setup the longtail environment
     let jobs = BikeshedJobAPI::new(workers as u32, 1);
+
+    let s3_options = Some(S3Options::new(
+        s3_endpoint_resolver_url,
+        s3_transfer_acceleration,
+    ));
 
     // TODO: Validate source-path
     // if sourceFilePath != "" {
@@ -148,7 +154,7 @@ pub fn downsync(
         // TODO: Handle multiple source paths
         let uri = source_paths.first().unwrap();
         info!("Reading version index from object: {}", uri);
-        let mut buf = read_from_uri(uri, None).map_err(|err| {
+        let mut buf = read_from_uri(uri, s3_options.clone()).map_err(|err| {
             let err = format!("failed to read object: {}", err);
             error!("{}", err);
             1
@@ -211,7 +217,7 @@ pub fn downsync(
         1,
         AccessType::ReadOnly,
         enable_file_mapping,
-        None,
+        s3_options,
     )
     .map_err(|err| {
         let err = format!("failed to create block store: {}", err);
@@ -287,7 +293,6 @@ pub fn downsync(
     });
     let progress = ProgressAPIProxy::new(progress_api);
 
-    // Unused now
     let concurrent_chunk_write_api = ConcurrentChunkWriteAPI::new(
         &localfs,
         &source_version_index,
@@ -425,7 +430,16 @@ pub fn get(
     target_path: &str,
     progress_api: Option<Box<dyn ProgressAPI>>,
 ) -> Result<(), LongtailError> {
-    let buf = read_from_uri(url, None).map_err(LongtailError::Misc)?;
+    // Hardcoding here for now, to keep the API stable
+    let s3_transfer_acceleration = Some(true);
+    let s3_endpoint_resolver_url = None;
+
+    let s3_options = Some(S3Options::new(
+        s3_endpoint_resolver_url.clone(),
+        s3_transfer_acceleration,
+    ));
+
+    let buf = read_from_uri(url, s3_options).map_err(LongtailError::Misc)?;
     let s = std::str::from_utf8(&buf).map_err(LongtailError::UTF8Error)?;
     let json = serde_json::from_str::<serde_json::Value>(s).map_err(LongtailError::JSONError)?;
 
@@ -435,7 +449,8 @@ pub fn get(
     downsync(
         32,
         storage_uri,
-        "",
+        s3_endpoint_resolver_url,
+        s3_transfer_acceleration,
         &[source_path.to_string()],
         target_path,
         "",

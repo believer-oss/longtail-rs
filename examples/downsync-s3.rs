@@ -16,6 +16,10 @@ struct Args {
     #[clap(name = "s3-endpoint-resolver-url", long)]
     s3_endpoint_resolver_url: Option<String>,
 
+    /// Optional URI for S3 endpoint resolver
+    #[clap(name = "s3-transfer-accel", long)]
+    s3_transfer_acceleration: Option<bool>,
+
     /// Source file uri(s)
     #[clap(name = "source-path", long)]
     source_paths: Vec<String>,
@@ -84,7 +88,8 @@ fn main() {
     downsync(
         10,
         &args.storage_uri,
-        &args.s3_endpoint_resolver_url.unwrap_or_default(),
+        args.s3_endpoint_resolver_url,
+        args.s3_transfer_acceleration,
         &args.source_paths,
         &args.target_path,
         &args.target_index_path.unwrap_or_default(),
