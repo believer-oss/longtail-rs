@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Blockstore API
 // pub fn Longtail_GetBlockStoreAPISize() -> u64;
@@ -94,15 +95,13 @@ impl BlockstoreAPI {
         jobs: &BikeshedJobAPI,
         storage_api: &StorageAPI,
         content_path: &str,
-        block_extension: Option<&str>,
+        block_extension: &str,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
-        let c_content_path = std::ffi::CString::new(content_path).unwrap();
-        let c_block_extension = if let Some(block_extension) = block_extension {
-            std::ffi::CString::new(block_extension).unwrap()
-        } else {
-            std::ffi::CString::new("").unwrap()
-        };
+        let c_content_path =
+            std::ffi::CString::new(content_path).expect("content_path contains null bytes");
+        let c_block_extension =
+            std::ffi::CString::new(block_extension).expect("block_extension contains null bytes");
         let blockstore_api = unsafe {
             Longtail_CreateFSBlockStoreAPI(
                 jobs.job_api,
@@ -190,7 +189,8 @@ impl BlockstoreAPI {
         enable_write: bool,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
-        let c_archive_path = std::ffi::CString::new(archive_path).unwrap();
+        let c_archive_path =
+            std::ffi::CString::new(archive_path).expect("archive_path contains null bytes");
         let blockstore_api = Longtail_CreateArchiveBlockStore(
             storage_api,
             c_archive_path.as_ptr(),
@@ -234,7 +234,8 @@ impl BlockstoreAPI {
         version_path: &str,
         retain_permissions: bool,
     ) -> Result<(), i32> {
-        let version_path = std::ffi::CString::new(version_path).unwrap();
+        let version_path =
+            std::ffi::CString::new(version_path).expect("version_path contains null bytes");
         let store_index = store_index.store_index;
         let result = unsafe {
             Longtail_ChangeVersion2(

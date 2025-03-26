@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use tracing::{debug, warn};
+use tracing::{debug, error, instrument, warn};
 
 use crate::{
     Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
@@ -13,7 +13,9 @@ use crate::{
 // -------------------------------------------------------------------------------------------
 // TODO: This needs to be a macro
 pub trait AsyncGetExistingContentAPI: std::fmt::Debug {
-    fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32);
+    /// # Safety
+    /// This function is unsafe because it dereferences a raw pointer.
+    unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32);
 }
 
 // FIXME: We need to deal with the memory management of this clone
@@ -108,21 +110,22 @@ impl AsyncGetExistingContentAPIProxy {
 }
 
 impl AsyncGetExistingContentAPI for AsyncGetExistingContentAPIProxy {
-    // FIXME: horrible...
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
-    #[tracing::instrument]
-    fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
-        let context = self.get_context();
-        if let Some(mut context) = context {
-            context.on_complete(store_index, err);
-            let _ = Box::into_raw(context);
-        } else {
-            let oncomplete = self.api.OnComplete.unwrap();
-            tracing::debug!(
-                "AsyncGetExistingContentAPIProxy::on_complete: oncomplete: {:?}",
-                oncomplete
-            );
-            unsafe { oncomplete(&mut self.api, store_index, err) };
+    #[instrument]
+    unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
+        if !store_index.is_null() {
+            let context = self.get_context();
+            if let Some(mut context) = context {
+                context.on_complete(store_index, err);
+                let _ = Box::into_raw(context);
+            } else if let Some(oncomplete) = self.api.OnComplete {
+                debug!(
+                    "AsyncGetExistingContentAPIProxy::on_complete: oncomplete: {:?}",
+                    oncomplete
+                );
+                unsafe { oncomplete(&mut self.api, store_index, err) };
+            } else {
+                error!("AsyncGetExistingContentAPIProxy::on_complete: oncomplete function missing");
+            }
         }
     }
 }
@@ -141,7 +144,12 @@ pub unsafe extern "C" fn async_get_existing_content_api_on_complete(
         inner.on_complete(store_index, err);
         let _ = Box::into_raw(inner);
     } else {
-        unsafe { (*proxy).api.OnComplete.unwrap()(context, store_index, err) }
+        unsafe {
+            match (*proxy).api.OnComplete {
+                Some(func) => func(context, store_index, err),
+                None => warn!("AsyncGetExistingContentAPIProxy::on_complete function missing"),
+            }
+        }
     }
 }
 
@@ -433,9 +441,10 @@ impl AsyncGetStoredBlockAPI for AsyncGetStoredBlockAPIProxy {
         if let Some(context) = context {
             context.on_complete(stored_block, err);
             let _ = Box::into_raw(context);
-        } else {
-            let oncomplete = self.api.OnComplete.unwrap();
+        } else if let Some(oncomplete) = self.api.OnComplete {
             unsafe { oncomplete(&mut (*proxy).api, stored_block, err) };
+        } else {
+            warn!("AsyncGetStoredBlockAPIProxy::on_complete: oncomplete function missing");
         };
         // let async_get_stored_block_api = unsafe { Box::from_raw(context) };
         // async_get_stored_block_api.on_complete(stored_block, err);
@@ -443,9 +452,9 @@ impl AsyncGetStoredBlockAPI for AsyncGetStoredBlockAPIProxy {
     }
 }
 
-// FIXME: horrible...
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn async_get_stored_block_api_on_complete(
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
+pub unsafe extern "C" fn async_get_stored_block_api_on_complete(
     context: *mut Longtail_AsyncGetStoredBlockAPI,
     stored_block: *mut Longtail_StoredBlock,
     err: i32,
@@ -456,7 +465,12 @@ pub extern "C" fn async_get_stored_block_api_on_complete(
         inner.on_complete(stored_block, err);
         let _ = Box::into_raw(inner);
     } else {
-        unsafe { (*proxy).api.OnComplete.unwrap()(context, stored_block, err) };
+        unsafe {
+            match (*proxy).api.OnComplete {
+                Some(func) => func(context, stored_block, err),
+                None => warn!("AsyncGetStoredBlockAPIProxy::on_complete function missing"),
+            }
+        }
     }
     // let context = unsafe { (*proxy).context };
     // let async_get_stored_block_api = unsafe { Box::from_raw(context) };

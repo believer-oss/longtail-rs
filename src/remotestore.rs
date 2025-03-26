@@ -135,7 +135,7 @@ impl<S: BlobStore> Blockstore for RemoteBlockStore<S> {
             })?;
 
         assert!(existing_store_index.is_valid());
-        async_complete_api.on_complete(*existing_store_index, 0);
+        unsafe { async_complete_api.on_complete(*existing_store_index, 0) };
         Ok(())
     }
 
@@ -573,7 +573,7 @@ pub fn create_block_store_for_uri(
             job_api.ok_or("Job API required for file:// uri")?,
             &StorageAPI::new_fs(),
             &uri[7..],
-            Some(".lsb"),
+            ".lsb",
             enable_file_mapping,
         )),
 
@@ -582,7 +582,7 @@ pub fn create_block_store_for_uri(
             job_api.ok_or("Job API required for filesystem uri")?,
             &StorageAPI::new_fs(),
             uri,
-            Some(".lsb"),
+            ".lsb",
             enable_file_mapping,
         )),
     }

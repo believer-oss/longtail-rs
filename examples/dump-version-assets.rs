@@ -8,9 +8,9 @@ use longtail_sys::{permissions_to_string, LONGTAIL_LOG_LEVEL_DEBUG};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Optional URI for S3 endpoint resolver
-    // #[clap(name = "s3-endpoint-resolver-url", long)]
-    // s3_endpoint_resolver_url: Option<String>,
+    // Optional URI for S3 endpoint resolver
+    #[clap(name = "s3-endpoint-resolver-url", long)]
+    s3_endpoint_resolver_url: Option<String>,
 
     /// URI to version index (local file system and S3 bucket URI (soon!)
     /// supported)

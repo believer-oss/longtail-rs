@@ -12,8 +12,11 @@ pub fn create_blob_store_for_uri(uri: &str, opts: Option<S3Options>) -> Box<dyn 
             Box::new(fs_blob_store)
         }
         s if s.starts_with("s3://") => {
-            let uri = uri.parse::<Uri>().unwrap();
-            let bucket_name = uri.host().unwrap().to_string();
+            let uri = uri.parse::<Uri>().expect("could not parse blob_store URI");
+            let bucket_name = uri
+                .host()
+                .expect("could not parse blob_store URI bucket_name")
+                .to_string();
             let mut prefix = uri.path().to_string();
             prefix = prefix.trim_start_matches('/').to_string();
             let s3_blob_store = S3BlobStore::new(&bucket_name, &prefix, opts);

@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Stored Block API
 // pub fn Longtail_StoredBlock_Dispose(stored_block: *mut Longtail_StoredBlock);

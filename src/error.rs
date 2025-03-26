@@ -13,10 +13,34 @@ pub enum LongtailError {
 
     #[error("Misc error: {0}")]
     Misc(Box<dyn std::error::Error>),
+
+    #[error("Invalid JSON error: {0}")]
+    JSONInvalid(String),
+
+    #[error("IO Error: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+impl From<i32> for LongtailError {
+    fn from(code: i32) -> Self {
+        Self::Internal(code.into())
+    }
 }
 
 #[derive(Debug)]
 pub struct LongtailInternalError(i32);
+
+impl From<LongtailInternalError> for LongtailError {
+    fn from(err: LongtailInternalError) -> Self {
+        Self::Internal(err)
+    }
+}
+
+impl From<i32> for LongtailInternalError {
+    fn from(code: i32) -> Self {
+        Self(code)
+    }
+}
 
 impl LongtailInternalError {
     pub fn new(code: i32) -> Self {

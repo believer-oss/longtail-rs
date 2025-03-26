@@ -37,14 +37,13 @@ pub fn permissions_to_string(permissions: u16) -> String {
 
 impl Display for Longtail_StorageAPI_EntryProperties {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let name = unsafe { std::ffi::CStr::from_ptr(self.m_Name) }
-            .to_str()
-            .unwrap();
+        let name = unsafe { std::ffi::CStr::from_ptr(self.m_Name) };
+        let safename = String::from_utf8_lossy(name.to_bytes());
         let size = self.m_Size;
         let dirbit = if self.m_IsDir == 1 { 'd' } else { '-' };
         let mode = permissions_to_string(self.m_Permissions);
 
-        write!(f, "{dirbit}{mode} {size:16} {name}")
+        write!(f, "{dirbit}{mode} {size:16} {safename}")
     }
 }
 
