@@ -1,5 +1,6 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
-/// Progress API
+// Progress API
 // pub fn Longtail_GetProgressAPISize() -> u64;
 // pub fn Longtail_MakeProgressAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, on_progress_func: Longtail_Progress_OnProgressFunc,) -> *mut Longtail_ProgressAPI;
 // pub fn Longtail_Progress_OnProgress( progressAPI: *mut Longtail_ProgressAPI, total_count: u32, done_count: u32,);

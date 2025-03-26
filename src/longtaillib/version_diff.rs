@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Version Diff API
 // pub fn Longtail_CreateVersionDiff( hash_api: *mut Longtail_HashAPI, source_version: *const Longtail_VersionIndex, target_version: *const Longtail_VersionIndex, out_version_diff: *mut *mut Longtail_VersionDiff,) -> ::std::os::raw::c_int;

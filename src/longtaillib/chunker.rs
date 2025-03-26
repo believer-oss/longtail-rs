@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Chunker API
 // pub fn Longtail_GetChunkerAPISize() -> u64;

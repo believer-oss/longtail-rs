@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Path Filter API
 // pub fn Longtail_GetPathFilterAPISize() -> u64;
@@ -119,18 +120,24 @@ pub unsafe extern "C" fn path_filter_include(
     let proxy = path_filter as *mut PathFilterAPIProxy;
     let context = unsafe { (*proxy).context };
     let path_filter = Box::from_raw(context as *mut Box<dyn PathFilterAPI>);
-    let root_path = unsafe { std::ffi::CStr::from_ptr(root_path) };
-    let asset_path = unsafe { std::ffi::CStr::from_ptr(asset_path) };
-    let asset_name = unsafe { std::ffi::CStr::from_ptr(asset_name) };
+    let root_path = unsafe {
+        std::ffi::CStr::from_ptr(root_path)
+            .to_str()
+            .expect("root_path is not valid utf-8")
+    };
+    let asset_path = unsafe {
+        std::ffi::CStr::from_ptr(asset_path)
+            .to_str()
+            .expect("asset_path is not valid utf-8")
+    };
+    let asset_name = unsafe {
+        std::ffi::CStr::from_ptr(asset_name)
+            .to_str()
+            .expect("asset_name is not valid utf-8")
+    };
     let is_dir = is_dir != 0;
-    let result = path_filter.include(
-        root_path.to_str().unwrap(),
-        asset_path.to_str().unwrap(),
-        asset_name.to_str().unwrap(),
-        is_dir,
-        size,
-        permissions,
-    ) as i32;
+    let result =
+        path_filter.include(root_path, asset_path, asset_name, is_dir, size, permissions) as i32;
     let _ = Box::into_raw(path_filter);
     result
 }

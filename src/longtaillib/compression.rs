@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Compression API
 // pub fn Longtail_GetCompressionAPISize() -> u64;

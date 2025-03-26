@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Version Index API
 // pub fn Longtail_VersionIndex_GetVersion(version_index: *const Longtail_VersionIndex) -> u32;
@@ -173,7 +174,8 @@ impl std::fmt::Debug for VersionIndex {
             .field("m_HashIdentifier", &m_hash_identifier)
             .field(
                 "m_HashIdentifier",
-                &HashType::from_repr(m_hash_identifier as usize).unwrap(),
+                &HashType::from_repr(m_hash_identifier as usize)
+                    .expect("m_HashIdentifier is not a valid HashType"),
             )
             .field("m_TargetChunkSize", &m_target_chunk_size)
             .field("m_AssetCount", &m_asset_count)
@@ -211,7 +213,7 @@ impl VersionIndex {
         max_chunk_size: u32,
         enable_file_mapping: bool,
     ) -> Result<VersionIndex, i32> {
-        let path = std::ffi::CString::new(path).unwrap();
+        let path = std::ffi::CString::new(path).expect("path contains null bytes");
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
         let result = unsafe {
             Longtail_CreateVersionIndex(
@@ -333,13 +335,13 @@ impl VersionIndex {
     }
     /// Get the hashes of the chunks in this version index
     pub fn get_chunk_hashes(&self) -> Vec<u64> {
-        let count = unsafe { *(*self.version_index).m_ChunkCount } as isize;
+        let count = unsafe { *(*self.version_index).m_ChunkCount } as usize;
 
         // This prevents unaligned access to the chunk hashes.
         let unaligned = unsafe { (*self.version_index).m_ChunkHashes } as *const u64;
-        let mut hashes = Vec::with_capacity(count.try_into().unwrap());
+        let mut hashes = Vec::with_capacity(count);
         for i in 0..count {
-            let hash = unsafe { std::ptr::read_unaligned(unaligned.offset(i)) };
+            let hash = unsafe { std::ptr::read_unaligned(unaligned.add(i)) };
             hashes.push(hash);
         }
         hashes
@@ -401,7 +403,7 @@ impl VersionIndex {
         };
         name_data
             .split(|&c| c == 0)
-            .map(|s| String::from_utf8(s.to_vec()).unwrap())
+            .map(|s| String::from_utf8(s.to_vec()).expect("m_NameData contains invalid utf-8"))
             .filter(|s| !s.is_empty())
             .collect()
     }

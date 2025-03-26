@@ -6,7 +6,7 @@ use crate::{
     VersionIndex, VersionIndexReader, LONGTAIL_NO_COMPRESSION_TYPE,
 };
 
-use crate::error::{LongtailError, LongtailInternalError};
+use crate::error::LongtailError;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 
@@ -30,7 +30,7 @@ pub fn downsync(
     enable_file_mapping: bool,
     _use_legacy_write: bool,
     progress_api: Option<Box<dyn ProgressAPI>>,
-) -> Result<(), i32> {
+) -> Result<(), LongtailError> {
     // Setup the longtail environment
     let jobs = BikeshedJobAPI::new(workers as u32, 1);
 
@@ -55,38 +55,44 @@ pub fn downsync(
 
     // This creates a callback function that is used to check if a given file should
     // be included or excluded from the recursive file scan.
-    let regex_path_filter = RegexPathFilter::new(include_filter_regex, exclude_filter_regex)
-        .map_err(|err| {
-            let err = format!("failed to create regex path filter: {}", err);
-            err
-        })
-        .unwrap();
-    let path_filter = PathFilterAPIProxy::new(Box::new(regex_path_filter));
+    let path_filter = match RegexPathFilter::new(include_filter_regex, exclude_filter_regex) {
+        Ok(regex_path_filter) => {
+            info!("Using regex path filter");
+            PathFilterAPIProxy::new(Box::new(regex_path_filter))
+        }
+        Err(e) => {
+            error!("Failed to create regex path filter: {}", e);
+            return Err(Into::into(-1));
+        }
+    };
 
+    // If passed a source path but no target path, use the base of the source path
+    // (without file extension) as the target path.
+    // FIXME: This path handling should be converted to (dunce)[https://crates.io/crates/dunce]
     let resolved_target_folder_path = if target_path.is_empty() {
-        let normalized_source_file_path =
-            normalize_file_system_path(source_paths[0].clone()).replace('\\', "/");
-        let mut source_name_split = normalized_source_file_path
+        let path = normalize_file_system_path(source_paths[0].clone())
+            .replace('\\', "/")
             .split('/')
             .next_back()
-            .unwrap()
-            .split('.');
-        let resolved_target_folder_path = source_name_split.next().unwrap();
-        if resolved_target_folder_path.is_empty() {
-            error!(
-                "Unable to resolve target path using `{}` as base",
-                source_paths[0]
-            );
-            return Err(-1);
-        }
-        resolved_target_folder_path.to_owned()
+            .and_then(|v| v.split('.').next().map(|v| v.to_owned()));
+        match path {
+            Some(path) if !path.is_empty() => Ok(path),
+            _ => {
+                error!(
+                    "Unable to resolve target path using `{}` as base",
+                    source_paths[0]
+                );
+                Err(-1)
+            }
+        }?
     } else {
         target_path.to_owned()
     };
 
     let fs = StorageAPI::new_fs();
 
-    // TODO: This is ugly
+    // TODO: This is ugly - If we pass a target_index_path, force cache_target_index
+    // to false.
     let cache_target_index = if !target_index_path.is_empty() {
         false
     } else {
@@ -101,11 +107,14 @@ pub fn downsync(
     // TODO: This is ugly, and I'm not sure why this is needed
     let target_index_path = if cache_target_index {
         if fs.file_exists(&cache_target_index_path) {
+            info!("Using cached target index");
             &cache_target_index_path
         } else {
+            info!("Using target index path");
             target_index_path
         }
     } else {
+        info!("Using target index path - cache_target_index is false");
         target_index_path
     };
 
@@ -113,9 +122,11 @@ pub fn downsync(
         "Resolved target folder path: {}",
         resolved_target_folder_path
     );
-    // Recursively scan the target folder. TODO: This is async in golongtail
+    // Recursively scan the target folder.
+    // TODO: This is async in golongtail, and is contingent on `scan_target &&
+    // target_index_path == ""`
     let target_path_scanner =
-        FolderScanner::scan(&resolved_target_folder_path, &path_filter, &fs, &jobs);
+        FolderScanner::scan(&resolved_target_folder_path, &path_filter, &fs, &jobs)?;
     info!("Scanned target path");
 
     let hash_registry = HashRegistry::new();
@@ -146,24 +157,27 @@ pub fn downsync(
     // }
     // defer sourceVersionIndex.Dispose()
 
-    // Before S3
-    // let source_filename = source_paths.first().unwrap();
-    // info!("Reading version index from file: {}", source_filename);
-    // let source_version_index = version_index_from_file(source_filename);
     let source_version_index = {
         // TODO: Handle multiple source paths
-        let uri = source_paths.first().unwrap();
-        info!("Reading version index from object: {}", uri);
-        let mut buf = read_from_uri(uri, s3_options.clone()).map_err(|err| {
-            let err = format!("failed to read object: {}", err);
-            error!("{}", err);
-            1
-        })?;
-        VersionIndex::new_from_buffer(&mut buf).map_err(|err| {
-            let err = format!("failed to create version index: {}", err);
-            error!("{}", err);
-            1
-        })?
+        match source_paths.first() {
+            Some(uri) => {
+                info!("Reading version index from object: {}", uri);
+                let mut buf = read_from_uri(uri, s3_options.clone()).map_err(|err| {
+                    let err = format!("failed to read object: {}", err);
+                    error!("{}", err);
+                    1
+                })?;
+                VersionIndex::new_from_buffer(&mut buf).map_err(|err| {
+                    let err = format!("failed to create version index: {}", err);
+                    error!("{}", err);
+                    1
+                })?
+            }
+            None => {
+                error!("No source paths provided");
+                return Err(Into::into(-1));
+            }
+        }
     };
     debug!("Source version index: {:?}", source_version_index);
 
@@ -187,13 +201,13 @@ pub fn downsync(
         &hash_registry,
         enable_file_mapping,
         &target_path_scanner,
-    )
-    .unwrap();
+    )?;
 
     // Setup prerequisites for local file writing
     info!("Setting up local file writing");
     let creg = CompressionRegistry::new();
     let localfs = StorageAPI::new_fs();
+
     // MaxBlockSize and MaxChunksPerBlock are just temporary values until we get the
     // remote index settings remoteIndexStore, err :=
     // remotestore.CreateBlockStoreForURI(blobStoreURI, versionLocalStoreIndexPaths,
@@ -209,6 +223,7 @@ pub fn downsync(
     //     Some(".lsb"),
     //     enable_file_mapping,
     // );
+
     // TODO: Handle multiple source paths
     let remote_index_store = create_block_store_for_uri(
         storage_uri,
@@ -220,16 +235,15 @@ pub fn downsync(
         s3_options,
     )
     .map_err(|err| {
-        let err = format!("failed to create block store: {}", err);
-        error!("{}", err);
-        1
+        error!("Failed to create block store: {}", err);
+        -1
     })?;
 
     let compress_block_store = match cache_path.is_empty() {
         true => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
         false => {
             let local_index_store =
-                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
+                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping);
             let cache_block_store =
                 BlockstoreAPI::new_cached(&jobs, &local_index_store, &remote_index_store);
             BlockstoreAPI::new_compressed(Box::new(cache_block_store), &creg)
@@ -265,13 +279,18 @@ pub fn downsync(
         .expect("Failed to get required chunk hashes");
 
     let retargetted_version_store_index =
-        StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).unwrap();
+        StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).map_err(
+            |err| {
+                error!("Failed to retarget version store index: {}", err);
+                -1
+            },
+        )?;
     debug!(
         "Retargetted version store index: {:?}",
         retargetted_version_store_index
     );
     debug!(
-        "Retargetted version store index: {:p}",
+        "Retargetted version store index ptr: {:p}",
         std::ptr::addr_of!(retargetted_version_store_index)
     );
 
@@ -346,7 +365,7 @@ pub fn downsync(
 
         if validate_version_index.get_asset_count() != source_version_index.get_asset_count() {
             error!("Validation failed: asset count mismatch");
-            return Err(-1);
+            return Err(Into::into(-1));
         }
 
         let validate_asset_sizes = validate_version_index.get_asset_sizes();
@@ -410,7 +429,7 @@ pub fn downsync(
                     "Validation failed: asset `{}` not found in source index",
                     validate_path
                 );
-                return Err(-1);
+                return Err(Into::into(-1));
             }
             info!("Validation passed for {}", validate_path);
         }
@@ -443,9 +462,23 @@ pub fn get(
     let s = std::str::from_utf8(&buf).map_err(LongtailError::UTF8Error)?;
     let json = serde_json::from_str::<serde_json::Value>(s).map_err(LongtailError::JSONError)?;
 
-    let source_path = json["source-path"].as_str().unwrap();
-    let storage_uri = json["storage-uri"].as_str().unwrap();
-    let version_local_store_index_path = json["version-local-store-index-path"].as_str().unwrap();
+    let source_path = json["source-path"]
+        .as_str()
+        .ok_or(LongtailError::JSONInvalid(String::from(
+            "source-path missing or invalid",
+        )))?;
+    let storage_uri = json["storage-uri"]
+        .as_str()
+        .ok_or(LongtailError::JSONInvalid(String::from(
+            "storage-uri missing or invalid",
+        )))?;
+    let version_local_store_index_path =
+        json["version-local-store-index-path"]
+            .as_str()
+            .ok_or(LongtailError::JSONInvalid(String::from(
+                "version-local-store-index-path missing or invalid",
+            )))?;
+
     downsync(
         32,
         storage_uri,
@@ -460,12 +493,11 @@ pub fn get(
         Some(vec![version_local_store_index_path.to_string()]),
         None,
         None,
-        false,
-        false,
+        false, // This defaults to true in golongtail
+        false, // This defaults to true in golongtail
         false,
         false,
         progress_api,
-    )
-    .map_err(|err| LongtailError::Internal(LongtailInternalError::new(err)))?;
+    )?;
     Ok(())
 }

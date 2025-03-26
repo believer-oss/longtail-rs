@@ -1,5 +1,6 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
-/// Utility functions
+// Utility functions
 // pub fn Longtail_SetAssert(assert_func: Longtail_Assert);
 // pub fn Longtail_SetMonitor(monitor: *mut Longtail_Monitor);
 // pub fn Longtail_SetLog(log_func: Longtail_Log, context: *mut ::std::os::raw::c_void);

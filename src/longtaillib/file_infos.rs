@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // File Infos API
 // pub fn Longtail_FileInfos_GetCount(file_infos: *const Longtail_FileInfos) -> u32;

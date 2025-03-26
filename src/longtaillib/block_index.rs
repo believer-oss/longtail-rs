@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Block Index API
 // pub fn Longtail_MakeBlockIndex( store_index: *const Longtail_StoreIndex, block_index: u32, out_block_index: *mut Longtail_BlockIndex,) -> ::std::os::raw::c_int;
@@ -113,13 +114,13 @@ impl BlockIndex {
         unsafe { *(*self.block_index).m_Tag }
     }
     pub fn get_chunk_hashes(&self) -> Vec<u64> {
-        let count = self.get_chunk_count() as isize;
+        let count = self.get_chunk_count() as usize;
 
         // This prevents unaligned access to the chunk hashes
         let unaligned = unsafe { (*self.block_index).m_ChunkHashes };
-        let mut hashes = Vec::with_capacity(count.try_into().unwrap());
+        let mut hashes = Vec::with_capacity(count);
         for i in 0..count {
-            let hash = unsafe { std::ptr::read_unaligned(unaligned.offset(i)) };
+            let hash = unsafe { std::ptr::read_unaligned(unaligned.add(i)) };
             hashes.push(hash);
         }
         hashes

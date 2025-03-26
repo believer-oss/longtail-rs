@@ -69,6 +69,7 @@ impl BlobClient for MemBlobClient {
         &self,
         path_prefix: String,
     ) -> Result<Vec<crate::BlobProperties>, Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let blobs = self.store.blobs.lock().unwrap();
         let mut ret = Vec::<crate::BlobProperties>::new();
         for (k, v) in blobs.iter() {
@@ -110,10 +111,12 @@ pub struct MemBlobObject {
 
 impl BlobObject for MemBlobObject {
     fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let blobs = self.client.store.blobs.lock().unwrap();
         Ok(blobs.contains_key(&self.path))
     }
     fn lock_write_version(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let blobs = self.client.store.blobs.lock().unwrap();
         let blob = blobs.get(&self.path).ok_or_else(|| {
             warn!("lock_write_version: blob not found");
@@ -123,6 +126,7 @@ impl BlobObject for MemBlobObject {
         Ok(true)
     }
     fn read(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let blobs = self.client.store.blobs.lock().unwrap();
         blobs.get(&self.path).map_or_else(
             move || Err(MemBlobError::BlobNotFound("blob not found".to_string()).into()),
@@ -130,6 +134,7 @@ impl BlobObject for MemBlobObject {
         )
     }
     fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let mut blobs = self.client.store.blobs.lock().unwrap();
         if let Some(blob) = blobs.get_mut(&self.path) {
             if let Some(locked_generation) = self.locked_generation {
@@ -156,6 +161,7 @@ impl BlobObject for MemBlobObject {
         Ok(())
     }
     fn delete(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let mut blobs = self.client.store.blobs.lock().unwrap();
         if self.locked_generation.is_some() {
             match blobs.contains_key(&self.path) {

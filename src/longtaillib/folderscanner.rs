@@ -1,9 +1,9 @@
 use tracing::{debug, info};
 
 use crate::{
-    BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
-    Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy, ProgressAPI,
-    ProgressAPIProxy, StorageAPI, VersionIndex,
+    error::LongtailError, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, HashRegistry, HashType,
+    Longtail_FileInfos, Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy,
+    ProgressAPI, ProgressAPIProxy, StorageAPI, VersionIndex,
 };
 use std::{io::Read, ptr::null_mut};
 
@@ -27,7 +27,7 @@ pub fn get_files_recursively(
     path_filter: &PathFilterAPIProxy,
     root_path: &str,
 ) -> Result<FileInfos, i32> {
-    let c_root_path = std::ffi::CString::new(root_path).unwrap();
+    let c_root_path = std::ffi::CString::new(root_path).expect("root_path contains null bytes");
     let mut file_infos = std::ptr::null_mut::<Longtail_FileInfos>();
     let result = unsafe {
         Longtail_GetFilesRecursively2(
@@ -64,15 +64,15 @@ impl FolderScanner {
         path_filter: &PathFilterAPIProxy,
         fs: &StorageAPI,
         jobs: &BikeshedJobAPI,
-    ) -> FolderScanner {
+    ) -> Result<FolderScanner, i32> {
         let start = std::time::Instant::now();
-        let file_infos = get_files_recursively(fs, jobs, path_filter, root_path).unwrap();
+        let file_infos = get_files_recursively(fs, jobs, path_filter, root_path)?;
         let elapsed = start.elapsed();
-        FolderScanner {
+        Ok(FolderScanner {
             file_infos,
             elapsed,
             error: std::ptr::null(),
-        }
+        })
     }
 }
 
@@ -138,7 +138,8 @@ impl VersionIndexReader {
         hash_registry: &HashRegistry,
         enable_file_mappping: bool,
         scanner: &FolderScanner,
-    ) -> Result<VersionIndexReader, i32> {
+    ) -> Result<VersionIndexReader, LongtailError> {
+        info!("source_index_path: {}", source_index_path);
         if source_index_path.is_empty() {
             struct ProgressHandler {}
             impl ProgressAPI for ProgressHandler {
@@ -151,12 +152,13 @@ impl VersionIndexReader {
             let compression_types = (*file_infos).get_compression_types_for_files(compression_type);
             let hash = hash_registry
                 .get_hash_api(
-                    HashType::from_repr(hash_id as usize).expect("Could not find hash type"),
+                    HashType::from_repr(hash_id as usize).expect("could not find hash type"),
                 )
-                .unwrap();
+                .expect("registry does not contain hash type");
             let chunker = ChunkerAPI::new();
             let progress = ProgressAPIProxy::new(Box::new(ProgressHandler {}));
-            let source_folder_path = std::ffi::CString::new(source_folder_path).unwrap();
+            let source_folder_path = std::ffi::CString::new(source_folder_path)
+                .expect("source_folder_path contains null bytes");
             let mut vindex = std::ptr::null_mut::<crate::Longtail_VersionIndex>();
             let result = unsafe {
                 crate::Longtail_CreateVersionIndex(
@@ -176,25 +178,23 @@ impl VersionIndexReader {
                 )
             };
             if result != 0 {
-                return Err(result);
+                return Err(result.into());
             }
             Ok(VersionIndexReader {
                 version_index: VersionIndex::new_from_lt(vindex),
                 hash_api: hash,
             })
         } else {
-            let mut f = std::fs::File::open(source_index_path).unwrap();
-            let metadata = f.metadata().unwrap();
+            let mut f = std::fs::File::open(source_index_path)?;
+            let metadata = f.metadata()?;
             let mut buffer = vec![0u8; metadata.len() as usize];
-            f.read_exact(&mut buffer).unwrap();
-            let result = VersionIndex::new_from_buffer(&mut buffer);
-            let hash_api = hash_registry
-                .get_hash_api(
-                    HashType::from_repr(hash_id as usize).expect("Could not find hash type"),
-                )
-                .unwrap();
+            f.read_exact(&mut buffer)?;
+            let version_index = VersionIndex::new_from_buffer(&mut buffer)?;
+            let hash_api = hash_registry.get_hash_api(
+                HashType::from_repr(hash_id as usize).expect("Could not find hash type"),
+            )?;
             Ok(VersionIndexReader {
-                version_index: result.unwrap(),
+                version_index,
                 hash_api,
             })
         }
@@ -232,7 +232,8 @@ mod tests {
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
         let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let scanner = FolderScanner::scan("test-data/small/storage", path_filter_ref, &fs, &jobs);
+        let scanner =
+            FolderScanner::scan("test-data/small/storage", path_filter_ref, &fs, &jobs).unwrap();
         let file_infos = scanner.get_file_infos();
         assert_eq!(file_infos.get_file_count(), 7);
         for (path, size, permissions) in file_infos.iter() {
@@ -248,7 +249,7 @@ mod tests {
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
         let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let scanner = FolderScanner::scan("test-data/small", path_filter_ref, &fs, &jobs);
+        let scanner = FolderScanner::scan("test-data/small", path_filter_ref, &fs, &jobs).unwrap();
         let source_folder_path = "test-data/small";
         let source_index_path = "";
         let target_chunk_size = 64 * 1024;

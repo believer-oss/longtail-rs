@@ -15,9 +15,9 @@ struct Args {
     #[clap(name = "storage-uri", long)]
     storage_uri: String,
 
-    /// Optional URI for S3 endpoint resolver
-    // #[clap(name = "s3-endpoint-resolver-url", long)]
-    // s3_endpoint_resolver_url: Option<String>,
+    // Optional URI for S3 endpoint resolver
+    #[clap(name = "s3-endpoint-resolver-url", long)]
+    s3_endpoint_resolver_url: Option<String>,
 
     /// Source file uri(s)
     #[clap(name = "source-path", long)]
@@ -79,7 +79,7 @@ struct Args {
 pub fn downsync(
     workers: usize,
     storage_uri: &str,
-    // s3_endpoint_resolver_url: &str,
+    s3_endpoint_resolver_url: &str,
     source_paths: &[String],
     target_path: &str,
     target_index_path: &str,
@@ -170,7 +170,7 @@ pub fn downsync(
     );
     // Recursively scan the target folder. TODO: This is async in golongtail
     let target_path_scanner =
-        FolderScanner::scan(resolved_target_folder_path, &path_filter, &fs, &jobs);
+        FolderScanner::scan(resolved_target_folder_path, &path_filter, &fs, &jobs)?;
     info!("Scanned target path");
 
     let hash_registry = HashRegistry::new();
@@ -239,13 +239,8 @@ pub fn downsync(
     // nil {  return storeStats, timeStats, errors.Wrap(err, fname)
     // }
     // defer remoteIndexStore.Dispose()
-    let fake_remotefs = BlockstoreAPI::new_fs(
-        &jobs,
-        &localfs,
-        storage_uri,
-        Some(".lsb"),
-        enable_file_mapping,
-    );
+    let fake_remotefs =
+        BlockstoreAPI::new_fs(&jobs, &localfs, storage_uri, ".lsb", enable_file_mapping);
 
     // let (compress_block_store, cache_block_store, local_index_store) = match
     // cache_path.is_empty() {     true => {
@@ -269,7 +264,7 @@ pub fn downsync(
         true => BlockstoreAPI::new_compressed(Box::new(fake_remotefs), &creg),
         false => {
             let local_index_store =
-                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, Some(""), enable_file_mapping);
+                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping);
             let cache_block_store =
                 BlockstoreAPI::new_cached(&jobs, &local_index_store, &fake_remotefs);
             BlockstoreAPI::new_compressed(Box::new(cache_block_store), &creg)
@@ -467,7 +462,7 @@ fn main() {
     downsync(
         1,
         &args.storage_uri,
-        // &args.s3_endpoint_resolver_url.unwrap_or_default(),
+        &args.s3_endpoint_resolver_url.unwrap_or_default(),
         &args.source_path,
         &args.target_path,
         &args.target_index_path.unwrap_or_default(),

@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Concurrent Write API
 // pub fn Longtail_GetConcurrentChunkWriteAPISize() -> u64;
@@ -40,7 +41,7 @@ impl ConcurrentChunkWriteAPI {
         version_diff: &VersionDiff,
         base_path: &str,
     ) -> Self {
-        let base_path = std::ffi::CString::new(base_path).unwrap();
+        let base_path = std::ffi::CString::new(base_path).expect("base_path contains null bytes");
         let storage_api = **storage_api;
         let version_index = **version_index;
         let version_diff = **version_diff;

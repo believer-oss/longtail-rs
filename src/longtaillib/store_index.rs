@@ -1,3 +1,4 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
 // Store Index API
 // pub fn Longtail_StoreIndex_GetVersion(store_index: *const Longtail_StoreIndex) -> u32;
@@ -175,7 +176,7 @@ impl StoreIndex {
         indexes.to_vec()
     }
 
-    // TODO: Add async...
+    // TODO: Add async... Or otherwise rewrite this to be sane?
     pub fn get_existing_store_index_sync(
         index_store: &BlockstoreAPI,
         chunk_hashes: Vec<u64>,
@@ -187,13 +188,16 @@ impl StoreIndex {
             store_index: Arc<Mutex<Option<Result<StoreIndex, i32>>>>,
         }
         impl AsyncGetExistingContentAPI for GetExistingContentCompletion {
-            fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
+            unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
                 tracing::info!("GetExistingContentCompletion::on_complete");
                 let out = match err {
                     0 => Ok(StoreIndex::new_from_lt(store_index)),
                     _ => Err(err),
                 };
-                let mut store_index = self.store_index.lock().unwrap();
+                let mut store_index = match self.store_index.lock() {
+                    Ok(store_index) => store_index,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
                 store_index.replace(out);
             }
         }
@@ -212,7 +216,11 @@ impl StoreIndex {
         )?;
         // TODO: This is terrible
         loop {
-            if let Some(store_index) = x.store_index.lock().unwrap().clone() {
+            let store_index = match x.store_index.lock() {
+                Ok(store_index) => store_index.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            };
+            if let Some(store_index) = store_index.clone() {
                 return store_index;
             }
             std::thread::sleep(std::time::Duration::from_millis(500));

@@ -28,7 +28,7 @@ fn main() {
 
     let fake_storage_api = StorageAPI::new_inmem();
 
-    let fake_block_store = BlockstoreAPI::new_fs(&jobs, &fake_storage_api, "store", None, false);
+    let fake_block_store = BlockstoreAPI::new_fs(&jobs, &fake_storage_api, "store", "", false);
 
     // Hardcoded in golongtail
     let max_block_size = 1024 * 1024 * 1024;

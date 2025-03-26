@@ -1,5 +1,6 @@
+#![allow(clippy::empty_line_after_outer_attr)]
 #[rustfmt::skip]
-/// Storage API
+// Storage API
 // pub fn Longtail_GetStorageAPISize() -> u64;
 // pub fn Longtail_MakeStorageAPI( mem: *mut ::std::os::raw::c_void, dispose_func: Longtail_DisposeFunc, open_read_file_func: Longtail_Storage_OpenReadFileFunc, get_size_func: Longtail_Storage_GetSizeFunc, read_func: Longtail_Storage_ReadFunc, open_write_file_func: Longtail_Storage_OpenWriteFileFunc, write_func: Longtail_Storage_WriteFunc, set_size_func: Longtail_Storage_SetSizeFunc, set_permissions_func: Longtail_Storage_SetPermissionsFunc, get_permissions_func: Longtail_Storage_GetPermissionsFunc, close_file_func: Longtail_Storage_CloseFileFunc, create_dir_func: Longtail_Storage_CreateDirFunc, rename_file_func: Longtail_Storage_RenameFileFunc, concat_path_func: Longtail_Storage_ConcatPathFunc, is_dir_func: Longtail_Storage_IsDirFunc, is_file_func: Longtail_Storage_IsFileFunc, remove_dir_func: Longtail_Storage_RemoveDirFunc, remove_file_func: Longtail_Storage_RemoveFileFunc, start_find_func: Longtail_Storage_StartFindFunc, find_next_func: Longtail_Storage_FindNextFunc, close_find_func: Longtail_Storage_CloseFindFunc, get_entry_properties_func: Longtail_Storage_GetEntryPropertiesFunc, lock_file_func: Longtail_Storage_LockFileFunc, unlock_file_func: Longtail_Storage_UnlockFileFunc, get_parent_path_func: Longtail_Storage_GetParentPathFunc, map_file_func: Longtail_Storage_MapFileFunc, unmap_file_func: Longtail_Storage_UnmapFileFunc, open_append_file_func: Longtail_Storage_OpenAppendFileFunc,) -> *mut Longtail_StorageAPI;
 // pub fn Longtail_Storage_OpenReadFile( storage_api: *mut Longtail_StorageAPI, path: *const ::std::os::raw::c_char, out_open_file: *mut Longtail_StorageAPI_HOpenFile,) -> ::std::os::raw::c_int;
@@ -111,8 +112,8 @@ impl CFullPath {
         root_path: &str,
         path: &str,
     ) -> CFullPath {
-        let c_root_path = std::ffi::CString::new(root_path).unwrap();
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_root_path = std::ffi::CString::new(root_path).expect("root_path contains null bytes");
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         let c_full_path = unsafe {
             Longtail_Storage_ConcatPath(storage_api, c_root_path.as_ptr(), c_path.as_ptr())
         };
@@ -329,7 +330,7 @@ impl StorageAPI {
     }
 
     pub fn read_version_index(&self, path: &str) -> Result<VersionIndex, i32> {
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         let mut version_index = std::ptr::null_mut::<Longtail_VersionIndex>();
         let result = unsafe {
             Longtail_ReadVersionIndex(
@@ -345,12 +346,12 @@ impl StorageAPI {
     }
 
     pub fn file_exists(&self, path: &str) -> bool {
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         unsafe { Longtail_Storage_IsFile(self.storage_api, c_path.as_ptr()) == 1 }
     }
 
     pub fn delete_file(&self, path: &str) -> Result<(), i32> {
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         let result = unsafe { Longtail_Storage_RemoveFile(self.storage_api, c_path.as_ptr()) };
         if result != 0 {
             return Err(result);
@@ -392,7 +393,7 @@ impl StorageAPI {
     }
 
     pub fn start_find(&self, path: &str) -> Result<*mut Longtail_StorageAPI_Iterator, i32> {
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         let mut iterator = std::ptr::null_mut::<Longtail_StorageAPI_Iterator>();
         let result =
             unsafe { Longtail_Storage_StartFind(self.storage_api, c_path.as_ptr(), &mut iterator) };
@@ -447,7 +448,7 @@ impl StorageAPI {
     }
 
     pub fn write_version_index(&self, version_index: &VersionIndex, path: &str) -> Result<(), i32> {
-        let c_path = std::ffi::CString::new(path).unwrap();
+        let c_path = std::ffi::CString::new(path).expect("path contains null bytes");
         let result = unsafe {
             Longtail_WriteVersionIndex(
                 self.storage_api,
