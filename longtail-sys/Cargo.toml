@@ -13,7 +13,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 bindgen = "0.71"
 cc = "1.2"
 sha2 = "0.10.8"
-zip = "2.2"
+zip = "=2.5.0"
 zip-extensions = "0.8"
 
 [dependencies]
