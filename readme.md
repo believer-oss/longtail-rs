@@ -8,19 +8,21 @@ These bindings have been successfully used for downsync from a [tauri](https://v
 
 These are the APIs wrapped with at least partial abstractions:
 
-[BlockIndex](src/longtaillib/block_index.rs)
-[BlockStore](src/longtaillib/block_store.rs)
-[Chunker](src/longtaillib/chunker.rs)
-[Compression](src/longtaillib/compression.rs)
-[Concurrent Chunk Worker](src/longtaillib/concurrent_chunk_write.rs)
-[FileInfos](src/longtaillib/file_infos.rs)
-[Hash](src/longtaillib/hash.rs)
-[Job](src/longtaillib/job.rs)
-[Logging](src/longtaillib/logging.rs)
-[PathFilter](src/longtaillib/path_filter.rs)
-[Progress](src/longtaillib/progress.rs)
-[Storage](src/longtaillib/storage.rs)
-[StoreIndex](src/longtaillib/store_index.rs)
-[StoredBlock](src/longtaillib/stored_block.rs)
-[VersionDiff](src/longtaillib/version_diff.rs)
-[VersionIndex](src/longtaillib/version_index.rs)
+| Link | Description |
+| --- | --- |
+|[BlockIndex](src/longtaillib/block_index.rs)|Index of blocks of compressed chunks|
+|[BlockStore](src/longtaillib/block_store.rs)|Abstract API for block storage|
+|[Chunker](src/longtaillib/chunker.rs)|Abstract API for splitting files| 
+|[Compression](src/longtaillib/compression.rs)|Abstract API for compression libraries|
+|[Concurrent Chunk Worker](src/longtaillib/concurrent_chunk_write.rs)|Abstract API for concurrent writes|
+|[FileInfos](src/longtaillib/file_infos.rs)|Filesystem entry|
+|[Hash](src/longtaillib/hash.rs)|Abstract API for hashing libraries|
+|[Job](src/longtaillib/job.rs)|Abstract API for job scheduling|
+|[Logging](src/longtaillib/logging.rs)|Logging utilities|
+|[PathFilter](src/longtaillib/path_filter.rs)|Path filitering API|
+|[Progress](src/longtaillib/progress.rs)|Progress API|
+|[Storage](src/longtaillib/storage.rs)|Abstract API for file storage|
+|[StoreIndex](src/longtaillib/store_index.rs)|Index of blocks stored in block storage|
+|[StoredBlock](src/longtaillib/stored_block.rs)|Stored block, consisting of a Block Index and data|
+|[VersionDiff](src/longtaillib/version_diff.rs)|Description of block and metadata changes between two versions|
+|[VersionIndex](src/longtaillib/version_index.rs)|Index of chunks and metadata describing a version of a path|
