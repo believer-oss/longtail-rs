@@ -335,7 +335,7 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         assert_eq!(
             object.get_string(),
-            format!("fsblob://{}/test.txt", temp_dir_path)
+            format!("fsblob://{temp_dir_path}/test.txt")
         );
         assert!(!object.exists().unwrap());
         assert!(object.read().is_err());

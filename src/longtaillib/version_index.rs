@@ -423,9 +423,9 @@ mod tests {
         let mut buffer = vec![0u8; metadata.len() as usize];
         println!("Reading {} bytes", metadata.len());
         f.read_exact(&mut buffer).unwrap();
-        println!("Bytes read: {:?}", buffer);
+        println!("Bytes read: {buffer:?}");
         let result = VersionIndex::new_from_buffer(&mut buffer);
-        println!("Result: {:?}", result);
+        println!("Result: {result:?}");
         match result {
             Ok(version_index) => {
                 assert_eq!(version_index.get_version(), 2);
@@ -452,7 +452,7 @@ mod tests {
                 assert_eq!(version_index.get_name_data(), [String::from("testfile")]);
             }
             Err(e) => {
-                panic!("Error reading version index from buffer: {:?}", e);
+                panic!("Error reading version index from buffer: {e:?}");
             }
         }
     }
