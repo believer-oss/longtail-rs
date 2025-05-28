@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     Longtail_API, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
@@ -110,7 +110,6 @@ impl AsyncGetExistingContentAPIProxy {
 }
 
 impl AsyncGetExistingContentAPI for AsyncGetExistingContentAPIProxy {
-    #[instrument]
     unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
         if !store_index.is_null() {
             let context = self.get_context();

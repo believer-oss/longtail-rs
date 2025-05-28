@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 use aws_sdk_s3::{config::StalledStreamProtectionConfig, Client as S3Client};
 
@@ -8,6 +8,7 @@ use crate::{BlobClient, BlobObject, BlobStore};
 pub struct S3Options {
     endpoint_resolver_uri: Option<String>,
     s3_transfer_accel: Option<bool>,
+    runtime: Option<AsyncRuntime>,
 }
 
 impl S3Options {
@@ -15,7 +16,12 @@ impl S3Options {
         Self {
             endpoint_resolver_uri,
             s3_transfer_accel,
+            runtime: None,
         }
+    }
+
+    pub fn set_runtime(&mut self, runtime: tokio::runtime::Handle) {
+        self.runtime = Some(AsyncRuntime::Handle(runtime));
     }
 }
 
@@ -54,7 +60,7 @@ impl BlobStore for S3BlobStore {
     fn new_client<'a>(&self) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error>> {
         let region_provider = aws_config::meta::region::RegionProviderChain::default_provider()
             .or_else(aws_config::Region::new("us-east-1"));
-        let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::v2024_03_28())
+        let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
             .region(region_provider);
 
@@ -64,9 +70,21 @@ impl BlobStore for S3BlobStore {
             }
         }
 
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt: AsyncRuntime = match &self.options.as_ref() {
+            Some(options) => match options.runtime.as_ref() {
+                Some(runtime) => runtime.clone(),
+                None => AsyncRuntime::Runtime(Arc::new(
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()?,
+                )),
+            },
+            None => AsyncRuntime::Runtime(Arc::new(
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?,
+            )),
+        };
 
         let sdk_config = rt.block_on(async { shared_config.load().await });
         let mut service_config = aws_sdk_s3::config::Builder::from(&sdk_config);
@@ -83,6 +101,7 @@ impl BlobStore for S3BlobStore {
         let config = service_config.build();
         let s3_client = S3Client::from_conf(config);
         Ok(Box::new(S3BlobClient {
+            runtime: rt,
             s3_client,
             store: self.clone(),
         }))
@@ -94,7 +113,23 @@ impl BlobStore for S3BlobStore {
 }
 
 #[derive(Debug, Clone)]
+pub enum AsyncRuntime {
+    Handle(tokio::runtime::Handle),
+    Runtime(Arc<tokio::runtime::Runtime>),
+}
+
+impl AsyncRuntime {
+    fn block_on<F: std::future::Future>(&self, future: F) -> F::Output {
+        match self {
+            AsyncRuntime::Handle(handle) => handle.block_on(future),
+            AsyncRuntime::Runtime(rt) => rt.block_on(future),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct S3BlobClient {
+    runtime: AsyncRuntime,
     s3_client: S3Client,
     store: S3BlobStore,
 }
@@ -108,6 +143,7 @@ impl BlobClient for S3BlobClient {
     ) -> Result<Box<dyn BlobObject + '_>, Box<dyn std::error::Error>> {
         if object_key.starts_with(&self.store.prefix) {
             Ok(Box::new(S3BlobObject {
+                runtime: self.runtime.clone(),
                 client: self,
                 object_key,
             }))
@@ -117,6 +153,7 @@ impl BlobClient for S3BlobClient {
             let object_key = object_key.strip_prefix('/').unwrap_or(&object_key);
             let object_key = format!("{}/{}", prefix, object_key);
             Ok(Box::new(S3BlobObject {
+                runtime: self.runtime.clone(),
                 client: self,
                 object_key,
             }))
@@ -130,9 +167,8 @@ impl BlobClient for S3BlobClient {
         let bucket_name = self.store.bucket_name.clone();
         let path_prefix = format!("{}{}", self.store.prefix.clone(), path_prefix);
         tracing::debug!("Listing objects: [{}] [{}]", bucket_name, path_prefix);
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = &self.runtime;
+
         let inner = rt.block_on(
             self.s3_client
                 .list_objects_v2()
@@ -165,15 +201,14 @@ impl BlobClient for S3BlobClient {
 
 #[derive(Debug)]
 struct S3BlobObject<'a> {
+    runtime: AsyncRuntime,
     client: &'a S3BlobClient,
     object_key: String,
 }
 
 impl BlobObject for S3BlobObject<'_> {
     fn exists(&self) -> Result<bool, Box<dyn std::error::Error>> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = &self.runtime;
 
         let bucket_name = self.client.store.bucket_name.clone();
         let object_key = self.object_key.clone();
@@ -215,9 +250,7 @@ impl BlobObject for S3BlobObject<'_> {
             self.client.store.bucket_name,
             self.object_key
         );
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = &self.runtime;
         let mut inner = rt
             .block_on(
                 self.client
@@ -235,9 +268,7 @@ impl BlobObject for S3BlobObject<'_> {
         Ok(buf)
     }
     fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = &self.runtime;
         let _inner = rt.block_on(
             self.client
                 .s3_client
@@ -250,9 +281,7 @@ impl BlobObject for S3BlobObject<'_> {
         Ok(())
     }
     fn delete(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let rt = &self.runtime;
 
         let _inner = rt.block_on(
             self.client

@@ -448,17 +448,19 @@ pub fn get(
     url: &str,
     target_path: &str,
     progress_api: Option<Box<dyn ProgressAPI>>,
+    async_runtime: Option<tokio::runtime::Handle>,
 ) -> Result<(), LongtailError> {
     // Hardcoding here for now, to keep the API stable
     let s3_transfer_acceleration = Some(true);
     let s3_endpoint_resolver_url = None;
 
-    let s3_options = Some(S3Options::new(
-        s3_endpoint_resolver_url.clone(),
-        s3_transfer_acceleration,
-    ));
+    let mut s3_options = S3Options::new(s3_endpoint_resolver_url.clone(), s3_transfer_acceleration);
 
-    let buf = read_from_uri(url, s3_options).map_err(LongtailError::Misc)?;
+    if let Some(runtime) = async_runtime {
+        s3_options.set_runtime(runtime);
+    }
+
+    let buf = read_from_uri(url, Some(s3_options)).map_err(LongtailError::Misc)?;
     let s = std::str::from_utf8(&buf).map_err(LongtailError::UTF8Error)?;
     let json = serde_json::from_str::<serde_json::Value>(s).map_err(LongtailError::JSONError)?;
 
