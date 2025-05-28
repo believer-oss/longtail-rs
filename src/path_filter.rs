@@ -237,7 +237,7 @@ impl RegexPathFilter {
                     );
                     return false;
                 }
-                if is_dir && r.is_match(&format!("{}/", asset_path)) {
+                if is_dir && r.is_match(&format!("{asset_path}/")) {
                     // These unwraps are fine since the iter is handing us the increment
                     debug!(
                         "Excluded dir `{}/` (match for `{}`)",
@@ -262,7 +262,7 @@ impl RegexPathFilter {
                     );
                     return true;
                 }
-                if is_dir && r.is_match(&format!("{}/", asset_path)) {
+                if is_dir && r.is_match(&format!("{asset_path}/")) {
                     // These unwraps are fine since the iter is handing us the increment
                     debug!(
                         "Included dir `{}/` (match for `{}`)",

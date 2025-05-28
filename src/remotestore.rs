@@ -212,7 +212,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
             .filter(|block| block.is_valid())
             .collect();
         StoreIndex::new_from_blocks(blocks)
-            .map_err(|e| format!("Failed to create store index: {}", e).into())
+            .map_err(|e| format!("Failed to create store index: {e}").into())
     }
 
     fn read_store_index_from_uri(
@@ -221,7 +221,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         // TODO: Add retries
         let buf = read_from_uri(added_store_index, None)?;
         StoreIndex::new_from_buffer(buf.as_slice())
-            .map_err(|e| format!("Failed to create store index from buffer: {}", e).into())
+            .map_err(|e| format!("Failed to create store index from buffer: {e}").into())
     }
 
     fn get_store_store_indexes(
@@ -249,7 +249,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
         let buf = read_blob(client, item)
             .inspect(|i| tracing::debug!("Read {:?} bytes for {:?}", i.len(), item))?;
         StoreIndex::new_from_buffer(buf.as_slice())
-            .map_err(|e| format!("Failed to create store index from buffer: {}", e).into())
+            .map_err(|e| format!("Failed to create store index from buffer: {e}").into())
     }
 
     fn merge_store_index_items(
@@ -270,7 +270,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
             }
             let merged_store_index = store_index
                 .merge_store_index(&tmp_store_index)
-                .map_err(|e| format!("Failed to merge store indexes: {}", e))?;
+                .map_err(|e| format!("Failed to merge store indexes: {e}"))?;
             store_index = merged_store_index;
             used_items.push(item);
         }
@@ -345,7 +345,7 @@ impl<S: BlobStore> RemoteBlockStore<S> {
                         } else {
                             store_index = store_index
                                 .merge_store_index(&one_store_index)
-                                .map_err(|e| format!("Failed to merge store index: {}", e))?
+                                .map_err(|e| format!("Failed to merge store index: {e}"))?
                         }
                     }
                 }

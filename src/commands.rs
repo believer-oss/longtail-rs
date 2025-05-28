@@ -163,12 +163,12 @@ pub fn downsync(
             Some(uri) => {
                 info!("Reading version index from object: {}", uri);
                 let mut buf = read_from_uri(uri, s3_options.clone()).map_err(|err| {
-                    let err = format!("failed to read object: {}", err);
+                    let err = format!("failed to read object: {err}");
                     error!("{}", err);
                     1
                 })?;
                 VersionIndex::new_from_buffer(&mut buf).map_err(|err| {
-                    let err = format!("failed to create version index: {}", err);
+                    let err = format!("failed to create version index: {err}");
                     error!("{}", err);
                     1
                 })?
