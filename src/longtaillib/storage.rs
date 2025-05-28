@@ -472,7 +472,7 @@ mod tests {
         let buffer = vec![1; 1024 * 1024];
         let result = storage_api.write_to_storage("folder", "file", buffer.as_slice());
         if result.is_err() {
-            panic!("Failed to write to storage {:?}", result)
+            panic!("Failed to write to storage {result:?}")
         }
         let read_buffer = storage_api.read_from_storage("folder", "file").unwrap();
         assert_eq!(buffer, read_buffer);

@@ -353,7 +353,7 @@ mod tests {
             AsyncGetStoredBlockAPIProxy::new(Box::new(TestGetStoredBlockCompletion {}));
         info!("async_complete_api: {:?}", async_complete_api);
 
-        let uri = format!("s3://{}/{}/store", BUCKET, PREFIX);
+        let uri = format!("s3://{BUCKET}/{PREFIX}/store");
         let store = create_block_store_for_uri(
             &uri,
             None,

@@ -237,7 +237,7 @@ mod tests {
         let file_infos = scanner.get_file_infos();
         assert_eq!(file_infos.get_file_count(), 7);
         for (path, size, permissions) in file_infos.iter() {
-            println!("{} {} {:o}", path, size, permissions);
+            println!("{path} {size} {permissions:o}");
         }
     }
     #[test]
