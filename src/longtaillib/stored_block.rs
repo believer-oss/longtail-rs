@@ -122,7 +122,7 @@ impl StoredBlock {
 
     /// Find the expected file path for a block with the given hash
     pub fn get_block_path(base_path: &Path, block_hash: u64) -> String {
-        let file_name = format!("0x{:016x}.lsb", block_hash);
+        let file_name = format!("0x{block_hash:016x}.lsb");
         let dir = base_path.join(&file_name[2..6]);
         let block_path = dir.join(file_name);
         block_path.to_string_lossy().into_owned().replace('\\', "/")

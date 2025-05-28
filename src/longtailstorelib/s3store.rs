@@ -115,7 +115,7 @@ impl BlobClient for S3BlobClient {
             let prefix = self.store.prefix.clone();
             let prefix = prefix.strip_suffix('/').unwrap_or(&prefix);
             let object_key = object_key.strip_prefix('/').unwrap_or(&object_key);
-            let object_key = format!("{}/{}", prefix, object_key);
+            let object_key = format!("{prefix}/{object_key}");
             Ok(Box::new(S3BlobObject {
                 client: self,
                 object_key,
@@ -269,7 +269,7 @@ impl BlobObject for S3BlobObject<'_> {
         // Key already includes the prefix
         let key = self.object_key.clone();
         let key = key.strip_prefix('/').unwrap_or(&key);
-        format!("s3://{0}/{1}", bucket, key)
+        format!("s3://{bucket}/{key}")
     }
 }
 
