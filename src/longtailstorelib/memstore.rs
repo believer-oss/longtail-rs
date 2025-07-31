@@ -36,7 +36,7 @@ impl MemBlobStore {
 impl BlobStore for MemBlobStore {
     fn new_client<'a>(
         &self,
-    ) -> Result<Box<dyn BlobClient + 'a>, Box<(dyn std::error::Error + 'static)>> {
+    ) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error + 'static>> {
         Ok(Box::new(MemBlobClient {
             store: self.clone(),
         }))
@@ -57,7 +57,7 @@ impl BlobClient for MemBlobClient {
         &self,
         path: String,
         // ) -> Result<MemBlobObject, Box<dyn std::error::Error + 'static>> {
-    ) -> Result<Box<dyn BlobObject + '_>, Box<(dyn std::error::Error + 'static)>> {
+    ) -> Result<Box<dyn BlobObject + '_>, Box<dyn std::error::Error + 'static>> {
         Ok(Box::new(MemBlobObject {
             client: self.clone(),
             path,
