@@ -75,7 +75,7 @@ impl FileInfos {
         let index = isize::try_from(index).expect("Failed to convert index to isize");
         unsafe { *self.get_permissions_ptr().offset(index) }
     }
-    pub fn iter(&self) -> FileInfosIterator {
+    pub fn iter(&self) -> FileInfosIterator<'_> {
         FileInfosIterator {
             file_infos: self,
             index: 0,
