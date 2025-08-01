@@ -54,7 +54,7 @@ impl BlobStore for S3BlobStore {
     fn new_client<'a>(&self) -> Result<Box<dyn BlobClient + 'a>, Box<dyn std::error::Error>> {
         let region_provider = aws_config::meta::region::RegionProviderChain::default_provider()
             .or_else(aws_config::Region::new("us-east-1"));
-        let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::v2025_01_17())
+        let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
             .region(region_provider);
 
