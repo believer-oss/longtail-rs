@@ -51,8 +51,11 @@ use crate::{
 };
 use std::{
     ops::{Deref, DerefMut},
+    path::Path,
     ptr::null_mut,
 };
+
+use super::path_to_bytes;
 
 /// A block store in the Longtail API consists of pointers to functions that
 /// implement a backing block store.
@@ -94,10 +97,11 @@ impl BlockstoreAPI {
     pub fn new_fs(
         jobs: &BikeshedJobAPI,
         storage_api: &StorageAPI,
-        content_path: &str,
+        content_path: &Path,
         block_extension: &str,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
+        let content_path = path_to_bytes(content_path);
         let c_content_path =
             std::ffi::CString::new(content_path).expect("content_path contains null bytes");
         let c_block_extension =

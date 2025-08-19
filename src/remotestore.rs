@@ -572,7 +572,7 @@ pub fn create_block_store_for_uri(
         s if s.starts_with("file://") => Ok(BlockstoreAPI::new_fs(
             job_api.ok_or("Job API required for file:// uri")?,
             &StorageAPI::new_fs(),
-            &uri[7..],
+            Path::new(&uri[7..]),
             ".lsb",
             enable_file_mapping,
         )),
@@ -581,7 +581,7 @@ pub fn create_block_store_for_uri(
         _ => Ok(BlockstoreAPI::new_fs(
             job_api.ok_or("Job API required for filesystem uri")?,
             &StorageAPI::new_fs(),
-            uri,
+            Path::new(uri),
             ".lsb",
             enable_file_mapping,
         )),
