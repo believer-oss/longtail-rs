@@ -31,6 +31,8 @@ pub use path_filter::RegexPathFilter;
 pub mod async_apis;
 pub use async_apis::*;
 
+pub mod file_cache;
+
 pub mod commands;
 mod error;
 

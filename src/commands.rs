@@ -1,3 +1,4 @@
+use crate::file_cache::FileCacheData;
 use crate::{
     create_block_store_for_uri, get_files_recursively, normalize_file_system_path, read_from_uri,
     AccessType, BikeshedJobAPI, BlockstoreAPI, ChunkerAPI, CompressionRegistry,
@@ -7,8 +8,10 @@ use crate::{
 };
 
 use crate::error::LongtailError;
+use std::cmp::Ordering;
 use std::collections::HashMap;
-use tracing::{debug, error, info};
+use std::path::{Path, PathBuf};
+use tracing::{debug, error, info, warn};
 
 #[allow(clippy::too_many_arguments)]
 pub fn downsync(
@@ -19,7 +22,7 @@ pub fn downsync(
     source_paths: &[String],
     target_path: &str,
     target_index_path: &str,
-    cache_path: &str,
+    cache_path: Option<&Path>,
     retain_permissions: bool,
     validate: bool,
     version_local_store_index_paths: Option<Vec<String>>,
@@ -239,9 +242,9 @@ pub fn downsync(
         -1
     })?;
 
-    let compress_block_store = match cache_path.is_empty() {
-        true => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
-        false => {
+    let compress_block_store = match cache_path {
+        None => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
+        Some(cache_path) => {
             let local_index_store =
                 BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping);
             let cache_block_store =
@@ -444,10 +447,34 @@ pub fn downsync(
     Ok(())
 }
 
+// Present the previous API for usage without a cache
 pub fn get(
     url: &str,
     target_path: &str,
     progress_api: Option<Box<dyn ProgressAPI>>,
+) -> Result<(), LongtailError> {
+    get_with_cache(url, target_path, progress_api, None)
+}
+
+pub struct CacheControl {
+    path: PathBuf,
+    max_size_bytes: u64,
+}
+
+impl CacheControl {
+    pub fn new(path: &Path, max_size_bytes: u64) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            max_size_bytes,
+        }
+    }
+}
+
+pub fn get_with_cache(
+    url: &str,
+    target_path: &str,
+    progress_api: Option<Box<dyn ProgressAPI>>,
+    cache: Option<CacheControl>,
 ) -> Result<(), LongtailError> {
     // Hardcoding here for now, to keep the API stable
     let s3_transfer_acceleration = Some(true);
@@ -479,6 +506,8 @@ pub fn get(
                 "version-local-store-index-path missing or invalid",
             )))?;
 
+    let cache_path = cache.as_ref().map(|cache| cache.path.clone());
+
     downsync(
         32,
         storage_uri,
@@ -487,7 +516,7 @@ pub fn get(
         &[source_path.to_string()],
         target_path,
         "",
-        "",
+        cache_path.as_deref(),
         false,
         false,
         Some(vec![version_local_store_index_path.to_string()]),
@@ -499,5 +528,45 @@ pub fn get(
         false,
         progress_api,
     )?;
+
+    if let Some(cache) = &cache {
+        let mut all_files = FileCacheData::collect(&cache.path.join("chunks"));
+        let total_size = all_files.iter().fold(0, |acc, entry| acc + entry.size);
+
+        if total_size > cache.max_size_bytes {
+            info!(
+                "File cache total size {} is over threshold {} by {} bytes. Purging old chunks...",
+                total_size,
+                cache.max_size_bytes,
+                total_size - cache.max_size_bytes
+            );
+            all_files.sort_by(|a, b| -> Ordering {
+                let time_ord = a.timestamp.partial_cmp(&b.timestamp);
+                if time_ord == Some(Ordering::Equal) {
+                    return a.size.partial_cmp(&b.size).unwrap();
+                }
+                time_ord.unwrap()
+            });
+
+            let mut current_size = total_size;
+            for f in all_files.iter() {
+                info!(
+                    "Deleting chunk {:?} with size {} (total {} -> {}, threshold {})",
+                    f.path,
+                    f.size,
+                    current_size,
+                    current_size - f.size,
+                    cache.max_size_bytes
+                );
+                if let Err(e) = std::fs::remove_file(&f.path) {
+                    warn!("Unable to delete file {:?}: {:?}", &f.path, e);
+                }
+                current_size -= f.size;
+                if current_size <= cache.max_size_bytes {
+                    break;
+                }
+            }
+        }
+    }
     Ok(())
 }

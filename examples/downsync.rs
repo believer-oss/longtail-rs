@@ -1,5 +1,7 @@
 mod common;
 
+use std::path::PathBuf;
+
 use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
 
 use clap::Parser;
@@ -34,7 +36,7 @@ struct Args {
 
     /// Location for cached blocks
     #[clap(name = "cache-path", long)]
-    cache_path: Option<String>,
+    cache_path: Option<PathBuf>,
 
     /// Set permission on file/directories from source
     #[clap(long, default_value = "true")]
@@ -93,7 +95,7 @@ fn main() {
         &args.source_paths,
         &args.target_path,
         &args.target_index_path.unwrap_or_default(),
-        &args.cache_path.unwrap_or_default(),
+        args.cache_path.as_deref(),
         args.retain_permissions,
         args.validate,
         args.version_local_store_index_paths,
