@@ -15,3 +15,6 @@ test-data/medium
 test-data/small
 test-data/longtail
 test-data/longtail.exe
+
+# ad-hoc analysis
+analysis/

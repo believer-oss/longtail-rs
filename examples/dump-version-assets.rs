@@ -25,14 +25,14 @@ struct Args {
 fn dump_version_assets(version_index_path: String, details: bool) {
     let version_index = version_index_from_file(&version_index_path);
     let asset_count = version_index.get_asset_count();
-    let mut biggest_asset = 0;
+    let mut largest_asset = 0;
     for i in 0..asset_count {
         let asset_size = version_index.get_asset_size(i);
-        if asset_size > biggest_asset {
-            biggest_asset = asset_size;
+        if asset_size > largest_asset {
+            largest_asset = asset_size;
         }
     }
-    let size_padding = format!("{}", biggest_asset).len();
+    let size_padding = format!("{largest_asset}").len();
     for i in 0..asset_count {
         let path = version_index.get_asset_path(i);
         if details {
@@ -48,7 +48,7 @@ fn dump_version_assets(version_index_path: String, details: bool) {
                 path
             );
         } else {
-            println!("{}", path);
+            println!("{path}");
         }
     }
 }
