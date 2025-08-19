@@ -10,11 +10,10 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
   "rustls-tls-webpki-roots",
 ] }
-bindgen = "0.71"
+bindgen = "0.72"
 cc = "1.2"
-sha2 = "0.10.8"
-zip = "2.2"
-zip-extensions = "0.8"
+sha2 = "0.10.9"
+zip = "4.3"
 
 [dependencies]
 

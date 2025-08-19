@@ -1,10 +1,12 @@
 use sha2::{Digest, Sha256};
 use std::{
-    env, fs, io,
-    io::Write,
+    env,
+    fs::{self, File},
+    io::{self, Write},
     path::{Path, PathBuf},
     process::Command,
 };
+use zip::{result::ZipResult, ZipArchive};
 
 const UPSTREAM_RELEASE_BASE_URL: &str =
     "https://github.com/DanEngelbrecht/longtail/releases/download";
@@ -75,6 +77,12 @@ fn setup_submodule() {
     }
 }
 
+fn zip_extract(archive_file: &PathBuf, target_dir: &PathBuf) -> ZipResult<()> {
+    let file = File::open(archive_file)?;
+    let mut archive = ZipArchive::new(file)?;
+    archive.extract(target_dir)
+}
+
 fn try_download(dst: PathBuf, url: &str, filename: &str, sha256: &str) -> PathBuf {
     println!("Downloading {} to {}", url, dst.display());
     let file = dst.join(filename);
@@ -83,19 +91,19 @@ fn try_download(dst: PathBuf, url: &str, filename: &str, sha256: &str) -> PathBu
     } else {
         let response = reqwest::blocking::get(url).expect("Failed to download");
         if !response.status().is_success() {
-            panic!("Failed to download {}", url);
+            panic!("Failed to download {url}");
         }
         let out = response.bytes().expect("Failed to read response");
 
         let digest = Sha256::digest(&out);
-        let digest = format!("{:x}", digest);
+        let digest = format!("{digest:x}");
         if digest != sha256 {
-            panic!("SHA256 mismatch for {}", filename);
+            panic!("SHA256 mismatch for {filename}");
         }
         let mut f = fs::File::create(&file).expect("cannot create zip file");
         f.write_all(&out).expect("cannot write zip file");
 
-        zip_extensions::zip_extract(&file, &dst).expect("cannot extract zip");
+        zip_extract(&file, &dst).expect("cannot extract zip");
 
         dst
     }
@@ -104,10 +112,7 @@ fn try_download(dst: PathBuf, url: &str, filename: &str, sha256: &str) -> PathBu
 fn setup_windows(dst: PathBuf) -> PathBuf {
     let dl_path = try_download(
         dst,
-        &format!(
-            "{}/{}/{}",
-            UPSTREAM_RELEASE_BASE_URL, UPSTREAM_VERSION, UPSTREAM_FILENAME
-        ),
+        &format!("{UPSTREAM_RELEASE_BASE_URL}/{UPSTREAM_VERSION}/{UPSTREAM_FILENAME}"),
         UPSTREAM_FILENAME,
         SHA256,
     );
@@ -136,10 +141,7 @@ fn setup_windows(dst: PathBuf) -> PathBuf {
 fn setup_linux(dst: PathBuf) -> PathBuf {
     let dl_path = try_download(
         dst,
-        &format!(
-            "{}/{}/{}",
-            UPSTREAM_RELEASE_BASE_URL, UPSTREAM_VERSION, UPSTREAM_FILENAME
-        ),
+        &format!("{UPSTREAM_RELEASE_BASE_URL}/{UPSTREAM_VERSION}/{UPSTREAM_FILENAME}"),
         UPSTREAM_FILENAME,
         SHA256,
     );
@@ -413,7 +415,7 @@ fn vendored() {
         Ok(_) => {}
         Err(e) => {
             println!("cargo:warning=Failed to compile");
-            println!("cargo:warning={:?}", e);
+            println!("cargo:warning={e:?}");
         }
     }
 
@@ -486,7 +488,7 @@ fn add_c_files(build: &mut cc::Build, path: impl AsRef<Path>) {
     let path = path.as_ref();
     if !path.exists() {
         let d = path.display();
-        panic!("Path {} does not exist", d);
+        panic!("Path {d} does not exist");
     }
     // sort the C files to ensure a deterministic build for reproducible builds
     let dir = path.read_dir().unwrap();

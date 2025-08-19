@@ -69,7 +69,7 @@ fn main() {
                 break;
             }
         },
-        Err(e) => println!("Error: {:?}", e),
+        Err(e) => println!("Error: {e:?}"),
     }
 
     println!("-----------------------------");
