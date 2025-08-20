@@ -569,18 +569,18 @@ pub fn create_block_store_for_uri(
         }
 
         // Longtail Filesystem block store
-        s if s.starts_with("file://") => Ok(BlockstoreAPI::new_fs(
+        s if s.starts_with("file://") => Ok(BlockstoreAPI::new_fs_owned(
             job_api.ok_or("Job API required for file:// uri")?,
-            &StorageAPI::new_fs(),
+            StorageAPI::new_fs(),
             Path::new(&uri[7..]),
             ".lsb",
             enable_file_mapping,
         )),
 
         // Longtail Filesystem block store
-        _ => Ok(BlockstoreAPI::new_fs(
+        _ => Ok(BlockstoreAPI::new_fs_owned(
             job_api.ok_or("Job API required for filesystem uri")?,
-            &StorageAPI::new_fs(),
+            StorageAPI::new_fs(),
             Path::new(uri),
             ".lsb",
             enable_file_mapping,

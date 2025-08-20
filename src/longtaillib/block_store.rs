@@ -63,6 +63,7 @@ use super::path_to_bytes;
 #[derive(Debug)]
 pub struct BlockstoreAPI {
     pub blockstore_api: *mut Longtail_BlockStoreAPI,
+    _storage_api: Option<StorageAPI>,
     _pin: std::marker::PhantomPinned,
 }
 
@@ -117,6 +118,37 @@ impl BlockstoreAPI {
         };
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+
+    /// Create a filesystem block store that owns its storage API.
+    /// This avoids lifetime issues when the storage API would otherwise be dropped.
+    pub fn new_fs_owned(
+        jobs: &BikeshedJobAPI,
+        storage_api: StorageAPI,
+        content_path: &Path,
+        block_extension: &str,
+        enable_file_mapping: bool,
+    ) -> BlockstoreAPI {
+        let content_path = path_to_bytes(content_path);
+        let c_content_path =
+            std::ffi::CString::new(content_path).expect("content_path contains null bytes");
+        let c_block_extension =
+            std::ffi::CString::new(block_extension).expect("block_extension contains null bytes");
+        let blockstore_api = unsafe {
+            Longtail_CreateFSBlockStoreAPI(
+                jobs.job_api,
+                storage_api.storage_api,
+                c_content_path.as_ptr(),
+                c_block_extension.as_ptr(),
+                enable_file_mapping as i32,
+            )
+        };
+        BlockstoreAPI {
+            blockstore_api,
+            _storage_api: Some(storage_api),
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -137,6 +169,7 @@ impl BlockstoreAPI {
         };
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -154,6 +187,7 @@ impl BlockstoreAPI {
             unsafe { Longtail_CreateCompressBlockStoreAPI(longtail_blockstore, **compression_api) };
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -165,6 +199,7 @@ impl BlockstoreAPI {
         let blockstore_api = unsafe { Longtail_CreateShareBlockStoreAPI(**backing_blockstore) };
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -178,6 +213,7 @@ impl BlockstoreAPI {
             unsafe { Longtail_CreateLRUBlockStoreAPI(**backing_blockstore, max_cache_size) };
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -204,6 +240,7 @@ impl BlockstoreAPI {
         );
         BlockstoreAPI {
             blockstore_api,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
@@ -216,6 +253,7 @@ impl BlockstoreAPI {
         let proxy = Box::into_raw(proxy);
         BlockstoreAPI {
             blockstore_api: proxy as *mut Longtail_BlockStoreAPI,
+            _storage_api: None,
             _pin: std::marker::PhantomPinned,
         }
     }
