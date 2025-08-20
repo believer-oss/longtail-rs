@@ -1,4 +1,4 @@
-Invoke-WebRequest "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.3/longtail-win32-x64.exe" -OutFile "longtail.exe"
+Invoke-WebRequest "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.5/longtail-win32-x64.exe" -OutFile "longtail.exe"
 
 Remove-Item -Recurse -Force "small" -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force "medium" -ErrorAction SilentlyContinue
