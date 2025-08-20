@@ -221,6 +221,7 @@ impl COpenFile {
 
 /// The longtail storage API abstracts file and directory operations.
 #[repr(C)]
+#[derive(Debug)]
 pub struct StorageAPI {
     pub storage_api: *mut Longtail_StorageAPI,
     _pin: std::marker::PhantomPinned,
