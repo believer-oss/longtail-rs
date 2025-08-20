@@ -242,15 +242,19 @@ pub fn downsync(
         -1
     })?;
 
-    let compress_block_store = match cache_path {
-        None => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
-        Some(cache_path) => {
-            let local_index_store =
-                BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping);
+    let cache_store = cache_path.map(|cache_path| {
+        BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping)
+    });
+
+    // Check if we have a cache_path set and a local block store
+    let compress_block_store = match (cache_path, &cache_store) {
+        (None, _) => BlockstoreAPI::new_compressed(Box::new(remote_index_store), &creg),
+        (Some(_), Some(local_store)) => {
             let cache_block_store =
-                BlockstoreAPI::new_cached(&jobs, &local_index_store, &remote_index_store);
+                BlockstoreAPI::new_cached(&jobs, local_store, &remote_index_store);
             BlockstoreAPI::new_compressed(Box::new(cache_block_store), &creg)
         }
+        _ => unreachable!("if cache_path is Some, we should also have a cache_store"),
     };
 
     // TODO: disabled these for now...
