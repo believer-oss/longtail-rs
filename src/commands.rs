@@ -243,7 +243,9 @@ pub fn downsync(
     })?;
 
     let cache_store = cache_path.map(|cache_path| {
-        BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, "", enable_file_mapping)
+        // FIXME: The block_extension here doesn't match golongtail. When it does (""), it finds
+        // store.lsi.sync and errors out as it's the 0-byte lockfile. Only on Linux?
+        BlockstoreAPI::new_fs(&jobs, &localfs, cache_path, ".lsb", enable_file_mapping)
     });
 
     // Check if we have a cache_path set and a local block store
