@@ -139,9 +139,9 @@ pub unsafe extern "C" fn async_get_existing_content_api_on_complete(
 ) {
     let proxy = context as *mut AsyncGetExistingContentAPIProxy;
     // let inner = unsafe { (*proxy).context };
-    let inner = proxy.as_ref().expect("couldn't get ref").get_context();
+    let inner = unsafe { proxy.as_ref().expect("couldn't get ref").get_context() };
     if let Some(mut inner) = inner {
-        inner.on_complete(store_index, err);
+        unsafe { inner.on_complete(store_index, err) };
         let _ = Box::into_raw(inner);
     } else {
         unsafe {

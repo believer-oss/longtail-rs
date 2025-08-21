@@ -174,7 +174,7 @@ impl COpenFile {
         }
         Ok(COpenFile {
             storage_api,
-            open_file: *open_file_h,
+            open_file: unsafe { *open_file_h },
         })
     }
 
@@ -197,7 +197,7 @@ impl COpenFile {
         }
         Ok(COpenFile {
             storage_api,
-            open_file: *open_file_h,
+            open_file: unsafe { *open_file_h },
         })
     }
 

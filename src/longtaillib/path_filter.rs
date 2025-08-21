@@ -107,7 +107,7 @@ impl PathFilterAPIProxy {
 
 /// # Safety
 /// This function is unsafe because it dereferences `path_filter` and `context`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn path_filter_include(
     path_filter: *mut Longtail_PathFilterAPI,
     root_path: *const std::os::raw::c_char,
@@ -119,7 +119,7 @@ pub unsafe extern "C" fn path_filter_include(
 ) -> std::os::raw::c_int {
     let proxy = path_filter as *mut PathFilterAPIProxy;
     let context = unsafe { (*proxy).context };
-    let path_filter = Box::from_raw(context as *mut Box<dyn PathFilterAPI>);
+    let path_filter = unsafe { Box::from_raw(context as *mut Box<dyn PathFilterAPI>) };
     let root_path = unsafe {
         std::ffi::CStr::from_ptr(root_path)
             .to_str()
@@ -142,7 +142,7 @@ pub unsafe extern "C" fn path_filter_include(
     result
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn path_filter_dispose(api: *mut Longtail_API) {
     let context = unsafe { (*(api as *mut PathFilterAPIProxy)).context };
     let _path_filter = unsafe { Box::from_raw(context as *mut Box<dyn PathFilterAPI>) };
