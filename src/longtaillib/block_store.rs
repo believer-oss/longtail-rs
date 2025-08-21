@@ -558,7 +558,8 @@ pub unsafe extern "C" fn blockstore_api_put_stored_block(
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let stored_block = StoredBlock::new_from_lt(stored_block);
-    let async_complete_api = AsyncPutStoredBlockAPIProxy::new_from_api(*async_complete_api);
+    let async_complete_api =
+        AsyncPutStoredBlockAPIProxy::new_from_api(unsafe { *async_complete_api });
     let result = blockstore.put_stored_block(&stored_block, async_complete_api);
     let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
@@ -577,9 +578,9 @@ pub unsafe extern "C" fn blockstore_api_preflight_get(
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let chunk_hashes = unsafe { std::slice::from_raw_parts(chunk_hashes, chunk_count as usize) };
     let async_complete_api = if !async_complete_api.is_null() {
-        Some(AsyncPreflightStartedAPIProxy::new_from_api(
-            *async_complete_api,
-        ))
+        Some(AsyncPreflightStartedAPIProxy::new_from_api(unsafe {
+            *async_complete_api
+        }))
     } else {
         None
     };
@@ -598,7 +599,8 @@ pub unsafe extern "C" fn blockstore_api_get_stored_block(
     let proxy = context as *mut BlockstoreAPIProxy;
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
-    let async_complete_api = AsyncGetStoredBlockAPIProxy::new_from_api(async_complete_api);
+    let async_complete_api =
+        unsafe { AsyncGetStoredBlockAPIProxy::new_from_api(async_complete_api) };
     let result = blockstore.get_stored_block(block_hash, async_complete_api);
     let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
@@ -617,7 +619,7 @@ pub unsafe extern "C" fn blockstore_api_prune_blocks(
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
     let block_keep_hashes =
         unsafe { std::slice::from_raw_parts(block_keep_hashes, block_count as usize) };
-    let async_complete_api = AsyncPruneBlocksAPIProxy::new_from_api(*async_complete_api);
+    let async_complete_api = AsyncPruneBlocksAPIProxy::new_from_api(unsafe { *async_complete_api });
     let result = blockstore.prune_blocks(block_keep_hashes.to_vec(), async_complete_api);
     let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)

@@ -210,7 +210,7 @@ mod tests {
     #[derive(Debug)]
     struct TestPathFilter {}
     impl PathFilterAPI for TestPathFilter {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         fn include(
             &self,
             _root_path: &str,
