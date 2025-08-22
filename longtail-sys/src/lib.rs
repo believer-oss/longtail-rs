@@ -14,9 +14,12 @@ impl Display for Longtail_LogField {
         let name = unsafe { std::ffi::CStr::from_ptr(self.name) }
             .to_str()
             .unwrap_or("INVALID NAME");
+        // The value passed from longtail is usually a "%p" pointer to a string, but is
+        // occationally a "%s" string. ie. `FSStorageAPI_StartFind` out_iterator
         let value = unsafe { std::ffi::CStr::from_ptr(self.value) }
             .to_str()
-            .unwrap_or("INVALID VALUE");
+            .unwrap_or(format!("[ptr: {:p}]", self.value).as_str())
+            .to_owned();
         write!(f, "{}={}", name, value)
     }
 }
