@@ -63,7 +63,7 @@ use super::path_to_cstring;
 #[derive(Debug)]
 pub struct BlockstoreAPI {
     pub blockstore_api: *mut Longtail_BlockStoreAPI,
-    _storage_api: Option<StorageAPI>,
+    _storage_api: Option<*mut StorageAPI>,
     _pin: std::marker::PhantomPinned,
 }
 
@@ -140,17 +140,27 @@ impl BlockstoreAPI {
         block_extension: &str,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
-        let content_path = path_to_bytes(content_path);
-        let c_content_path =
-            std::ffi::CString::new(content_path).expect("content_path contains null bytes");
-        let c_block_extension =
-            std::ffi::CString::new(block_extension).expect("block_extension contains null bytes");
+        // We never need to access this StorageAPI directly again, and it needs to live forever
+        let storage_api = Box::into_raw(Box::new(storage_api));
+        let c_content_path = path_to_cstring(content_path);
+        let c_block_extension = if block_extension.is_empty() {
+            None
+        } else {
+            Some(
+                std::ffi::CString::new(block_extension)
+                    .expect("block_extension contains null bytes"),
+            )
+        };
+        let c_block_extension_ptr = match &c_block_extension {
+            Some(s) => s.as_ptr(),
+            None => std::ptr::null(),
+        };
         let blockstore_api = unsafe {
             Longtail_CreateFSBlockStoreAPI(
                 jobs.job_api,
-                storage_api.storage_api,
+                (*storage_api).storage_api,
                 c_content_path.as_ptr(),
-                c_block_extension.as_ptr(),
+                c_block_extension_ptr,
                 enable_file_mapping as i32,
             )
         };
@@ -184,15 +194,15 @@ impl BlockstoreAPI {
 
     /// Create a compressed block store that wraps a backing block store.
     pub fn new_compressed(
-        backing_blockstore: Box<BlockstoreAPI>,
+        backing_blockstore: BlockstoreAPI,
         compression_api: &CompressionRegistry,
     ) -> BlockstoreAPI {
+        // We never need to access this BlockstoreAPI directly again, and it needs to live forever
+        let backing_blockstore = Box::into_raw(Box::new(backing_blockstore));
         tracing::debug!("Compressed blockstore: {:p}", backing_blockstore);
-        // TODO: Why is this a Box, and new_cached is not?
-        let backing_blockstore = Box::into_raw(backing_blockstore);
-        let longtail_blockstore = unsafe { *(*backing_blockstore) };
-        let blockstore_api =
-            unsafe { Longtail_CreateCompressBlockStoreAPI(longtail_blockstore, **compression_api) };
+        let blockstore_api = unsafe {
+            Longtail_CreateCompressBlockStoreAPI(*(*backing_blockstore), **compression_api)
+        };
         BlockstoreAPI {
             blockstore_api,
             _storage_api: None,
@@ -203,8 +213,10 @@ impl BlockstoreAPI {
     /// Create a shared block store that aggregates multiple gets for the same
     /// block into a single get. The async on_completion callback will be
     /// called once for each get.
-    pub fn new_share(backing_blockstore: &BlockstoreAPI) -> BlockstoreAPI {
-        let blockstore_api = unsafe { Longtail_CreateShareBlockStoreAPI(**backing_blockstore) };
+    pub fn new_share(backing_blockstore: BlockstoreAPI) -> BlockstoreAPI {
+        // We never need to access this BlockstoreAPI directly again, and it needs to live forever
+        let backing_blockstore = Box::into_raw(Box::new(backing_blockstore));
+        let blockstore_api = unsafe { Longtail_CreateShareBlockStoreAPI(*(*backing_blockstore)) };
         BlockstoreAPI {
             blockstore_api,
             _storage_api: None,
@@ -216,7 +228,9 @@ impl BlockstoreAPI {
     /// store. The cache will evict blocks based on the least recently used
     /// policy. The max_cache_size is the maximum number of blocks to keep
     /// in the cache.
-    pub fn new_lru(backing_blockstore: &BlockstoreAPI, max_cache_size: u32) -> BlockstoreAPI {
+    pub fn new_lru(backing_blockstore: BlockstoreAPI, max_cache_size: u32) -> BlockstoreAPI {
+        // We never need to access this BlockstoreAPI directly again, and it needs to live forever
+        let backing_blockstore = Box::into_raw(Box::new(backing_blockstore));
         let blockstore_api =
             unsafe { Longtail_CreateLRUBlockStoreAPI(**backing_blockstore, max_cache_size) };
         BlockstoreAPI {
@@ -239,13 +253,15 @@ impl BlockstoreAPI {
     ) -> BlockstoreAPI {
         let c_archive_path =
             std::ffi::CString::new(archive_path).expect("archive_path contains null bytes");
-        let blockstore_api = Longtail_CreateArchiveBlockStore(
-            storage_api,
-            c_archive_path.as_ptr(),
-            archive_index,
-            enable_write as i32,
-            enable_file_mapping as i32,
-        );
+        let blockstore_api = unsafe {
+            Longtail_CreateArchiveBlockStore(
+                storage_api,
+                c_archive_path.as_ptr(),
+                archive_index,
+                enable_write as i32,
+                enable_file_mapping as i32,
+            )
+        };
         BlockstoreAPI {
             blockstore_api,
             _storage_api: None,
@@ -271,6 +287,46 @@ impl BlockstoreAPI {
     // from a builder or something else to make them easier to use.
     #[allow(clippy::too_many_arguments)]
     pub fn change_version(
+        &self,
+        version_storage_api: &StorageAPI,
+        hash_api: &HashAPI,
+        job_api: &BikeshedJobAPI,
+        progress_api: &ProgressAPIProxy,
+        store_index: &StoreIndex,
+        source_version_index: &VersionIndex,
+        target_version_index: &VersionIndex,
+        version_diff: &VersionDiff,
+        version_path: &str,
+        retain_permissions: bool,
+    ) -> Result<(), i32> {
+        let version_path =
+            std::ffi::CString::new(version_path).expect("version_path contains null bytes");
+        let store_index = store_index.store_index;
+        let result = unsafe {
+            Longtail_ChangeVersion(
+                self.blockstore_api,
+                **version_storage_api,
+                **hash_api,
+                **job_api,
+                progress_api as *const ProgressAPIProxy as *mut Longtail_ProgressAPI,
+                null_mut::<Longtail_CancelAPI>(),
+                null_mut::<Longtail_CancelAPI_CancelToken>(),
+                store_index,
+                **source_version_index,
+                **target_version_index,
+                **version_diff,
+                version_path.as_ptr(),
+                retain_permissions as i32,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        };
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn change_version2(
         &self,
         version_storage_api: &StorageAPI,
         concurrent_chunk_write_api: &ConcurrentChunkWriteAPI,
@@ -312,30 +368,51 @@ impl BlockstoreAPI {
     }
 }
 
-// These implementations dispatch the blockstore API calls to the Longtail C
-// API.
+// These implementations dispatch the blockstore API calls to the Longtail C API.
 impl Blockstore for BlockstoreAPI {
     fn get_existing_content(
         &self,
         chunk_hashes: Vec<u64>,
         min_block_usage_percent: u32,
-        mut async_complete_api: AsyncGetExistingContentAPIProxy,
+        async_complete_api: AsyncGetExistingContentAPIProxy,
     ) -> Result<(), i32> {
-        let result = unsafe {
-            Longtail_BlockStore_GetExistingContent(
-                self.blockstore_api,
-                chunk_hashes.len() as u32,
-                chunk_hashes.as_ptr(),
-                min_block_usage_percent,
-                // &async_complete_api as *const _ as *mut Longtail_AsyncGetExistingContentAPI,
-                &mut *async_complete_api,
-            )
-        };
-        if result != 0 {
-            return Err(result);
-        };
+        match async_complete_api {
+            AsyncGetExistingContentAPIProxy::C(async_complete_api_ptr) => {
+                // Pass the original pointer directly - this fixes the stack buffer overflow
+                // that occurs when C caching code casts it to a larger structure
+                let result = unsafe {
+                    Longtail_BlockStore_GetExistingContent(
+                        self.blockstore_api,
+                        chunk_hashes.len() as u32,
+                        chunk_hashes.as_ptr(),
+                        min_block_usage_percent,
+                        async_complete_api_ptr,
+                    )
+                };
+                if result != 0 {
+                    return Err(result);
+                };
+            }
+            AsyncGetExistingContentAPIProxy::R(mut async_get_existing_content_apiinternal) => {
+                // Pass the pointer to the first member of the AsyncGetExistingContentAPI struct
+                let result = unsafe {
+                    Longtail_BlockStore_GetExistingContent(
+                        self.blockstore_api,
+                        chunk_hashes.len() as u32,
+                        chunk_hashes.as_ptr(),
+                        min_block_usage_percent,
+                        &mut async_get_existing_content_apiinternal.api,
+                    )
+                };
+                if result != 0 {
+                    return Err(result);
+                };
+            }
+        }
         Ok(())
     }
+
+    // FIXME: The implementations below may need a similiar split between C and Rust versions
 
     fn put_stored_block(
         &self,
@@ -532,7 +609,7 @@ pub extern "C" fn blockstore_api_dispose(api: *mut Longtail_API) {
 }
 
 /// # Safety
-/// This function is unsafe because it dereferences a raw pointer.
+/// This function is unsafe because it dereferences raw pointers.
 pub unsafe extern "C" fn blockstore_api_get_existing_content(
     context: *mut Longtail_BlockStoreAPI,
     chunk_count: u32,
@@ -540,17 +617,37 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
     min_block_usage_percent: u32,
     async_complete_api: *mut Longtail_AsyncGetExistingContentAPI,
 ) -> i32 {
+    // FIXME: Convert to tracing::instrument
+    tracing::debug!(
+        "blockstore_api_get_existing_content BlockstoreApiGetExistingContent - called: context={:p}, chunk_count={}, chunk_hashes={:p}, min_block_usage_percent={}, async_complete_api={:p}",
+        context,
+        chunk_count,
+        chunk_hashes,
+        min_block_usage_percent,
+        async_complete_api
+    );
+
     let proxy = context as *mut BlockstoreAPIProxy;
     let context = unsafe { (*proxy).context };
     let blockstore = unsafe { Box::from_raw(context as *mut Box<dyn Blockstore>) };
-
     let chunk_hashes = unsafe { std::slice::from_raw_parts(chunk_hashes, chunk_count as usize) };
-    let async_complete_api = AsyncGetExistingContentAPIProxy::new_from_api(async_complete_api);
+    tracing::debug!(
+        "blockstore_api_get_existing_content BlockstoreApiGetExistingContent - passing: chunk_hashes={:p}, min_block_usage_percent={}, async_complete_api={:p}",
+        chunk_hashes,
+        min_block_usage_percent,
+        async_complete_api
+    );
+
     let result = blockstore.get_existing_content(
         chunk_hashes.to_vec(),
         min_block_usage_percent,
-        async_complete_api,
+        AsyncGetExistingContentAPIProxy::C(async_complete_api), // Pass pointer directly
     );
+    tracing::debug!(
+        "blockstore_api_get_existing_content BlockstoreApiGetExistingContent - returning: result={:?}",
+        result
+    );
+
     let _ = Box::into_raw(blockstore);
     result.and(Ok(0)).unwrap_or_else(|err| err)
 }
