@@ -42,8 +42,10 @@
 use crate::*;
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    sync::{Arc, atomic::AtomicBool},
 };
+
+use longtail_sys::{Longtail_API, Longtail_AsyncGetExistingContentAPI, Longtail_StoreIndex};
 
 /// A store index in the Longtail API consists of pointers to block hashes and
 /// their constituent chunk hashes. The store index is used to describe a subset
@@ -54,6 +56,9 @@ pub struct StoreIndex {
     pub store_index: *mut Longtail_StoreIndex,
     _pin: std::marker::PhantomPinned,
 }
+
+// Make StoreIndex Send so it can be used in async/threaded contexts
+unsafe impl Send for StoreIndex {}
 
 impl Drop for StoreIndex {
     fn drop(&mut self) {
@@ -176,55 +181,167 @@ impl StoreIndex {
         indexes.to_vec()
     }
 
-    // TODO: Add async... Or otherwise rewrite this to be sane?
     pub fn get_existing_store_index_sync(
         index_store: &BlockstoreAPI,
         chunk_hashes: Vec<u64>,
         min_block_usage_percent: u32,
     ) -> Result<StoreIndex, i32> {
-        tracing::info!("Getting existing store index");
-        #[derive(Debug, Clone, Default)]
+        #[derive(Debug)]
         struct GetExistingContentCompletion {
-            store_index: Arc<Mutex<Option<Result<StoreIndex, i32>>>>,
+            store_index: std::cell::Cell<Option<*mut Longtail_StoreIndex>>,
+            err: std::cell::Cell<i32>,
+            completed: AtomicBool,
         }
-        impl AsyncGetExistingContentAPI for GetExistingContentCompletion {
-            unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
-                tracing::info!("GetExistingContentCompletion::on_complete");
-                let out = match err {
-                    0 => Ok(StoreIndex::new_from_lt(store_index)),
-                    _ => Err(err),
-                };
-                let mut store_index = match self.store_index.lock() {
-                    Ok(store_index) => store_index,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                store_index.replace(out);
+
+        impl GetExistingContentCompletion {
+            fn new() -> Self {
+                Self {
+                    store_index: std::cell::Cell::new(None),
+                    err: std::cell::Cell::new(0),
+                    completed: AtomicBool::new(false),
+                }
             }
         }
 
-        let x = GetExistingContentCompletion::default();
-        let api = Box::new(x.clone());
-        let completion = AsyncGetExistingContentAPIProxy::new(api);
-        tracing::debug!(
-            "Getting existing store index, completion: {:p}",
-            &completion
-        );
-        index_store.get_existing_content(
-            chunk_hashes,
-            min_block_usage_percent,
-            completion.clone(),
-        )?;
-        // TODO: This is terrible
-        loop {
-            let store_index = match x.store_index.lock() {
-                Ok(store_index) => store_index.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            };
-            if let Some(store_index) = store_index.clone() {
-                return store_index;
+        unsafe impl Send for GetExistingContentCompletion {}
+        unsafe impl Sync for GetExistingContentCompletion {}
+
+        impl AsyncGetExistingContentAPI for GetExistingContentCompletion {
+            unsafe fn on_complete(&mut self, store_index: *mut Longtail_StoreIndex, err: i32) {
+                tracing::info!(
+                    "GetExistingContentCompletion::on_complete store_index={:p} err={}",
+                    store_index,
+                    err
+                );
+
+                self.store_index.set(Some(store_index));
+                self.err.set(err);
+                self.completed
+                    .store(true, std::sync::atomic::Ordering::Release);
             }
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            tracing::warn!("Waiting for store index");
+        }
+
+        // Direct C callback that avoids our async proxy system entirely
+        fn create_direct_c_callback(
+            completion_impl: Arc<GetExistingContentCompletion>,
+        ) -> AsyncGetExistingContentAPIProxy {
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+
+            // Store completion by callback address - this is a hack but necessary for C interop
+            use std::sync::LazyLock;
+            static DIRECT_COMPLETIONS: LazyLock<
+                Mutex<HashMap<usize, Arc<GetExistingContentCompletion>>>,
+            > = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+            extern "C" fn direct_callback(
+                async_complete_api: *mut Longtail_AsyncGetExistingContentAPI,
+                store_index: *mut Longtail_StoreIndex,
+                err: i32,
+            ) {
+                tracing::debug!(
+                    "direct_callback called with store_index: {:p}, err: {}",
+                    store_index,
+                    err
+                );
+
+                let callback_addr = async_complete_api as usize;
+                if let Some(completion) = DIRECT_COMPLETIONS.lock().unwrap().remove(&callback_addr)
+                {
+                    tracing::debug!(
+                        "direct_callback found completion for addr: {:p}",
+                        callback_addr as *const ()
+                    );
+                    completion.store_index.set(Some(store_index));
+                    completion.err.set(err);
+                    completion
+                        .completed
+                        .store(true, std::sync::atomic::Ordering::Release);
+                } else {
+                    tracing::error!(
+                        "direct_callback: could not find completion for addr: {:p}",
+                        callback_addr as *const ()
+                    );
+                }
+            }
+
+            // Create raw C API structure
+            let api = Longtail_AsyncGetExistingContentAPI {
+                m_API: Longtail_API { Dispose: None },
+                OnComplete: Some(direct_callback),
+            };
+
+            let api_ptr = Box::into_raw(Box::new(api));
+            let callback_addr = api_ptr as usize;
+
+            // Store the completion for the callback to find
+            DIRECT_COMPLETIONS
+                .lock()
+                .unwrap()
+                .insert(callback_addr, completion_impl);
+
+            tracing::debug!(
+                "create_direct_c_callback: stored completion for addr: {:p}",
+                api_ptr
+            );
+
+            // Return the raw C struct
+            AsyncGetExistingContentAPIProxy::C(api_ptr)
+        }
+
+        let completion_impl = Arc::new(GetExistingContentCompletion::new());
+        tracing::info!("Created SimpleGetExistingContentCompletion");
+
+        let completion = create_direct_c_callback(completion_impl.clone());
+        tracing::info!(
+            "Getting existing store index, completion: {:p}",
+            &completion,
+        );
+
+        // FIXME: Debug output only, pull when this gets cleaned up.
+        match &completion {
+            crate::async_apis::AsyncGetExistingContentAPIProxy::R(internal) => {
+                tracing::debug!(
+                    "Passing AsyncGetExistingContentAPIProxy::R with internal: {:p}, context: {:p}",
+                    internal,
+                    internal.context
+                );
+            }
+            crate::async_apis::AsyncGetExistingContentAPIProxy::C(_) => {
+                tracing::debug!("Passing AsyncGetExistingContentAPIProxy::C");
+            }
+        }
+        index_store.get_existing_content(chunk_hashes, min_block_usage_percent, completion)?;
+
+        tracing::info!("Waiting for completion (Go-like polling)");
+
+        // FIXME: Busy-wait like Go's waitgroup pattern. Should this should be reimplemented with a
+        // waker-style callback?
+        while !completion_impl
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        let err = completion_impl.err.get();
+        let store_index_ptr = completion_impl.store_index.get();
+
+        match err {
+            0 => {
+                if let Some(ptr) = store_index_ptr {
+                    // Take direct ownership like Go does (no copying)
+                    tracing::info!("Taking ownership of store index pointer: {:p}", ptr);
+                    Ok(StoreIndex::new_from_lt(ptr))
+                } else {
+                    tracing::error!("Success but no store index pointer");
+                    Err(-1)
+                }
+            }
+            _ => {
+                tracing::error!("Callback completed with error: {}", err);
+                Err(err)
+            }
         }
     }
 
