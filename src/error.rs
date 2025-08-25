@@ -63,7 +63,9 @@ impl std::fmt::Display for LongtailInternalError {
             libc::EADDRINUSE => "Address in use.",
             libc::EADDRNOTAVAIL => "Address not available.",
             libc::EAFNOSUPPORT => "Address family not supported.",
-            libc::EAGAIN => "Resource unavailable, try again (may be the same value as [EWOULDBLOCK]).",
+            libc::EAGAIN => {
+                "Resource unavailable, try again (may be the same value as [EWOULDBLOCK])."
+            }
             libc::EALREADY => "Connection already in progress.",
             libc::EBADF => "Bad file descriptor.",
             libc::EBADMSG => "Bad message.",
@@ -98,7 +100,9 @@ impl std::fmt::Display for LongtailInternalError {
             libc::ENETUNREACH => "Network unreachable.",
             libc::ENFILE => "Too many files open in system.",
             libc::ENOBUFS => "No buffer space available.",
-            libc::ENODATA => "[XSR] [Option Start] No message is available on the STREAM head read queue. [Option End]",
+            libc::ENODATA => {
+                "[XSR] [Option Start] No message is available on the STREAM head read queue. [Option End]"
+            }
             libc::ENODEV => "No such device.",
             libc::ENOENT => "No such file or directory.",
             libc::ENOEXEC => "Executable file format error.",

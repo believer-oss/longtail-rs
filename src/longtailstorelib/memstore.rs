@@ -137,14 +137,14 @@ impl BlobObject for MemBlobObject {
         // Lock poison unwrap - https://doc.rust-lang.org/std/sync/struct.Mutex.html#poisoning
         let mut blobs = self.client.store.blobs.lock().unwrap();
         if let Some(blob) = blobs.get_mut(&self.path) {
-            if let Some(locked_generation) = self.locked_generation {
-                if locked_generation != blob.generation || locked_generation == -1 {
-                    return Err(MemBlobError::LockGenerationMismatch(
-                        locked_generation,
-                        blob.generation,
-                    )
-                    .into());
-                }
+            if let Some(locked_generation) = self.locked_generation
+                && (locked_generation != blob.generation || locked_generation == -1)
+            {
+                return Err(MemBlobError::LockGenerationMismatch(
+                    locked_generation,
+                    blob.generation,
+                )
+                .into());
             }
             blob.data = data.to_vec();
             blob.generation += 1;
@@ -166,16 +166,15 @@ impl BlobObject for MemBlobObject {
         if self.locked_generation.is_some() {
             match blobs.contains_key(&self.path) {
                 true => {
-                    if let Some(blob) = blobs.get(&self.path) {
-                        if let Some(locked_generation) = self.locked_generation {
-                            if locked_generation != blob.generation {
-                                return Err(MemBlobError::LockGenerationMismatch(
-                                    locked_generation,
-                                    blob.generation,
-                                )
-                                .into());
-                            }
-                        }
+                    if let Some(blob) = blobs.get(&self.path)
+                        && let Some(locked_generation) = self.locked_generation
+                        && locked_generation != blob.generation
+                    {
+                        return Err(MemBlobError::LockGenerationMismatch(
+                            locked_generation,
+                            blob.generation,
+                        )
+                        .into());
                     }
                 }
                 false => {

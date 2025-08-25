@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use aws_sdk_s3::{config::StalledStreamProtectionConfig, Client as S3Client};
+use aws_sdk_s3::{Client as S3Client, config::StalledStreamProtectionConfig};
 
 use crate::{BlobClient, BlobObject, BlobStore};
 
@@ -58,10 +58,10 @@ impl BlobStore for S3BlobStore {
             .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
             .region(region_provider);
 
-        if let Some(options) = &self.options {
-            if let Some(uri) = &options.endpoint_resolver_uri {
-                shared_config = shared_config.endpoint_url(uri.clone());
-            }
+        if let Some(options) = &self.options
+            && let Some(uri) = &options.endpoint_resolver_uri
+        {
+            shared_config = shared_config.endpoint_url(uri.clone());
         }
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -280,8 +280,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        create_block_store_for_uri, AccessType, AsyncGetStoredBlockAPI,
-        AsyncGetStoredBlockAPIProxy, BikeshedJobAPI, BlobStore, StoredBlock,
+        AccessType, AsyncGetStoredBlockAPI, AsyncGetStoredBlockAPIProxy, BikeshedJobAPI, BlobStore,
+        StoredBlock, create_block_store_for_uri,
     };
 
     static BUCKET: &str = "build-artifacts20230504001207614000000001";
