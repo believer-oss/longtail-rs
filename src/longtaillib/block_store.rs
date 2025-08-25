@@ -37,12 +37,12 @@ use crate::{
     BikeshedJobAPI, CompressionRegistry, ConcurrentChunkWriteAPI, HashAPI, Longtail_API,
     Longtail_ArchiveIndex, Longtail_AsyncFlushAPI, Longtail_AsyncGetExistingContentAPI,
     Longtail_AsyncGetStoredBlockAPI, Longtail_AsyncPreflightStartedAPI,
-    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_BlockStoreAPI,
-    Longtail_BlockStore_Flush, Longtail_BlockStore_GetExistingContent,
-    Longtail_BlockStore_GetStats, Longtail_BlockStore_GetStoredBlock,
-    Longtail_BlockStore_PreflightGet, Longtail_BlockStore_PruneBlocks,
-    Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats, Longtail_CancelAPI,
-    Longtail_CancelAPI_CancelToken, Longtail_ChangeVersion2, Longtail_CreateArchiveBlockStore,
+    Longtail_AsyncPruneBlocksAPI, Longtail_AsyncPutStoredBlockAPI, Longtail_BlockStore_Flush,
+    Longtail_BlockStore_GetExistingContent, Longtail_BlockStore_GetStats,
+    Longtail_BlockStore_GetStoredBlock, Longtail_BlockStore_PreflightGet,
+    Longtail_BlockStore_PruneBlocks, Longtail_BlockStore_PutStoredBlock, Longtail_BlockStore_Stats,
+    Longtail_BlockStoreAPI, Longtail_CancelAPI, Longtail_CancelAPI_CancelToken,
+    Longtail_ChangeVersion, Longtail_ChangeVersion2, Longtail_CreateArchiveBlockStore,
     Longtail_CreateCacheBlockStoreAPI, Longtail_CreateCompressBlockStoreAPI,
     Longtail_CreateFSBlockStoreAPI, Longtail_CreateLRUBlockStoreAPI,
     Longtail_CreateShareBlockStoreAPI, Longtail_ProgressAPI, Longtail_StorageAPI,
@@ -55,7 +55,7 @@ use std::{
     ptr::null_mut,
 };
 
-use super::path_to_bytes;
+use super::path_to_cstring;
 
 /// A block store in the Longtail API consists of pointers to functions that
 /// implement a backing block store.
@@ -102,17 +102,25 @@ impl BlockstoreAPI {
         block_extension: &str,
         enable_file_mapping: bool,
     ) -> BlockstoreAPI {
-        let content_path = path_to_bytes(content_path);
-        let c_content_path =
-            std::ffi::CString::new(content_path).expect("content_path contains null bytes");
-        let c_block_extension =
-            std::ffi::CString::new(block_extension).expect("block_extension contains null bytes");
+        let c_content_path = path_to_cstring(content_path);
+        let c_block_extension = if block_extension.is_empty() {
+            None
+        } else {
+            Some(
+                std::ffi::CString::new(block_extension)
+                    .expect("block_extension contains null bytes"),
+            )
+        };
+        let c_block_extension_ptr = match &c_block_extension {
+            Some(s) => s.as_ptr(),
+            None => std::ptr::null(),
+        };
         let blockstore_api = unsafe {
             Longtail_CreateFSBlockStoreAPI(
                 jobs.job_api,
                 storage_api.storage_api,
                 c_content_path.as_ptr(),
-                c_block_extension.as_ptr(),
+                c_block_extension_ptr,
                 enable_file_mapping as i32,
             )
         };
