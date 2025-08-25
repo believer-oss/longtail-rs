@@ -1,10 +1,10 @@
 use crate::file_cache::FileCacheData;
 use crate::{
-    create_block_store_for_uri, get_files_recursively, normalize_file_system_path, read_from_uri,
     AccessType, BikeshedJobAPI, BlockstoreAPI, ChunkerAPI, CompressionRegistry,
-    ConcurrentChunkWriteAPI, FolderScanner, HashRegistry, HashType, PathFilterAPIProxy,
-    ProgressAPI, ProgressAPIProxy, RegexPathFilter, S3Options, StorageAPI, StoreIndex, VersionDiff,
-    VersionIndex, VersionIndexReader, LONGTAIL_NO_COMPRESSION_TYPE,
+    ConcurrentChunkWriteAPI, FolderScanner, HashRegistry, HashType, LONGTAIL_NO_COMPRESSION_TYPE,
+    PathFilterAPIProxy, ProgressAPI, ProgressAPIProxy, RegexPathFilter, S3Options, StorageAPI,
+    StoreIndex, VersionDiff, VersionIndex, VersionIndexReader, create_block_store_for_uri,
+    get_files_recursively, normalize_file_system_path, read_from_uri,
 };
 
 use crate::error::LongtailError;
@@ -329,7 +329,7 @@ pub fn downsync(
     );
 
     info!("Writing to target folder");
-    index_store.change_version(
+    index_store.change_version2(
         &localfs,
         &concurrent_chunk_write_api,
         &target_hash,
