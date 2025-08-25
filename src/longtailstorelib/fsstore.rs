@@ -6,7 +6,7 @@ use std::os::windows::fs::MetadataExt;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::MetadataExt;
 
-use crate::{normalize_file_system_path, BlobClient, BlobObject, BlobStore};
+use crate::{BlobClient, BlobObject, BlobStore, normalize_file_system_path};
 use fs4::fs_std::FileExt;
 
 #[derive(Debug, Clone)]

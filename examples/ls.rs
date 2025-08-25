@@ -5,7 +5,7 @@ use std::path::Path;
 use common::version_index_from_file;
 use itertools::izip;
 use longtail::*;
-use longtail_sys::{permissions_to_string, LONGTAIL_LOG_LEVEL_DEBUG};
+use longtail_sys::{LONGTAIL_LOG_LEVEL_DEBUG, permissions_to_string};
 
 fn main() {
     tracing_subscriber::fmt()
