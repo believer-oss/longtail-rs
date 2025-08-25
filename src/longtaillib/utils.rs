@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{ffi::CString, path::Path};
 
 pub const UNC_PREFIX: &str = "\\\\?\\";
 const NETWORK_PREFIX: &str = "\\";
@@ -25,31 +25,16 @@ pub fn normalize_file_system_path(path: String) -> String {
     }
 }
 
-// Convert a Path to os-specific bytes to pass into C
-// https://doc.rust-lang.org/std/os/windows/ffi/trait.OsStrExt.html#tymethod.encode_wide
-// https://stackoverflow.com/a/59224987
-// I don't see any better method, sadly
-pub fn path_to_bytes(path: &Path) -> Vec<u8> {
-    let mut buf = Vec::new();
+pub fn path_to_cstring(path: &Path) -> CString {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
-        buf.extend(path.as_os_str().as_bytes());
-        buf.push(0);
+        CString::new(path.as_os_str().as_bytes()).expect("Failed to convert path to CString")
     }
+
+    // This should work because longtail assumes a UTF-8 codepage in a call to
+    // MultiByteToWideChar on the inbound paths on Windows.
     #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        buf.extend(
-            path.as_os_str()
-                .encode_wide()
-                .chain(Some(0))
-                .map(|b| {
-                    let b = b.to_ne_bytes();
-                    b.get(0).map(|s| *s).into_iter().chain(b.get(1).map(|s| *s))
-                })
-                .flatten(),
-        );
-    }
-    buf
+    CString::new(path.to_string_lossy().into_owned().into_bytes())
+        .expect("Failed to convert path to CString")
 }
