@@ -389,7 +389,6 @@ impl Blockstore for BlockstoreAPI {
         if result != 0 {
             return Err(result);
         }
-        
         Ok(())
     }
 
@@ -622,7 +621,9 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
     let result = blockstore.get_existing_content(
         chunk_hashes.to_vec(),
         min_block_usage_percent,
-        AsyncGetExistingContentAPIProxy { api: async_complete_api }, // Pass pointer directly
+        AsyncGetExistingContentAPIProxy {
+            api: async_complete_api,
+        },
     );
     tracing::debug!(
         "blockstore_api_get_existing_content BlockstoreApiGetExistingContent - returning: result={:?}",
