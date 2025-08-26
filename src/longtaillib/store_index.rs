@@ -285,8 +285,8 @@ impl StoreIndex {
                 api_ptr
             );
 
-            // Return the raw C struct
-            AsyncGetExistingContentAPIProxy::C(api_ptr)
+            // Return the proxy wrapping the C API pointer
+            AsyncGetExistingContentAPIProxy { api: api_ptr }
         }
 
         let completion_impl = Arc::new(GetExistingContentCompletion::new());
@@ -299,18 +299,7 @@ impl StoreIndex {
         );
 
         // FIXME: Debug output only, pull when this gets cleaned up.
-        match &completion {
-            crate::async_apis::AsyncGetExistingContentAPIProxy::R(internal) => {
-                tracing::debug!(
-                    "Passing AsyncGetExistingContentAPIProxy::R with internal: {:p}, context: {:p}",
-                    internal,
-                    internal.context
-                );
-            }
-            crate::async_apis::AsyncGetExistingContentAPIProxy::C(_) => {
-                tracing::debug!("Passing AsyncGetExistingContentAPIProxy::C");
-            }
-        }
+        tracing::debug!("Passing AsyncGetExistingContentAPIProxy with api: {:p}", completion.api);
         index_store.get_existing_content(chunk_hashes, min_block_usage_percent, completion)?;
 
         tracing::info!("Waiting for completion (Go-like polling)");
