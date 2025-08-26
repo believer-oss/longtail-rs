@@ -376,39 +376,20 @@ impl Blockstore for BlockstoreAPI {
         min_block_usage_percent: u32,
         async_complete_api: AsyncGetExistingContentAPIProxy,
     ) -> Result<(), i32> {
-        match async_complete_api {
-            AsyncGetExistingContentAPIProxy::C(async_complete_api_ptr) => {
-                // Pass the original pointer directly - this fixes the stack buffer overflow
-                // that occurs when C caching code casts it to a larger structure
-                let result = unsafe {
-                    Longtail_BlockStore_GetExistingContent(
-                        self.blockstore_api,
-                        chunk_hashes.len() as u32,
-                        chunk_hashes.as_ptr(),
-                        min_block_usage_percent,
-                        async_complete_api_ptr,
-                    )
-                };
-                if result != 0 {
-                    return Err(result);
-                };
-            }
-            AsyncGetExistingContentAPIProxy::R(mut async_get_existing_content_apiinternal) => {
-                // Pass the pointer to the first member of the AsyncGetExistingContentAPI struct
-                let result = unsafe {
-                    Longtail_BlockStore_GetExistingContent(
-                        self.blockstore_api,
-                        chunk_hashes.len() as u32,
-                        chunk_hashes.as_ptr(),
-                        min_block_usage_percent,
-                        &mut async_get_existing_content_apiinternal.api,
-                    )
-                };
-                if result != 0 {
-                    return Err(result);
-                };
-            }
+        // Pass the API pointer directly - works for both our Rust proxies and external C APIs
+        let result = unsafe {
+            Longtail_BlockStore_GetExistingContent(
+                self.blockstore_api,
+                chunk_hashes.len() as u32,
+                chunk_hashes.as_ptr(),
+                min_block_usage_percent,
+                async_complete_api.api,
+            )
+        };
+        if result != 0 {
+            return Err(result);
         }
+        
         Ok(())
     }
 
@@ -641,7 +622,7 @@ pub unsafe extern "C" fn blockstore_api_get_existing_content(
     let result = blockstore.get_existing_content(
         chunk_hashes.to_vec(),
         min_block_usage_percent,
-        AsyncGetExistingContentAPIProxy::C(async_complete_api), // Pass pointer directly
+        AsyncGetExistingContentAPIProxy { api: async_complete_api }, // Pass pointer directly
     );
     tracing::debug!(
         "blockstore_api_get_existing_content BlockstoreApiGetExistingContent - returning: result={:?}",
