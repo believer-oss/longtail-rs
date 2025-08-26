@@ -28,10 +28,10 @@ pub fn downsync(
     version_local_store_index_paths: Option<Vec<String>>,
     include_filter_regex: Option<String>,
     exclude_filter_regex: Option<String>,
-    _scan_target: bool,
-    cache_target_index: bool,
+    scan_target: bool,
+    mut cache_target_index: bool,
     enable_file_mapping: bool,
-    _use_legacy_write: bool,
+    use_legacy_write: bool,
     progress_api: Option<Box<dyn ProgressAPI>>,
 ) -> Result<(), LongtailError> {
     // Setup the longtail environment
@@ -94,20 +94,17 @@ pub fn downsync(
 
     let fs = StorageAPI::new_fs();
 
-    // TODO: This is ugly - If we pass a target_index_path, force cache_target_index
-    // to false.
-    let cache_target_index = if !target_index_path.is_empty() {
-        false
-    } else {
-        cache_target_index
+    // If target_index_path is explicitly set, don't use the default cache_target_index
+    if !target_index_path.is_empty() {
+        cache_target_index = false
     };
 
+    // Setup the version index cache to be in the root of the target path
     // TODO: Replace this with PathBuf handling?
     let cache_target_index_path = normalize_file_system_path(
         resolved_target_folder_path.to_owned() + "/.longtail.index.cache.lvi",
     );
 
-    // TODO: This is ugly, and I'm not sure why this is needed
     let target_index_path = if cache_target_index {
         if fs.file_exists(&cache_target_index_path) {
             info!("Using cached target index");
@@ -126,11 +123,17 @@ pub fn downsync(
         resolved_target_folder_path
     );
     // Recursively scan the target folder.
-    // TODO: This is async in golongtail, and is contingent on `scan_target &&
-    // target_index_path == ""`
-    let target_path_scanner =
-        FolderScanner::scan(&resolved_target_folder_path, &path_filter, &fs, &jobs)?;
-    info!("Scanned target path");
+    // TODO: This is async in golongtail
+    let target_path_scanner = match scan_target && target_index_path.is_empty() {
+        true => Some(FolderScanner::scan(
+            &resolved_target_folder_path,
+            &path_filter,
+            &fs,
+            &jobs,
+        )?),
+        false => None,
+    };
+    info!("Scanned target path: {target_path_scanner:?}");
 
     let hash_registry = HashRegistry::new();
 
@@ -203,7 +206,7 @@ pub fn downsync(
         &jobs,
         &hash_registry,
         enable_file_mapping,
-        &target_path_scanner,
+        target_path_scanner.as_ref(),
     )?;
 
     // Setup prerequisites for local file writing
@@ -264,12 +267,14 @@ pub fn downsync(
         _ => unreachable!("if cache_path is Some, we should also have a cache_store"),
     };
 
-    // TODO: disabled these for now...
-    // // Assuming we're not using legacy writes here.
-    // let lru_block_store = BlockstoreAPI::new_lru(&compress_block_store, 32);
-    // let index_store = BlockstoreAPI::new_share(&lru_block_store);
-    let index_store = BlockstoreAPI::new_share(compress_block_store);
-    // let index_store = compress_block_store;
+    // Use the legacy write path
+    let index_store = match use_legacy_write {
+        true => {
+            let lru_block_store = BlockstoreAPI::new_lru(compress_block_store, 32);
+            BlockstoreAPI::new_share(lru_block_store)
+        }
+        false => BlockstoreAPI::new_share(compress_block_store),
+    };
 
     // this appears to just be validating that we can get the hash id
     let _hash = hash_registry
@@ -293,12 +298,13 @@ pub fn downsync(
         .expect("Failed to get required chunk hashes");
 
     let retargetted_version_store_index =
-        StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0).map_err(
-            |err| {
+        match StoreIndex::get_existing_store_index_sync(&index_store, chunk_hashes, 0) {
+            Ok(store_index) => store_index,
+            Err(err) => {
                 error!("Failed to retarget version store index: {}", err);
-                -1
-            },
-        )?;
+                return Err(err.into());
+            }
+        };
     debug!(
         "Retargetted version store index: {:?}",
         retargetted_version_store_index
@@ -308,6 +314,7 @@ pub fn downsync(
         std::ptr::addr_of!(retargetted_version_store_index)
     );
 
+    // Remove the cached file
     if cache_target_index && localfs.file_exists(&cache_target_index_path) {
         localfs.delete_file(&cache_target_index_path)?;
     }
@@ -334,19 +341,33 @@ pub fn downsync(
     );
 
     info!("Writing to target folder");
-    index_store.change_version2(
-        &localfs,
-        &concurrent_chunk_write_api,
-        &target_hash,
-        &jobs,
-        &progress,
-        &retargetted_version_store_index,
-        &target_index_version,
-        &source_version_index,
-        &version_diff,
-        &resolved_target_folder_path,
-        true,
-    )?;
+    match use_legacy_write {
+        true => index_store.change_version(
+            &localfs,
+            &target_hash,
+            &jobs,
+            &progress,
+            &retargetted_version_store_index,
+            &target_index_version,
+            &source_version_index,
+            &version_diff,
+            &resolved_target_folder_path,
+            true,
+        )?,
+        false => index_store.change_version2(
+            &localfs,
+            &concurrent_chunk_write_api,
+            &target_hash,
+            &jobs,
+            &progress,
+            &retargetted_version_store_index,
+            &target_index_version,
+            &source_version_index,
+            &version_diff,
+            &resolved_target_folder_path,
+            true,
+        )?,
+    }
 
     // TODO: FlushStoresSync index_store, cache_block_store, local_index_store
 
@@ -533,8 +554,8 @@ pub fn get_with_cache(
         Some(vec![version_local_store_index_path.to_string()]),
         None,
         None,
-        false, // This defaults to true in golongtail
-        false, // This defaults to true in golongtail
+        true,
+        true,
         false,
         false,
         progress_api,

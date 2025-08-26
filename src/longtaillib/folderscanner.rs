@@ -1,9 +1,10 @@
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{
     BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, HashRegistry, HashType, Longtail_FileInfos,
     Longtail_GetFilesRecursively2, Longtail_ProgressAPI, PathFilterAPIProxy, ProgressAPI,
-    ProgressAPIProxy, StorageAPI, VersionIndex, error::LongtailError,
+    ProgressAPIProxy, StorageAPI, VersionIndex,
+    error::{LongtailError, LongtailInternalError},
 };
 use std::{io::Read, ptr::null_mut};
 
@@ -137,10 +138,13 @@ impl VersionIndexReader {
         job_api: &BikeshedJobAPI,
         hash_registry: &HashRegistry,
         enable_file_mappping: bool,
-        scanner: &FolderScanner,
+        scanner: Option<&FolderScanner>,
     ) -> Result<VersionIndexReader, LongtailError> {
         info!("source_index_path: {}", source_index_path);
-        if source_index_path.is_empty() {
+        // If we don't get a source_index_path, we need to use the scanner to build one.
+        if source_index_path.is_empty()
+            && let Some(scanner) = scanner
+        {
             struct ProgressHandler {}
             impl ProgressAPI for ProgressHandler {
                 fn on_progress(&self, _total_count: u32, _done_count: u32) {
@@ -184,7 +188,7 @@ impl VersionIndexReader {
                 version_index: VersionIndex::new_from_lt(vindex),
                 hash_api: hash,
             })
-        } else {
+        } else if !source_index_path.is_empty() {
             let mut f = std::fs::File::open(source_index_path)?;
             let metadata = f.metadata()?;
             let mut buffer = vec![0u8; metadata.len() as usize];
@@ -197,6 +201,9 @@ impl VersionIndexReader {
                 version_index,
                 hash_api,
             })
+        } else {
+            error!("Must pass a source index or a folder to scan");
+            Err(LongtailError::Internal(LongtailInternalError::new(-1)))
         }
     }
 }
@@ -267,7 +274,7 @@ mod tests {
             &jobs,
             &hash_registry,
             enable_file_mappping,
-            &scanner,
+            Some(&scanner),
         )
         .unwrap();
         let version_index = version_index_reader.version_index;
