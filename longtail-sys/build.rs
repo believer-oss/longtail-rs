@@ -75,6 +75,56 @@ fn setup_submodule() {
             .status()
             .expect("Failed to update submodules");
     }
+    apply_patches();
+}
+
+fn apply_patches() {
+    let patches_dir = Path::new("patches");
+    if !patches_dir.exists() {
+        return; // No patches directory, nothing to do
+    }
+    
+    // Check if patches have already been applied by looking for a marker file
+    let patch_marker = Path::new("longtail/.longtail-rs-patches-applied");
+    if patch_marker.exists() {
+        return; // Patches already applied
+    }
+    
+    // Collect and sort patch files
+    let mut patch_files: Vec<_> = fs::read_dir(patches_dir)
+        .expect("Failed to read patches directory")
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension()?.to_str()? == "patch" {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    patch_files.sort();
+    
+    // Apply each patch
+    for patch_file in &patch_files {
+        println!("cargo:warning=Applying patch: {}", patch_file.display());
+        let output = Command::new("git")
+            .args(["apply", "--directory=longtail"])
+            .arg(patch_file)
+            .output()
+            .expect("Failed to execute git apply");
+            
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("Failed to apply patch {}: {}", patch_file.display(), stderr);
+        }
+    }
+    
+    // Create marker file to indicate patches have been applied
+    fs::File::create(patch_marker)
+        .expect("Failed to create patch marker file");
+        
+    println!("cargo:warning=Applied {} patches to longtail submodule", patch_files.len());
 }
 
 fn zip_extract(archive_file: &PathBuf, target_dir: &PathBuf) -> ZipResult<()> {

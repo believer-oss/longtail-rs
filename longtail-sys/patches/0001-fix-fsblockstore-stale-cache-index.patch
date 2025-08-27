@@ -1,0 +1,46 @@
+From 0d0ad928c8ac9d2acdadb7ea0780f1a4b9b4f20c Mon Sep 17 00:00:00 2001
+From: Chris Maynard <127986818+chris-believer@users.noreply.github.com>
+Date: Wed, 27 Aug 2025 12:00:33 -0400
+Subject: [PATCH] Fix FSBlockStore cache repair for externally deleted files
+
+- Add file existence check before trusting m_BlockState index
+- Prevents false positives when store.lsi is stale after manual file deletion
+- Allows cache self-repair when blocks are externally deleted
+- Maintains performance by only checking files when index claims they exist
+
+Fixes issue where cache repair fails silently due to stale store index.
+---
+ lib/fsblockstore/longtail_fsblockstore.c | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/lib/fsblockstore/longtail_fsblockstore.c b/lib/fsblockstore/longtail_fsblockstore.c
+index 093b0ea..478ea43 100644
+--- a/lib/fsblockstore/longtail_fsblockstore.c
++++ b/lib/fsblockstore/longtail_fsblockstore.c
+@@ -810,10 +810,19 @@ static int FSBlockStore_PutStoredBlock(
+     intptr_t block_ptr = hmgeti(fsblockstore_api->m_BlockState, block_hash);
+     if (block_ptr != -1)
+     {
+-        // Already busy doing put or the block already has been stored
+-        Longtail_UnlockSpinLock(fsblockstore_api->m_Lock);
+-        async_complete_api->OnComplete(async_complete_api, 0);
+-        return 0;
++        // Check if the block file actually exists before assuming it's already stored
++        char* block_path = GetBlockPath(fsblockstore_api->m_StorageAPI, fsblockstore_api->m_StorePath, fsblockstore_api->m_BlockExtension, block_hash);
++        if (fsblockstore_api->m_StorageAPI->IsFile(fsblockstore_api->m_StorageAPI, block_path))
++        {
++            // File actually exists, so we can return early
++            Longtail_Free((void*)block_path);
++            Longtail_UnlockSpinLock(fsblockstore_api->m_Lock);
++            async_complete_api->OnComplete(async_complete_api, 0);
++            return 0;
++        }
++        // File doesn't exist despite being in index - let the normal write flow handle it
++        Longtail_Free((void*)block_path);
++        // Continue execution (don't return early)
+     }
+ 
+     hmput(fsblockstore_api->m_BlockState, block_hash, 0);
+-- 
+2.51.0
+
