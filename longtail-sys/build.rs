@@ -81,12 +81,14 @@ fn setup_submodule() {
 fn apply_patches() {
     let patches_dir = Path::new("patches");
     if !patches_dir.exists() {
+        println!("cargo:warning=No patches directory found, skipping patch application");
         return; // No patches directory, nothing to do
     }
     
     // Check if patches have already been applied by looking for a marker file
     let patch_marker = Path::new("longtail/.longtail-rs-patches-applied");
     if patch_marker.exists() {
+        println!("cargo:warning=Patches already applied (marker file exists), skipping patch application");
         return; // Patches already applied
     }
     
