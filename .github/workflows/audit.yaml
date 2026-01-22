@@ -23,8 +23,9 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/audit@v1
+      - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
         name: Audit Rust Dependencies
-        # with:
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
         # Comma separated list of issues to ignore
         # ignore: RUSTSEC-2020-0036
