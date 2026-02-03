@@ -10,6 +10,7 @@ use crate::{
 use crate::error::LongtailError;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::env;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
@@ -540,8 +541,13 @@ pub fn get_with_cache(
 
     let cache_path = cache.as_ref().map(|cache| cache.path.clone());
 
+    let workers = env::var("LONGTAIL_WORKER_COUNT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(32);
+
     downsync(
-        32,
+        workers,
         storage_uri,
         s3_endpoint_resolver_url,
         s3_transfer_acceleration,

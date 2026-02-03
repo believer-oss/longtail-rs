@@ -1,5 +1,6 @@
 use std::io::Write;
 
+use aws_config::retry::RetryConfig;
 use aws_sdk_s3::{Client as S3Client, config::StalledStreamProtectionConfig};
 
 use crate::{BlobClient, BlobObject, BlobStore};
@@ -56,6 +57,7 @@ impl BlobStore for S3BlobStore {
             .or_else(aws_config::Region::new("us-east-1"));
         let mut shared_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .stalled_stream_protection(StalledStreamProtectionConfig::disabled())
+            .retry_config(RetryConfig::standard().with_max_attempts(10))
             .region(region_provider);
 
         if let Some(options) = &self.options
