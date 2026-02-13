@@ -22,7 +22,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
         name: Audit Rust Dependencies
         with:
