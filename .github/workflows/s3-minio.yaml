@@ -1,0 +1,62 @@
+name: "S3 (minio) integration"
+
+# The S3-backed blob/sync tests need a live S3-compatible endpoint. They are NOT
+# run per-PR (they need a service container and are slower/flakier than the pure
+# lane); instead they run on manual dispatch and on a weekly schedule. The tests
+# themselves skip cleanly (they early-return, not fail) when
+# LONGTAIL_TEST_S3_ENDPOINT is unset, so they are inert in every other lane.
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Mondays 05:00 UTC.
+    - cron: "0 5 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  s3-minio-linux:
+    name: s3 lane - minio
+    runs-on: ubuntu-latest
+
+    # minio as a service container. bitnami/minio starts a server by default and
+    # auto-creates the bucket named in MINIO_DEFAULT_BUCKETS.
+    services:
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: longtail-test
+
+    env:
+      LONGTAIL_TEST_S3_ENDPOINT: http://localhost:9000
+      LONGTAIL_TEST_S3_BUCKET: longtail-test
+      LONGTAIL_TEST_S3_ACCESS_KEY: minioadmin
+      LONGTAIL_TEST_S3_SECRET_KEY: minioadmin
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      - name: Wait for minio
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/ready; then
+              echo "minio ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "minio did not become ready" >&2; exit 1
+
+      # The S3 blob/sync tests live in longtail-store's `s3_spec` integration
+      # test; the env vars above make them execute against minio (they skip when
+      # absent). The pure store suite (mem/fs) already runs in the pure lane.
+      - name: S3 blob/sync tests against minio
+        run: cargo test -p longtail-store --test s3_spec

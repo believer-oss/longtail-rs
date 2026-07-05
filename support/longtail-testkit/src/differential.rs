@@ -146,6 +146,34 @@ pub fn store_index_block_hashes_sorted(bytes: &[u8]) -> Result<Vec<u64>, i32> {
     Ok(hashes)
 }
 
+/// Per-block `(block_hash, tag, chunk_hashes, chunk_sizes)` tuples, sorted by
+/// block hash (advisory A1). Extends [`store_index_block_hashes_sorted`] so a
+/// regression that alters a block's compression tag or chunk sizes — without
+/// changing the block-hash set — cannot hide behind matching hashes. Block
+/// ordering is golongtail's Go-map nondeterminism, but each block's chunk order
+/// is deterministic, so sorting the tuples by block hash gives an
+/// ordering-independent semantic identity.
+///
+/// Parsed with the pure-Rust reader (proven byte-identical to C in Stage 2), so
+/// this compares the actual on-disk semantics of the regenerated vs committed
+/// `.lsi`.
+pub fn store_index_block_tuples_sorted(bytes: &[u8]) -> Result<Vec<StoreIndexBlockTuple>, String> {
+    let si = longtail_core::StoreIndex::from_bytes(bytes).map_err(|e| e.to_string())?;
+    let mut tuples = Vec::with_capacity(si.block_hashes.len());
+    for b in 0..si.block_hashes.len() {
+        let bi = si
+            .block_index_at(b)
+            .ok_or_else(|| format!("wild block {b} in store index"))?;
+        tuples.push((bi.block_hash, bi.tag, bi.chunk_hashes, bi.chunk_sizes));
+    }
+    tuples.sort_by_key(|t| t.0);
+    Ok(tuples)
+}
+
+/// A store-index block's semantic identity: `(block_hash, tag, chunk_hashes,
+/// chunk_sizes)`. See [`store_index_block_tuples_sorted`].
+pub type StoreIndexBlockTuple = (u64, u32, Vec<u64>, Vec<u32>);
+
 /// Read a `.lvi` file and parse it into a [`VersionIndex`] via the C reader.
 pub fn read_version_index(path: &Path) -> VersionIndex {
     let mut bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));

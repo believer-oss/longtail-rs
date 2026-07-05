@@ -100,9 +100,11 @@ fn streaming_boundary_tables_reproduced_by_pure_rust() {
         );
         checked += 1;
     }
-    assert!(
-        checked >= 12,
-        "expected many streaming tables, checked {checked}"
+    // Advisory (Stage 3 audit): assert the exact count so a silently-shrunk
+    // fixture set is a red test, not a passing one.
+    assert_eq!(
+        checked, 14,
+        "expected exactly 14 streaming boundary tables, checked {checked}"
     );
     eprintln!("pure Rust reproduced {checked} streaming boundary tables");
 }
@@ -129,9 +131,10 @@ fn buffer_boundary_tables_reproduced_by_pure_rust() {
         );
         checked += 1;
     }
-    assert!(
-        checked >= 12,
-        "expected many buffer tables, checked {checked}"
+    // Advisory (Stage 3 audit): assert the exact count (14) per seed mode.
+    assert_eq!(
+        checked, 14,
+        "expected exactly 14 buffer boundary tables, checked {checked}"
     );
     eprintln!("pure Rust reproduced {checked} buffer boundary tables");
 }

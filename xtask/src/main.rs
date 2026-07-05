@@ -24,7 +24,7 @@ use longtail_testkit::paths::find_workspace_root;
 #[cfg(feature = "differential")]
 use longtail_testkit::corpus;
 #[cfg(feature = "differential")]
-use longtail_testkit::differential::store_index_block_hashes_sorted;
+use longtail_testkit::differential::store_index_block_tuples_sorted;
 #[cfg(feature = "differential")]
 use longtail_testkit::fixture_manifest::{FileEntry, Generator, sha256_hex};
 #[cfg(feature = "differential")]
@@ -794,14 +794,20 @@ fn diff_fixtures() -> Result<()> {
             continue;
         }
         if rel.ends_with(".lsi") {
-            let ch = store_index_block_hashes_sorted(&cbytes)
+            // A1: compare (block_hash, tag, chunk_hashes, chunk_sizes) tuples,
+            // not just the block-hash set — a tag/size-altering regression can't
+            // hide behind matching hashes. Block ordering (golongtail's Go-map
+            // nondeterminism) is normalized by sorting the tuples by block hash.
+            let ch = store_index_block_tuples_sorted(&cbytes)
                 .map_err(|e| anyhow::anyhow!("parse committed {rel}: {e}"))?;
-            let fh = store_index_block_hashes_sorted(&fbytes)
+            let fh = store_index_block_tuples_sorted(&fbytes)
                 .map_err(|e| anyhow::anyhow!("parse fresh {rel}: {e}"))?;
             if ch == fh {
                 reordered += 1;
             } else {
-                problems.push(format!("store-index drift for {rel}: block set changed"));
+                problems.push(format!(
+                    "store-index drift for {rel}: block (hash, tag, chunk_sizes) set changed"
+                ));
             }
         } else {
             problems.push(format!("byte drift for {rel}"));
