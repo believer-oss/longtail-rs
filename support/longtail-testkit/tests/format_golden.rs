@@ -83,10 +83,9 @@ fn all_store_indexes_roundtrip_byte_identical() {
 #[test]
 fn all_stored_blocks_roundtrip_byte_identical() {
     let files = collect(&fixtures_dir(), "lsb");
-    assert!(
-        !files.is_empty(),
-        "expected committed .lsb fixtures, found none"
-    );
+    // Assert the exact count (like `.lvi`/`.lsi` above) so a silently shrunk
+    // fixture set trips this test (Stage 2 audit advisory).
+    assert_eq!(files.len(), 32, "expected 32 committed .lsb fixtures");
     let mut failures = Vec::new();
     for f in &files {
         let orig = std::fs::read(f).unwrap();

@@ -8,6 +8,17 @@
 //! [`FormatError`] type. The layer is `bytes in → structs out → bytes out`:
 //! there is no file or storage I/O in the public API.
 //!
+//! Stage 3 adds the **algorithm layer**:
+//! - [`hash`] — the [`Hash`] trait + [`Blake3`]/[`Blake2s`] + meow
+//!   parse-without-verify + the ID registry ([`hash::hasher`]).
+//! - [`compress`] — the [`Compressor`] trait + zstd/lz4/brotli codecs + the
+//!   family-dispatch registry ([`compressor_for`]) + the compressed-block
+//!   payload framing codec ([`compress::decode_block_payload`] /
+//!   [`compress::encode_block_payload`]).
+//! - [`chunker`] — the [`Chunker`] trait + the [`HpcdcChunker`] exact port
+//!   (streaming-canonical, with a labeled [`SeedMode::Buffer`] variant) + the
+//!   composed `(offset, size, hash)` API; FastCDC behind the `fastcdc` feature.
+//!
 //! ## Design notes
 //!
 //! - **PERF (owned structs).** Every format parses into owned Rust structs
@@ -32,18 +43,27 @@
 mod cursor;
 
 pub mod block;
+pub mod chunker;
+pub mod compress;
 pub mod error;
 pub mod file_infos;
+pub mod hash;
 pub mod perms;
 pub mod store_index;
 pub mod version_index;
 
 pub use block::{BlockIndex, StoredBlock};
+pub use chunker::{ChunkHash, ChunkSpan, Chunker, ChunkerError, HpcdcChunker, SeedMode};
+pub use compress::{CompressError, Compressor, compressor_for};
 pub use error::FormatError;
 pub use file_infos::{FileEntry, FileInfos};
+pub use hash::{Blake2s, Blake3, Hash, HashError};
 pub use perms::Permissions;
 pub use store_index::StoreIndex;
 pub use version_index::VersionIndex;
+
+#[cfg(feature = "fastcdc")]
+pub use chunker::FastCdcChunker;
 
 /// Current `.lvi` on-disk version (`LONGTAIL_VERSION(0,0,2)`).
 pub const VERSION_INDEX_VERSION: u32 = version_index::VERSION;

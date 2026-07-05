@@ -46,6 +46,7 @@
 // };
 
 use std::ops::{Deref, DerefMut};
+use std::os::raw::c_char;
 
 use crate::*;
 
@@ -181,5 +182,85 @@ impl CompressionRegistry {
             return Err(result);
         }
         Ok(compression_api)
+    }
+
+    /// Resolve the raw compression API + its settings id for a raw compression
+    /// ID (`m_Tag`), mirroring `CompressBlock`/`DecompressBlock`'s
+    /// `GetCompressionAPI` call. Used by the Stage 3 codec differential.
+    fn api_for_id(&self, id: u32) -> Result<(*mut Longtail_CompressionAPI, u32), i32> {
+        let mut api = std::ptr::null_mut::<Longtail_CompressionAPI>();
+        let mut settings_id: u32 = 0;
+        let r = unsafe {
+            Longtail_GetCompressionRegistry_GetCompressionAPI(
+                self.compression_registry,
+                id,
+                &mut api,
+                &mut settings_id,
+            )
+        };
+        if r != 0 {
+            return Err(r);
+        }
+        Ok((api, settings_id))
+    }
+
+    /// Compress `data` through the C codec registered for `id` (raw codec bytes,
+    /// no framing header). Mirrors `CompressBlock`'s
+    /// `GetMaxCompressedSize` + `Compress` calls
+    /// (`compressblockstore.c:105-133`). For the Stage 3 encode/decode
+    /// cross-compat differential only.
+    pub fn compress_buffer(&self, id: u32, data: &[u8]) -> Result<Vec<u8>, i32> {
+        let (api, settings_id) = self.api_for_id(id)?;
+        let get_max = unsafe { (*api).GetMaxCompressedSize }.ok_or(-1)?;
+        let compress = unsafe { (*api).Compress }.ok_or(-1)?;
+        let max = unsafe { get_max(api, settings_id, data.len()) };
+        let mut out = vec![0u8; max];
+        let mut out_size: usize = 0;
+        let r = unsafe {
+            compress(
+                api,
+                settings_id,
+                data.as_ptr() as *const c_char,
+                out.as_mut_ptr() as *mut c_char,
+                data.len(),
+                max,
+                &mut out_size,
+            )
+        };
+        if r != 0 {
+            return Err(r);
+        }
+        out.truncate(out_size);
+        Ok(out)
+    }
+
+    /// Decompress `compressed` (raw codec bytes) through the C codec registered
+    /// for `id` into a buffer of exactly `uncompressed_size` bytes. Mirrors
+    /// `DecompressBlock`'s `Decompress` call (`compressblockstore.c:321-327`).
+    pub fn decompress_buffer(
+        &self,
+        id: u32,
+        compressed: &[u8],
+        uncompressed_size: usize,
+    ) -> Result<Vec<u8>, i32> {
+        let (api, _settings_id) = self.api_for_id(id)?;
+        let decompress = unsafe { (*api).Decompress }.ok_or(-1)?;
+        let mut out = vec![0u8; uncompressed_size];
+        let mut out_size: usize = 0;
+        let r = unsafe {
+            decompress(
+                api,
+                compressed.as_ptr() as *const c_char,
+                out.as_mut_ptr() as *mut c_char,
+                compressed.len(),
+                uncompressed_size,
+                &mut out_size,
+            )
+        };
+        if r != 0 {
+            return Err(r);
+        }
+        out.truncate(out_size);
+        Ok(out)
     }
 }
