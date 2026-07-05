@@ -54,6 +54,7 @@ jobs:
   differential-linux:
     name: differential lane - linux
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -63,12 +64,18 @@ jobs:
           pushd test-data
           ./mkdata.sh
 
+      # Fetch the pinned golongtail binary so the Stage-5 three-way e2e
+      # differential runs its spawned third way (Rust vs ffi vs golongtail). The
+      # test skips this third way cleanly if the fetch is unavailable.
+      - run: cargo run -p xtask -- fetch-golongtail
+
       - run: cargo test --workspace
       - run: cargo test -p longtail-testkit --features differential
 
   differential-windows:
     name: differential lane - windows
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 

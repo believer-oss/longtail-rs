@@ -1,0 +1,216 @@
+//! Public options + report types for the download-path facade API.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
+
+use crate::progress::ProgressSink;
+
+#[cfg(feature = "s3")]
+use longtail_store::S3Options;
+
+/// Options for [`crate::downsync`] / [`crate::downsync_blocking`].
+///
+/// Construct with [`DownsyncOptions::new`] (source paths + storage URI + target)
+/// then set the optional fields. All flag defaults match golongtail v0.4.5:
+/// `retain_permissions`/`scan_target`/`cache_target_index` default **true**.
+pub struct DownsyncOptions {
+    /// Source version-index URIs (`.lvi`). Multiple are merged
+    /// (`MergeVersionIndex`); at least one is required.
+    pub source_paths: Vec<String>,
+    /// The target folder. `None` derives it from the first source path's
+    /// basename truncated at the first dot (cmd_downsync.go:101).
+    pub target_path: Option<String>,
+    /// The block store URI (`s3://…`, a path, `file://…`).
+    pub storage_uri: String,
+    /// Optional local cache directory (`.lrb` blocks).
+    pub cache_path: Option<PathBuf>,
+    /// Version-local store index URIs (`.lsi`) — the ReadOnly store-index
+    /// override (speeds reads, must yield the same tree).
+    pub version_local_store_index_paths: Vec<String>,
+    /// Include filter (multi-regex separated by `**`).
+    pub include_filter_regex: Option<String>,
+    /// Exclude filter (multi-regex separated by `**`).
+    pub exclude_filter_regex: Option<String>,
+    /// Apply the source version's POSIX permissions to written files (default
+    /// true).
+    pub retain_permissions: bool,
+    /// Re-scan the target after writing and compare to the source index.
+    pub validate: bool,
+    /// Scan the target folder to build its current index (default true). Skipped
+    /// when a target index path (or an existing cache) supplies it.
+    pub scan_target: bool,
+    /// Cache the source version index as `<target>/.longtail.index.cache.lvi`
+    /// and reuse it next time (default true).
+    pub cache_target_index: bool,
+    /// An explicit target index path (local `.lvi`); disables caching.
+    pub target_index_path: Option<String>,
+    /// CPU (rayon) worker count for chunk/hash; `0` = logical CPUs.
+    pub worker_count: usize,
+    /// Remote block-I/O worker count; `0` = the scheme default.
+    pub remote_worker_count: usize,
+    /// Accepted **no-op** (boundaries are identical by design; planning §6).
+    pub enable_file_mapping: bool,
+    /// Requesting the legacy write path yields a typed
+    /// [`crate::LongtailError::LegacyWriteUnsupported`].
+    pub use_legacy_write: bool,
+    /// Optional progress sink.
+    pub progress: Option<Arc<dyn ProgressSink>>,
+    /// Optional cancellation token.
+    pub cancel: Option<CancellationToken>,
+    /// Optional caller-supplied rayon pool (else one is built per operation).
+    pub pool: Option<Arc<rayon::ThreadPool>>,
+    /// S3 credential/endpoint injection (feature `s3`).
+    #[cfg(feature = "s3")]
+    pub s3_options: S3Options,
+}
+
+impl DownsyncOptions {
+    /// Minimal options: source path(s), storage URI, and a target folder.
+    pub fn new(
+        source_paths: Vec<String>,
+        storage_uri: impl Into<String>,
+        target_path: impl Into<String>,
+    ) -> DownsyncOptions {
+        DownsyncOptions {
+            source_paths,
+            target_path: Some(target_path.into()),
+            storage_uri: storage_uri.into(),
+            cache_path: None,
+            version_local_store_index_paths: Vec::new(),
+            include_filter_regex: None,
+            exclude_filter_regex: None,
+            retain_permissions: true,
+            validate: false,
+            scan_target: true,
+            cache_target_index: true,
+            target_index_path: None,
+            worker_count: 0,
+            remote_worker_count: 0,
+            enable_file_mapping: false,
+            use_legacy_write: false,
+            progress: None,
+            cancel: None,
+            pool: None,
+            #[cfg(feature = "s3")]
+            s3_options: S3Options::default(),
+        }
+    }
+}
+
+/// One phase's wall-clock timing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhaseTiming {
+    pub phase: String,
+    pub millis: u64,
+}
+
+/// Store I/O counters, mirroring `longtail_store::StatsSnapshot` but
+/// serializable for the launcher/CLI.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownsyncStoreStats {
+    pub get_count: u64,
+    pub get_byte_count: u64,
+    pub get_chunk_count: u64,
+    pub get_retry_count: u64,
+    pub get_fail_count: u64,
+    pub put_count: u64,
+    pub put_byte_count: u64,
+    pub put_chunk_count: u64,
+    pub put_retry_count: u64,
+    pub put_fail_count: u64,
+}
+
+impl From<longtail_store::StatsSnapshot> for DownsyncStoreStats {
+    fn from(s: longtail_store::StatsSnapshot) -> DownsyncStoreStats {
+        DownsyncStoreStats {
+            get_count: s.get_count,
+            get_byte_count: s.get_byte_count,
+            get_chunk_count: s.get_chunk_count,
+            get_retry_count: s.get_retry_count,
+            get_fail_count: s.get_fail_count,
+            put_count: s.put_count,
+            put_byte_count: s.put_byte_count,
+            put_chunk_count: s.put_chunk_count,
+            put_retry_count: s.put_retry_count,
+            put_fail_count: s.put_fail_count,
+        }
+    }
+}
+
+/// The result of a successful [`crate::downsync`]: phase timings, store I/O
+/// counters, and the change summary. Serializable so the CLI can print it and
+/// the launcher can log it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DownsyncReport {
+    /// Resolved target folder path.
+    pub target_path: String,
+    /// Per-phase wall-clock timings.
+    pub phases: Vec<PhaseTiming>,
+    /// Block-store I/O counters.
+    pub store_stats: DownsyncStoreStats,
+    /// Total bytes written to the target.
+    pub bytes_written: u64,
+    /// Assets created or content-rewritten.
+    pub assets_written: u32,
+    /// Assets removed.
+    pub assets_removed: u32,
+    /// Blocks fetched from the store (== store_stats.get_count).
+    pub blocks_fetched: u64,
+}
+
+/// Options for [`crate::get`] / [`crate::get_blocking`].
+pub struct GetOptions {
+    /// Get-config JSON URIs. Multiple configs are merged (their `source-path`s
+    /// are read + merged; all `storage-uri`s must agree).
+    pub get_config_paths: Vec<String>,
+    /// Target folder (derived if `None`, as for downsync).
+    pub target_path: Option<String>,
+    /// Optional local cache directory.
+    pub cache_path: Option<PathBuf>,
+    pub retain_permissions: bool,
+    pub validate: bool,
+    pub scan_target: bool,
+    pub cache_target_index: bool,
+    pub target_index_path: Option<String>,
+    pub include_filter_regex: Option<String>,
+    pub exclude_filter_regex: Option<String>,
+    pub worker_count: usize,
+    pub remote_worker_count: usize,
+    pub enable_file_mapping: bool,
+    pub use_legacy_write: bool,
+    pub progress: Option<Arc<dyn ProgressSink>>,
+    pub cancel: Option<CancellationToken>,
+    pub pool: Option<Arc<rayon::ThreadPool>>,
+    #[cfg(feature = "s3")]
+    pub s3_options: S3Options,
+}
+
+impl GetOptions {
+    /// Minimal options: get-config URI(s) + target folder.
+    pub fn new(get_config_paths: Vec<String>, target_path: impl Into<String>) -> GetOptions {
+        GetOptions {
+            get_config_paths,
+            target_path: Some(target_path.into()),
+            cache_path: None,
+            retain_permissions: true,
+            validate: false,
+            scan_target: true,
+            cache_target_index: true,
+            target_index_path: None,
+            include_filter_regex: None,
+            exclude_filter_regex: None,
+            worker_count: 0,
+            remote_worker_count: 0,
+            enable_file_mapping: false,
+            use_legacy_write: false,
+            progress: None,
+            cancel: None,
+            pool: None,
+            #[cfg(feature = "s3")]
+            s3_options: S3Options::default(),
+        }
+    }
+}

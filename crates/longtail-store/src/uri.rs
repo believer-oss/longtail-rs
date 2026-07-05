@@ -19,6 +19,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use longtail_core::StoreIndex;
+
 use crate::blob::{BlobStore, FsBlobStore};
 use crate::block_store::BlockStore;
 use crate::cache::CacheBlockStore;
@@ -40,6 +42,13 @@ pub struct BlockStoreOpts {
     pub cache_dir: Option<PathBuf>,
     /// The rayon pool the [`CompressBlockStore`] uses for codec work.
     pub pool: Arc<rayon::ThreadPool>,
+    /// A pre-loaded, pre-merged **version-local store index override** for
+    /// `ReadOnly` reads (golongtail's `optionalStoreIndexPaths`,
+    /// remotestore.go:1897): when `Some` and `access_type == ReadOnly`, the
+    /// remote store uses this index instead of scanning the store's `.lsi`
+    /// shards. The facade reads the `.lvi`/`.lsi` URIs and merges them (falling
+    /// back to `None` on any read/merge failure, matching Go's break-and-scan).
+    pub version_local_store_index: Option<StoreIndex>,
     /// S3 credential/endpoint options (feature `s3`).
     #[cfg(feature = "s3")]
     pub s3_options: S3Options,
@@ -53,6 +62,7 @@ impl BlockStoreOpts {
             worker_count: 0,
             cache_dir: None,
             pool,
+            version_local_store_index: None,
             #[cfg(feature = "s3")]
             s3_options: S3Options::default(),
         }
@@ -81,8 +91,23 @@ pub async fn create_block_store_for_uri(
 ) -> Result<Arc<dyn BlockStore>, StoreError> {
     let (blob_store, worker_count): (Arc<dyn BlobStore>, usize) = resolve_backend(uri, &opts)?;
 
-    let remote: Arc<dyn BlockStore> =
-        Arc::new(RemoteBlockStore::new(blob_store, opts.access_type, worker_count).await?);
+    // The version-local store index override only applies to ReadOnly reads
+    // (remotestore.go:1897); for other access types it is ignored.
+    let override_index = if opts.access_type == AccessType::ReadOnly {
+        opts.version_local_store_index.clone()
+    } else {
+        None
+    };
+
+    let remote: Arc<dyn BlockStore> = Arc::new(
+        RemoteBlockStore::with_store_index_override(
+            blob_store,
+            opts.access_type,
+            worker_count,
+            override_index,
+        )
+        .await?,
+    );
 
     let base: Arc<dyn BlockStore> = match &opts.cache_dir {
         Some(dir) => Arc::new(CacheBlockStore::new(dir, remote).await?),
@@ -96,16 +121,21 @@ fn resolve_backend(
     uri: &str,
     opts: &BlockStoreOpts,
 ) -> Result<(Arc<dyn BlobStore>, usize), StoreError> {
+    // Set fs `enable_locking` by access type: a read-only downsync needs no write
+    // CAS, and an enabled read-lock scatters never-unlinked `._lck` files into
+    // customer stores (Stage 4 Deviation #2). Only writing access types lock.
+    let fs_locking = opts.access_type != AccessType::ReadOnly;
+
     // fsblob:// and UNC/network paths → fs blob store (local worker count).
     if let Some(rest) = uri.strip_prefix("fsblob://") {
         return Ok((
-            Arc::new(FsBlobStore::new(rest, true)),
+            Arc::new(FsBlobStore::new(rest, fs_locking)),
             local_worker_count(opts.worker_count),
         ));
     }
     if uri.starts_with("\\\\?\\") || uri.starts_with('\\') {
         return Ok((
-            Arc::new(FsBlobStore::new(uri, true)),
+            Arc::new(FsBlobStore::new(uri, fs_locking)),
             local_worker_count(opts.worker_count),
         ));
     }
@@ -124,7 +154,7 @@ fn resolve_backend(
             }
             "file" => {
                 return Ok((
-                    Arc::new(FsBlobStore::new(rest, true)),
+                    Arc::new(FsBlobStore::new(rest, fs_locking)),
                     local_worker_count(opts.worker_count),
                 ));
             }
@@ -145,7 +175,7 @@ fn resolve_backend(
                 if scheme.len() == 1 {
                     // Windows drive letter `c:\...` — a path.
                     return Ok((
-                        Arc::new(FsBlobStore::new(uri, true)),
+                        Arc::new(FsBlobStore::new(uri, fs_locking)),
                         local_worker_count(opts.worker_count),
                     ));
                 }
@@ -159,7 +189,7 @@ fn resolve_backend(
 
     // No scheme → filesystem path (fs blob store, local worker count).
     Ok((
-        Arc::new(FsBlobStore::new(uri, true)),
+        Arc::new(FsBlobStore::new(uri, fs_locking)),
         local_worker_count(opts.worker_count),
     ))
 }

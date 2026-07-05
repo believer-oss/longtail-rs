@@ -43,23 +43,32 @@
 mod cursor;
 
 pub mod block;
+pub mod build;
 pub mod chunker;
 pub mod compress;
+pub mod diff;
 pub mod error;
 pub mod file_infos;
 pub mod hash;
 pub mod perms;
 pub mod store_index;
+pub mod validate;
 pub mod version_index;
 
 pub use block::{BlockIndex, StoredBlock};
+pub use build::{
+    MergeVersionError, assemble_version_index, chunk_asset, create_version_index,
+    merge_version_index,
+};
 pub use chunker::{ChunkHash, ChunkSpan, Chunker, ChunkerError, HpcdcChunker, SeedMode};
 pub use compress::{CompressError, Compressor, compressor_for};
+pub use diff::{VersionDiff, create_version_diff, get_required_chunk_hashes};
 pub use error::FormatError;
 pub use file_infos::{FileEntry, FileInfos};
 pub use hash::{Blake2s, Blake3, Hash, HashError};
 pub use perms::Permissions;
 pub use store_index::StoreIndex;
+pub use validate::{ValidateError, validate_store};
 pub use version_index::VersionIndex;
 
 #[cfg(feature = "fastcdc")]
