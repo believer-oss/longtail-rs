@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {
+      "path": "max-edge",
+      "size": 65536,
+      "mode_octal": "0644",
+      "blake3_hex": "d0bb60d6046abff8d53d02d3c5e8ab57410e2c6d611d9061df97075cfa4db2a8"
+    },
+    {
+      "path": "min-chunk",
+      "size": 4096,
+      "mode_octal": "0644",
+      "blake3_hex": "ad8dfdc595d09799fdd415e0e1102437ac46cb192527d67d04f2147fc249f1d8"
+    },
+    {
+      "path": "one-byte",
+      "size": 1,
+      "mode_octal": "0644",
+      "blake3_hex": "9f9524ca18c0cc03aef1a0b84faed9375e5d19575e9328e65fea72991f0f58cf"
+    },
+    {
+      "path": "win-49",
+      "size": 49,
+      "mode_octal": "0644",
+      "blake3_hex": "5d8a8097d6560232e901c84cad8203f43dbd8ef4044bad53a0687b3498a0e90c"
+    }
+  ]
+}

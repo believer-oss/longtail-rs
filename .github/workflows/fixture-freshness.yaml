@@ -1,0 +1,24 @@
+name: "Fixture Freshness"
+# Regenerates the whole fixture set from the pinned golongtail binary + C chunker
+# and compares it against the committed fixtures/, failing loudly on drift. This
+# catches golongtail behavior changes and accidental fixture rot. Store indexes
+# are compared semantically (equal sorted block-hash set) because golongtail
+# emits their block order non-deterministically; everything else is byte-exact.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  freshness:
+    name: regenerate + diff (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      # Download + verify the pinned golongtail v0.4.5 binary, then regenerate
+      # into a scratch dir and diff against committed fixtures/.
+      - run: cargo run -p xtask --features differential -- fetch-golongtail
+      - run: cargo run -p xtask --features differential -- diff-fixtures

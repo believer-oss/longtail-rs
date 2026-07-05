@@ -1,0 +1,39 @@
+{
+  "input_id": "max-edge",
+  "input_sha256": "5bf7f38c73738c0a0f3f5c50ec63129120ffc28591b53b8bfcf04d0afe7af5c8",
+  "target_chunk_size": 32768,
+  "chunker_path": "buffer",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 4505,
+      "hash_hex": "ba93607f7b4a874f"
+    },
+    {
+      "offset": 4505,
+      "size": 6154,
+      "hash_hex": "011b7023c8aa313c"
+    },
+    {
+      "offset": 10659,
+      "size": 6894,
+      "hash_hex": "43660421598826fb"
+    },
+    {
+      "offset": 17553,
+      "size": 4444,
+      "hash_hex": "cfc3389331ae7835"
+    },
+    {
+      "offset": 21997,
+      "size": 35895,
+      "hash_hex": "f8334f82e2924b87"
+    },
+    {
+      "offset": 57892,
+      "size": 7644,
+      "hash_hex": "4d8d5ed34c048fe4"
+    }
+  ]
+}
