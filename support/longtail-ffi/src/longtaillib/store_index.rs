@@ -116,6 +116,21 @@ impl StoreIndex {
         })
     }
 
+    /// Serialize this `StoreIndex` back to a byte buffer via
+    /// `Longtail_WriteStoreIndexToBuffer`. Used by the Stage 1 self-validation
+    /// harness to prove the C serializer round-trips committed `.lsi` bytes
+    /// byte-identically before any pure-Rust port exists.
+    pub fn write_to_buffer(&self) -> Result<Vec<u8>, i32> {
+        let mut buf = NativeBuffer::new();
+        let result = unsafe {
+            Longtail_WriteStoreIndexToBuffer(self.store_index, &mut buf.buffer, &mut buf.size)
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(buf.as_slice().to_vec())
+    }
+
     /// Create a new `StoreIndex` from a set of BlockIndex structs
     pub fn new_from_blocks(block_indexes: Vec<BlockIndex>) -> Result<StoreIndex, i32> {
         let mut store_index = std::ptr::null_mut::<Longtail_StoreIndex>();
@@ -177,6 +192,13 @@ impl StoreIndex {
         let indexes =
             unsafe { std::slice::from_raw_parts((*self.store_index).m_BlockHashes, count) };
         indexes.to_vec()
+    }
+
+    /// Get the per-block compression tags (§4 compression IDs) in this index.
+    pub fn get_block_tags(&self) -> Vec<u32> {
+        let count = unsafe { *(*self.store_index).m_BlockCount } as usize;
+        let tags = unsafe { std::slice::from_raw_parts((*self.store_index).m_BlockTags, count) };
+        tags.to_vec()
     }
 
     pub fn get_existing_store_index_sync(

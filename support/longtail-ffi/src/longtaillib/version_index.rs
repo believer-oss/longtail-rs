@@ -48,7 +48,8 @@
 use crate::{
     hash::HashType, BikeshedJobAPI, ChunkerAPI, FileInfos, HashAPI, Longtail_CreateVersionIndex,
     Longtail_Free, Longtail_ProgressAPI, Longtail_ReadVersionIndexFromBuffer,
-    Longtail_VersionIndex, ProgressAPIProxy, StorageAPI,
+    Longtail_VersionIndex, Longtail_WriteVersionIndexToBuffer, NativeBuffer, ProgressAPIProxy,
+    StorageAPI,
 };
 use std::{
     ops::{Deref, DerefMut},
@@ -267,6 +268,21 @@ impl VersionIndex {
             version_index,
             _pin: std::marker::PhantomPinned,
         }
+    }
+
+    /// Serialize this `VersionIndex` back to a byte buffer via
+    /// `Longtail_WriteVersionIndexToBuffer`. Used by the Stage 1 self-validation
+    /// harness to prove the C serializer round-trips committed `.lvi` bytes
+    /// byte-identically before any pure-Rust port exists.
+    pub fn write_to_buffer(&self) -> Result<Vec<u8>, i32> {
+        let mut buf = NativeBuffer::new();
+        let result = unsafe {
+            Longtail_WriteVersionIndexToBuffer(self.version_index, &mut buf.buffer, &mut buf.size)
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(buf.as_slice().to_vec())
     }
 
     /// Get the internal version identifier for this version index
