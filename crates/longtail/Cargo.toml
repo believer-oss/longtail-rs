@@ -1,0 +1,4 @@
+[package]
+name = "longtail"
+version.workspace = true
+edition.workspace = true

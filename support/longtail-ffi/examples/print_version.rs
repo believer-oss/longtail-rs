@@ -1,4 +1,4 @@
-use longtail::*;
+use longtail_ffi::*;
 use longtail_sys::LONGTAIL_LOG_LEVEL_INFO;
 
 mod common;
@@ -17,7 +17,7 @@ fn display_file(filename: &str) {
     println!("Version: {}", version_index.get_version());
     println!(
         "Hash identifier: {:?}",
-        &HashType::from_repr(version_index.get_hash_identifier().try_into().unwrap())
+        HashType::from_repr(version_index.get_hash_identifier().try_into().unwrap())
             .expect("Failed to get hash type")
     );
     println!(

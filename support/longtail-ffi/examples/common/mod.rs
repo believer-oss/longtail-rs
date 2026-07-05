@@ -1,4 +1,4 @@
-use longtail::VersionIndex;
+use longtail_ffi::VersionIndex;
 use std::io::Read;
 
 #[allow(dead_code)]

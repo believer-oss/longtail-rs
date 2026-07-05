@@ -4,7 +4,7 @@ use std::path::Path;
 
 use common::version_index_from_file;
 use itertools::izip;
-use longtail::*;
+use longtail_ffi::*;
 use longtail_sys::{LONGTAIL_LOG_LEVEL_DEBUG, permissions_to_string};
 
 fn main() {
@@ -64,8 +64,8 @@ fn main() {
     match block_store.start_find("") {
         Ok(mut iter) => loop {
             let properties = unsafe { block_store.get_entry_properties(&mut iter) };
-            if properties.is_ok() {
-                println!("{}", properties.unwrap());
+            if let Ok(properties) = properties {
+                println!("{properties}");
             }
             let result = unsafe { block_store.find_next(&mut iter) };
             if result.is_err() {
