@@ -92,3 +92,25 @@ jobs:
 
       - name: Clippy
         run: cargo +nightly clippy --workspace --all-targets
+
+  # Miri: catch undefined behaviour in the format layer's unaligned byte-cursor
+  # reads (packed `u64` arrays can land on 4-byte boundaries). Runs per-PR: the
+  # format codecs are the most trust-critical, unsafe-adjacent code in the port,
+  # `longtail-core` is small and needs no native lib, and the run is quick
+  # (proptest case counts are capped under `cfg!(miri)`), so gating merges on it
+  # is cheap insurance. No submodules / prebuilt lib required — pure Rust only.
+  miri:
+    name: miri (longtail-core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+        with:
+          toolchain: nightly
+          components: miri, rust-src
+
+      - name: Miri test longtail-core
+        run: cargo +nightly miri test -p longtail-core

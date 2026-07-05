@@ -201,6 +201,67 @@ impl StoreIndex {
         tags.to_vec()
     }
 
+    // The getters below were added in Stage 2 to give the pure-Rust format layer
+    // a complete parse-equivalence differential (every scalar/array compared
+    // against the C reader). See `rust-port-2.md` Task 6.4.
+
+    /// The store index format version (`m_Version`).
+    pub fn get_version(&self) -> u32 {
+        unsafe { *(*self.store_index).m_Version }
+    }
+
+    /// The hash-algorithm identifier for this index (`m_HashIdentifier`).
+    pub fn get_hash_identifier(&self) -> u32 {
+        unsafe { *(*self.store_index).m_HashIdentifier }
+    }
+
+    /// The number of blocks described (`m_BlockCount`).
+    pub fn get_block_count(&self) -> u32 {
+        unsafe { *(*self.store_index).m_BlockCount }
+    }
+
+    /// The total number of chunk entries across all blocks (`m_ChunkCount`).
+    pub fn get_chunk_count(&self) -> u32 {
+        unsafe { *(*self.store_index).m_ChunkCount }
+    }
+
+    /// The per-chunk hashes, grouped per block (`m_ChunkHashes`, length
+    /// `m_ChunkCount`). Read unaligned: the packed layout can place this `u64`
+    /// array on a 4-byte boundary.
+    pub fn get_chunk_hashes(&self) -> Vec<u64> {
+        let count = self.get_chunk_count() as usize;
+        let unaligned = unsafe { (*self.store_index).m_ChunkHashes };
+        let mut hashes = Vec::with_capacity(count);
+        for i in 0..count {
+            hashes.push(unsafe { std::ptr::read_unaligned(unaligned.add(i)) });
+        }
+        hashes
+    }
+
+    /// The per-block start offsets into the chunk arrays (`m_BlockChunksOffsets`,
+    /// length `m_BlockCount`).
+    pub fn get_block_chunks_offsets(&self) -> Vec<u32> {
+        let count = self.get_block_count() as usize;
+        let offsets =
+            unsafe { std::slice::from_raw_parts((*self.store_index).m_BlockChunksOffsets, count) };
+        offsets.to_vec()
+    }
+
+    /// The per-block chunk counts (`m_BlockChunkCounts`, length `m_BlockCount`).
+    pub fn get_block_chunk_counts(&self) -> Vec<u32> {
+        let count = self.get_block_count() as usize;
+        let counts =
+            unsafe { std::slice::from_raw_parts((*self.store_index).m_BlockChunkCounts, count) };
+        counts.to_vec()
+    }
+
+    /// The per-chunk uncompressed sizes (`m_ChunkSizes`, length `m_ChunkCount`).
+    pub fn get_chunk_sizes(&self) -> Vec<u32> {
+        let count = self.get_chunk_count() as usize;
+        let sizes = unsafe { std::slice::from_raw_parts((*self.store_index).m_ChunkSizes, count) };
+        sizes.to_vec()
+    }
+
     pub fn get_existing_store_index_sync(
         index_store: &BlockstoreAPI,
         chunk_hashes: Vec<u64>,
