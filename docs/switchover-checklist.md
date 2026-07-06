@@ -2,9 +2,9 @@
 
 > **Status: PREPARED. Staging execution is a manual gate (NOT run by the port
 > executor).** Work through this on a staging store first, sign off each step,
-> then flip production. Steps 0-4 are the Stage 5 download-path staging gate
+> then flip production. Steps 0-4 are the download-path staging gate
 > (still **pending**, folded in here so both halves run together); steps 5-9 are
-> the Stage 7 upload/maintenance path.
+> the upload/maintenance path.
 
 The pure-Rust CLI is a drop-in for the golongtail v0.4.5 commands the pipeline
 uses. Build once:
@@ -29,7 +29,7 @@ names verbatim; only the binary changes.
 |---|---|---|
 | `upsync --storage-uri … --source-path DIR --target-path X.lvi [--version-local-store-index-path X.lsi] [--compression-algorithm zstd] [--hash-algorithm blake3] [--target-chunk-size 32768] [--target-block-size 8388608] [--max-chunks-per-block 1024] [--min-block-usage-percent 80] [--source-index-path Y.lvi] [--include/--exclude-filter-regex]` | same | defaults identical; `--source-index-path` skips scan+chunk |
 | `put --target-path CFG.json --source-path DIR [--storage-uri …] [--target-version-index-path X.lvi] [--version-local-store-index-path X.lsi] [--no-version-local-store-index]` | same | path-defaulting identical: `<parent>/store`, `<parent>/version-data/version-index/<name>.lvi`, `<parent>/version-data/version-store-index/<name>.lsi`; get-config keys `storage-uri`/`source-path`/`version-local-store-index-path`/`s3-endpoint-resolver-uri` |
-| `downsync --storage-uri … --source-path X.lvi --target-path DIR [--cache-path C] [--version-local-store-index-path X.lsi] [--validate] [--[no-]retain-permissions] [--[no-]scan-target] [--[no-]cache-target-index]` | same | download path (Stage 5) |
+| `downsync --storage-uri … --source-path X.lvi --target-path DIR [--cache-path C] [--version-local-store-index-path X.lsi] [--validate] [--[no-]retain-permissions] [--[no-]scan-target] [--[no-]cache-target-index]` | same | download path |
 | `get --source-path CFG.json --target-path DIR [--cache-path C]` | same | reads the get-config `put` wrote |
 | `init-remote-store --storage-uri …` | same | Init rebuild from block scan |
 | `create-version-store-index --storage-uri … --source-path X.lvi --version-local-store-index-path X.lsi` | same | `--source-path` is a **version-index** URI |
@@ -41,7 +41,7 @@ names verbatim; only the binary changes.
 | `print-version-usage --storage-uri … --version-index-path X.lvi [--cache-path C]` | same | prints Block Usage / Asset Fragmentation |
 | `dump-version-assets --version-index-path X.lvi [--details]` | same | one line per asset |
 | `cp --storage-uri … --version-index-path X.lvi SRC_ASSET DST` | same | targeted asset extraction |
-| `pack` / `unpack` | **not ported** (Stage 7b, `archive` feature) | if the pipeline uses these, keep golongtail for those two commands until 7b lands |
+| `pack` / `unpack` | **not ported** (the `archive` feature, not yet implemented) | if the pipeline uses these, keep golongtail for those two commands until the archive feature lands |
 
 ### Divergences to be aware of before switchover
 
@@ -98,7 +98,7 @@ RUST=./target/release/longtail
 GO=./target/golongtail/longtail-linux-x64
 ```
 
-### Step 1 — download path: Rust `get` vs golongtail `get` (Stage 5 gate)
+### Step 1 — download path: Rust `get` vs golongtail `get`
 
 ```sh
 "$RUST" get --source-path s3://<staging-bucket>/<path>/get-config.json \
@@ -193,7 +193,7 @@ printf '%s\n' s3://<staging-bucket>/scratch/build.lvi > /tmp/keep.txt
 2. Swap the download path (`get`/`downsync`); observe.
 3. Swap the upload path (`upsync`/`put`); observe several real builds.
 4. Swap maintenance (`prune-*`, `clone-store`, `init-remote-store`) last.
-5. Keep `pack`/`unpack` on golongtail until Stage 7b lands (if used at all).
+5. Keep `pack`/`unpack` on golongtail until the archive feature lands (if used at all).
 
 ### Rollback
 
