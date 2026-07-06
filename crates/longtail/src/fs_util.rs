@@ -289,6 +289,9 @@ pub async fn read_from_uri(
     if let Some(rest) = uri.strip_prefix("file://") {
         return read_local(rest);
     }
+    if let Some(rest) = uri.strip_prefix("fsblob://") {
+        return read_local(rest);
+    }
     if uri.starts_with("s3://") {
         #[cfg(feature = "s3")]
         {
@@ -346,6 +349,106 @@ async fn read_s3(uri: &str, options: &longtail_store::S3Options) -> Result<Vec<u
     let client = store.new_client().await?;
     let obj = client.new_object(name).await?;
     obj.read().await.map_err(LongtailError::from)
+}
+
+/// Write `bytes` to a URI: a local path (or `file://`), or `s3://bucket/key`
+/// (feature `s3`). Mirrors golongtail's `WriteToURI` (longtailutils.go:342):
+/// split into a parent-directory URI + object basename, then write via the blob
+/// store. Used by upsync/put/clone-store to write `.lvi`/`.lsi`/get-config.
+pub async fn write_to_uri(
+    uri: &str,
+    bytes: &[u8],
+    #[allow(unused)] s3_options: &S3OptionsArg,
+) -> Result<(), LongtailError> {
+    if let Some(rest) = uri.strip_prefix("file://") {
+        return write_local(Path::new(rest), bytes);
+    }
+    if let Some(rest) = uri.strip_prefix("fsblob://") {
+        return write_local(Path::new(rest), bytes);
+    }
+    if uri.starts_with("s3://") {
+        #[cfg(feature = "s3")]
+        {
+            return write_s3(uri, bytes, s3_options).await;
+        }
+        #[cfg(not(feature = "s3"))]
+        {
+            return Err(LongtailError::UnsupportedUri {
+                uri: uri.to_string(),
+                reason: "s3:// support was compiled out".into(),
+            });
+        }
+    }
+    if let Some((scheme, _)) = split_scheme(uri)
+        && scheme.len() > 1
+    {
+        return Err(LongtailError::UnsupportedUri {
+            uri: uri.to_string(),
+            reason: format!("unsupported uri scheme `{scheme}`"),
+        });
+    }
+    write_local(Path::new(uri), bytes)
+}
+
+#[cfg(feature = "s3")]
+async fn write_s3(
+    uri: &str,
+    bytes: &[u8],
+    options: &longtail_store::S3Options,
+) -> Result<(), LongtailError> {
+    use longtail_store::{BlobStore, S3BlobStore};
+    let after = &uri["s3://".len()..];
+    let (parent, name) = match after.rfind('/') {
+        Some(pos) => (&uri[..("s3://".len() + pos)], &after[pos + 1..]),
+        None => {
+            return Err(LongtailError::UnsupportedUri {
+                uri: uri.to_string(),
+                reason: "s3 uri missing object key".into(),
+            });
+        }
+    };
+    let store = S3BlobStore::from_uri_with_options(parent, options.clone())?;
+    let client = store.new_client().await?;
+    let mut obj = client.new_object(name).await?;
+    obj.write(bytes).await?;
+    Ok(())
+}
+
+/// Delete an object at a URI (local path / `file://` / `s3://`). Best-effort:
+/// a missing object is not an error. Used by clone-store's zip fallback cleanup
+/// and prune paths that operate through URIs.
+#[allow(dead_code)]
+pub async fn delete_uri(
+    uri: &str,
+    #[allow(unused)] s3_options: &S3OptionsArg,
+) -> Result<(), LongtailError> {
+    if let Some(rest) = uri.strip_prefix("file://") {
+        return delete_local(Path::new(rest));
+    }
+    if !uri.starts_with("s3://") {
+        return delete_local(Path::new(uri));
+    }
+    #[cfg(feature = "s3")]
+    {
+        use longtail_store::{BlobStore, S3BlobStore};
+        let after = &uri["s3://".len()..];
+        if let Some(pos) = after.rfind('/') {
+            let parent = &uri[..("s3://".len() + pos)];
+            let name = &after[pos + 1..];
+            let store = S3BlobStore::from_uri_with_options(parent, s3_options.clone())?;
+            let client = store.new_client().await?;
+            let mut obj = client.new_object(name).await?;
+            let _ = obj.delete().await;
+        }
+        Ok(())
+    }
+    #[cfg(not(feature = "s3"))]
+    {
+        Err(LongtailError::UnsupportedUri {
+            uri: uri.to_string(),
+            reason: "s3:// support was compiled out".into(),
+        })
+    }
 }
 
 /// Write a version index to a local `.lvi` file (cache write-back).

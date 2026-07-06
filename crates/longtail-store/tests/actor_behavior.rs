@@ -213,17 +213,70 @@ async fn read_only_rejects_put() {
     store.close().await.unwrap();
 }
 
-/// `prune_blocks` is a typed NotSupported stub until Stage 7.
+/// `prune_blocks` (Stage 7): keeps the requested blocks, deletes the rest, and
+/// rewrites the store index. A ReadOnly store rejects it with AccessViolation.
 #[tokio::test]
-async fn prune_is_not_supported() {
+async fn prune_blocks_keeps_and_deletes() {
+    let backing = Arc::new(MemBlobStore::new("", true));
+    let store = RemoteBlockStore::new(backing.clone(), AccessType::ReadWrite, 2)
+        .await
+        .unwrap();
+
+    // Three blocks with disjoint chunk-hash ranges (seeds 1, 10, 20).
+    let (b1, b10, b20) = (make_block(1), make_block(10), make_block(20));
+    store.put_stored_block(b1.clone()).await.unwrap();
+    store.put_stored_block(b10.clone()).await.unwrap();
+    store.put_stored_block(b20.clone()).await.unwrap();
+    store.flush().await.unwrap();
+
+    // Keep b1 + b10; b20 must be deleted.
+    let keep = vec![b1.block_index.block_hash, b10.block_index.block_hash];
+    let pruned = store.prune_blocks(&keep).await.unwrap();
+    assert_eq!(pruned, 1, "exactly the one unkept block is deleted");
+
+    // b20's block file is gone.
+    let key = block_path("chunks", b20.block_index.block_hash);
+    let client = backing.new_client().await.unwrap();
+    assert!(
+        !client
+            .new_object(&key)
+            .await
+            .unwrap()
+            .exists()
+            .await
+            .unwrap(),
+        "pruned block file removed"
+    );
+
+    // A fresh reader sees only the kept blocks in the store index.
+    let reader = RemoteBlockStore::new(backing.clone(), AccessType::ReadOnly, 2)
+        .await
+        .unwrap();
+    let kept = reader
+        .get_existing_content(&b1.block_index.chunk_hashes, 0)
+        .await
+        .unwrap();
+    assert_eq!(kept.block_count(), 1, "b1 still covered");
+    let dropped = reader
+        .get_existing_content(&b20.block_index.chunk_hashes, 0)
+        .await
+        .unwrap();
+    assert_eq!(dropped.block_count(), 0, "b20 no longer covered");
+    reader.close().await.unwrap();
+    store.close().await.unwrap();
+}
+
+/// A read-only store rejects prune with AccessViolation.
+#[tokio::test]
+async fn prune_blocks_read_only_rejected() {
     let store = RemoteBlockStore::new(
         Arc::new(MemBlobStore::new("", true)),
-        AccessType::ReadWrite,
+        AccessType::ReadOnly,
         2,
     )
     .await
     .unwrap();
     let err = store.prune_blocks(&[]).await.unwrap_err();
-    assert!(matches!(err, longtail_store::StoreError::NotSupported(_)));
+    assert!(matches!(err, longtail_store::StoreError::AccessViolation));
     store.close().await.unwrap();
 }

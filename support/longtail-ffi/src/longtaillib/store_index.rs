@@ -186,6 +186,26 @@ impl StoreIndex {
         self.merge_store_index(&added_store_index)
     }
 
+    /// Prune this store index to only the blocks in `keep_block_hashes`
+    /// (`Longtail_PruneStoreIndex`). Added in Stage 7 solely for the
+    /// `PruneStoreIndex` differential (`packing_differential.rs`); the
+    /// pure-Rust `StoreIndex::prune` is validated byte-for-byte against this.
+    pub fn prune(&self, keep_block_hashes: &[u64]) -> Result<StoreIndex, i32> {
+        let mut out = std::ptr::null_mut::<Longtail_StoreIndex>();
+        let result = unsafe {
+            longtail_sys::Longtail_PruneStoreIndex(
+                self.store_index,
+                keep_block_hashes.len() as u32,
+                keep_block_hashes.as_ptr(),
+                &mut out,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(StoreIndex::new_from_lt(out))
+    }
+
     /// Get the hashes contained in the store index
     pub fn get_block_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.store_index).m_BlockCount } as usize;

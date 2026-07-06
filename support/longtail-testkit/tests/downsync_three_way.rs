@@ -106,6 +106,17 @@ fn rust_downsync_multi(
         .map_err(|e| format!("{e:?}"))
 }
 
+/// The C `get_existing_store_index_sync` has a **missed-wake race** that can
+/// intermittently hang the ffi leg (Stage 5 audit nit d). CI timeout-minutes
+/// catch a hang eventually, but an in-test watchdog is better: each ffi downsync
+/// runs on a worker thread bounded by a per-attempt timeout, and because a
+/// missed wake is recovered by a *fresh* call (new C job/cond-var state), a
+/// timed-out attempt is retried before the leg is declared failed. The hung
+/// worker thread is abandoned (it waits forever on its own cond var — harmless
+/// in a short-lived test process; the retry uses independent C objects).
+const FFI_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const FFI_MAX_ATTEMPTS: u32 = 3;
+
 fn ffi_downsync(
     storage_uri: &Path,
     source_lvi: &Path,
@@ -113,12 +124,38 @@ fn ffi_downsync(
     lsi: Option<Vec<String>>,
     cache: Option<&Path>,
 ) -> Result<(), String> {
-    longtail_testkit::differential::downsync_version(
-        &storage_uri.to_string_lossy(),
-        source_lvi,
-        target,
-        lsi,
-        cache,
+    for attempt in 1..=FFI_MAX_ATTEMPTS {
+        let storage = storage_uri.to_path_buf();
+        let source = source_lvi.to_path_buf();
+        let target = target.to_path_buf();
+        let cache = cache.map(|c| c.to_path_buf());
+        let lsi = lsi.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let r = longtail_testkit::differential::downsync_version(
+                &storage.to_string_lossy(),
+                &source,
+                &target,
+                lsi,
+                cache.as_deref(),
+            );
+            let _ = tx.send(r);
+        });
+        match rx.recv_timeout(FFI_ATTEMPT_TIMEOUT) {
+            Ok(r) => return r,
+            Err(_) => {
+                eprintln!(
+                    "ffi downsync watchdog: attempt {attempt}/{FFI_MAX_ATTEMPTS} did not \
+                     complete within {}s (get_existing_store_index_sync missed-wake race); \
+                     retrying with fresh C state",
+                    FFI_ATTEMPT_TIMEOUT.as_secs()
+                );
+            }
+        }
+    }
+    panic!(
+        "ffi downsync watchdog: C downsync hung on all {FFI_MAX_ATTEMPTS} attempts \
+         (get_existing_store_index_sync missed-wake race did not recover)"
     )
 }
 

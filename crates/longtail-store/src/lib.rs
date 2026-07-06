@@ -36,7 +36,10 @@ pub use cache::CacheBlockStore;
 pub use compress::CompressBlockStore;
 pub use error::StoreError;
 pub use remote::RemoteBlockStore;
-pub use sync::{AccessType, add_to_remote_store_index, block_path, read_merged_store_index};
+pub use sync::{
+    AccessType, add_to_remote_store_index, block_path, overwrite_remote_store_index,
+    read_merged_store_index,
+};
 pub use uri::create_block_store_for_uri;
 
 #[cfg(feature = "s3")]

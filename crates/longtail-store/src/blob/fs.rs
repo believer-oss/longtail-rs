@@ -283,6 +283,14 @@ impl BlobObject for FsBlobObject {
                 let meta = if exists {
                     read_meta_generation(&gen_path)?
                 } else {
+                    // Object absent → any lingering `.gen` is stale (the object
+                    // was deleted, e.g. `init-remote-store` after removing
+                    // `store.lsi`). Clear it so the create-CAS in `write()` has a
+                    // consistent generation-0 baseline; otherwise the stale
+                    // generation never matches and `add_to_remote_store_index`
+                    // spins forever. Done under the flock, so a concurrent
+                    // creator still wins the CAS via `.gen` bumping to 1.
+                    let _ = std::fs::remove_file(&gen_path);
                     0
                 };
                 Ok((exists, meta))

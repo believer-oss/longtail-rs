@@ -9,7 +9,6 @@
 //! upload/maintenance path stays `#[ignore]`d for Stage 7.
 
 #![cfg(unix)]
-#![cfg_attr(miri, ignore)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -365,6 +364,41 @@ fn downsync_missing_index() {
     assert!(
         !out.status.success(),
         "downsync should fail on a missing source index"
+    );
+}
+
+/// Inherited nit (Stage 5 audit): a corrupt target-index cache
+/// (`.longtail.index.cache.lvi`) is a hard parse error, not silently ignored.
+/// (When `--cache-target-index` is on — the default — the cache file is read as
+/// the target index; a malformed one must fail cleanly.)
+#[test]
+fn downsync_corrupt_target_index_cache() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    std::fs::create_dir_all(&target).unwrap();
+    // Plant a corrupt cache index (NOT a valid `.lvi`).
+    std::fs::write(
+        target.join(".longtail.index.cache.lvi"),
+        b"this is not a valid version index",
+    )
+    .unwrap();
+    // Default cache-target-index (no --no-cache-target-index) reads the cache.
+    let out = run(
+        &[
+            "downsync",
+            "--storage-uri",
+            store().to_str().unwrap(),
+            "--source-path",
+            lvi("zoo.lvi").to_str().unwrap(),
+            "--target-path",
+            target.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "downsync should fail hard on a corrupt target-index cache"
     );
 }
 
@@ -748,117 +782,569 @@ fn synth_config(
 }
 
 // =========================================================================
-// Upload / maintenance path — Stage 7 (unchanged)
+// Upload / maintenance path — Stage 7
 // =========================================================================
+//
+// These are round-trip black-box tests over ad-hoc source trees (the seeded
+// corpus is not committed as folders): upsync → downsync/get → tree compare,
+// mirroring golongtail's `upsync … ; downsync … ; validateContent` pattern.
+// All stores/targets are temp dirs (fixtures stay read-only).
 
-/// Source: cmd_upsync_test.go::TestUpsync.
+fn write_file(dir: &Path, rel: &str, content: &str) {
+    let p = dir.join(rel);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&p, content).unwrap();
+}
+
+/// v1: two files. v2: + `c.txt`. v3: + unique `d.txt` (its block is prune-bait).
+fn make_v1(dir: &Path) {
+    write_file(dir, "a.txt", &"content-a-".repeat(30));
+    write_file(dir, "folder/b.txt", &"content-b-".repeat(30));
+}
+fn make_v2(dir: &Path) {
+    make_v1(dir);
+    write_file(dir, "c.txt", &"content-c-".repeat(30));
+}
+fn make_v3(dir: &Path) {
+    make_v2(dir);
+    write_file(dir, "d.txt", &"unique-d-content-".repeat(40));
+}
+
+fn run_upsync(store: &Path, src: &Path, lvi: &Path, extra: &[&str]) {
+    let mut args = vec![
+        "upsync",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-path",
+        src.to_str().unwrap(),
+        "--target-path",
+        lvi.to_str().unwrap(),
+    ];
+    args.extend_from_slice(extra);
+    run_ok(&args);
+}
+
+fn run_downsync_ok(store: &Path, lvi: &Path, target: &Path, extra: &[&str]) {
+    let mut args = vec![
+        "downsync",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-path",
+        lvi.to_str().unwrap(),
+        "--target-path",
+        target.to_str().unwrap(),
+        "--no-cache-target-index",
+    ];
+    args.extend_from_slice(extra);
+    run_ok(&args);
+}
+
+/// Build a three-version store; returns `(store, v1.lvi, v2.lvi, v3.lvi, v1dir)`.
+fn three_version_store(tmp: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+    let store = tmp.join("store");
+    let (s1, s2, s3) = (tmp.join("s1"), tmp.join("s2"), tmp.join("s3"));
+    make_v1(&s1);
+    make_v2(&s2);
+    make_v3(&s3);
+    let (l1, l2, l3) = (tmp.join("v1.lvi"), tmp.join("v2.lvi"), tmp.join("v3.lvi"));
+    run_upsync(&store, &s1, &l1, &[]);
+    run_upsync(&store, &s2, &l2, &[]);
+    run_upsync(&store, &s3, &l3, &[]);
+    (store, l1, l2, l3, s1)
+}
+
+/// cmd_upsync_test.go::TestUpsync — upsync then downsync reproduces the tree.
 #[test]
-#[ignore = "Stage 7"]
 fn upsync() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let out = tmp.path().join("out");
+    run_downsync_ok(&store, &lvi, &out, &[]);
+    capture(&out)
+        .compare(&capture(&src), false)
+        .expect("upsync→downsync tree");
 }
 
-/// Source: cmd_upsync_test.go::TestUpsyncWithLSI.
+/// cmd_upsync_test.go::TestUpsyncWithLSI — the version-local .lsi downsyncs the tree.
 #[test]
-#[ignore = "Stage 7"]
 fn upsync_with_lsi() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    let lsi = tmp.path().join("v.lsi");
+    run_upsync(
+        &store,
+        &src,
+        &lvi,
+        &["--version-local-store-index-path", lsi.to_str().unwrap()],
+    );
+    assert!(lsi.is_file(), "upsync should write the version-local .lsi");
+    let out = tmp.path().join("out");
+    run_downsync_ok(
+        &store,
+        &lvi,
+        &out,
+        &["--version-local-store-index-path", lsi.to_str().unwrap()],
+    );
+    capture(&out).compare(&capture(&src), false).unwrap();
 }
 
-/// Source: cmd_upsync_test.go::TestUpsyncWithBrokenLSI.
+/// cmd_upsync_test.go::TestUpsyncWithBrokenLSI — a corrupt version-local .lsi is
+/// tolerated (downsync falls back to scanning the store index).
 #[test]
-#[ignore = "Stage 7"]
 fn upsync_with_broken_lsi() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    let lsi = tmp.path().join("v.lsi");
+    run_upsync(
+        &store,
+        &src,
+        &lvi,
+        &["--version-local-store-index-path", lsi.to_str().unwrap()],
+    );
+    // Corrupt the lsi → downsync must fall back to the store index and succeed.
+    std::fs::write(&lsi, b"not a valid store index").unwrap();
+    let out = tmp.path().join("out");
+    run_downsync_ok(
+        &store,
+        &lvi,
+        &out,
+        &["--version-local-store-index-path", lsi.to_str().unwrap()],
+    );
+    capture(&out).compare(&capture(&src), false).unwrap();
 }
 
-/// Source: cmd_get_test.go / cmd_put — `put`.
+/// cmd_put — `put` derives storage/.lvi/.lsi from the get-config path, upsyncs,
+/// writes the get-config; `get` then reproduces the tree.
 #[test]
-#[ignore = "Stage 7"]
 fn put() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let work = tmp.path().join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    let config = work.join("game.json");
+    run_ok(&[
+        "put",
+        "--target-path",
+        config.to_str().unwrap(),
+        "--source-path",
+        src.to_str().unwrap(),
+    ]);
+    assert!(config.is_file(), "put should write the get-config");
+    // Derived layout: <work>/store, <work>/version-data/version-index/game.lvi.
+    assert!(work.join("store").is_dir(), "derived store dir");
+    let out = tmp.path().join("out");
+    run_ok(&[
+        "get",
+        "--source-path",
+        config.to_str().unwrap(),
+        "--target-path",
+        out.to_str().unwrap(),
+        "--no-cache-target-index",
+    ]);
+    capture(&out).compare(&capture(&src), false).unwrap();
 }
 
-/// Source: cmd_initremotestore_test.go::TestInitRemoteStore.
+/// cmd_initremotestore_test.go::TestInitRemoteStore — deleting store.lsi then
+/// init-remote-store rebuilds a usable store index.
 #[test]
-#[ignore = "Stage 7"]
 fn init_remote_store() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, l1, _l2, _l3, s1) = three_version_store(tmp.path());
+    // Remove the store index; the store is now index-less.
+    std::fs::remove_file(store.join("store.lsi")).ok();
+    delete_ext(&store, "lsi");
+    run_ok(&[
+        "init-remote-store",
+        "--storage-uri",
+        store.to_str().unwrap(),
+    ]);
+    // After rebuild, v1 downsyncs correctly again.
+    let out = tmp.path().join("out");
+    run_downsync_ok(&store, &l1, &out, &[]);
+    capture(&out).compare(&capture(&s1), false).unwrap();
 }
 
-/// Source: cmd_createversionstoreindex_test.go::TestCreateVersionStoreIndex.
+/// cmd_createversionstoreindex_test.go::TestCreateVersionStoreIndex.
 #[test]
-#[ignore = "Stage 7"]
 fn create_version_store_index() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let lsi = tmp.path().join("v.lsi");
+    run_ok(&[
+        "create-version-store-index",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-path",
+        lvi.to_str().unwrap(),
+        "--version-local-store-index-path",
+        lsi.to_str().unwrap(),
+    ]);
+    assert!(lsi.is_file());
+    let out = tmp.path().join("out");
+    run_downsync_ok(
+        &store,
+        &lvi,
+        &out,
+        &["--version-local-store-index-path", lsi.to_str().unwrap()],
+    );
+    capture(&out).compare(&capture(&src), false).unwrap();
 }
 
-/// Source: cmd_prunestore_test.go::TestPrune.
+/// cmd_prunestore_test.go::TestPrune — keep v1+v2; v3's unique block is deleted,
+/// so v1/v2 still downsync but v3 fails. Plus a dry-run that deletes nothing.
 #[test]
-#[ignore = "Stage 7"]
 fn prune_store() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, l1, l2, l3, s1) = three_version_store(tmp.path());
+    let files = tmp.path().join("files.txt");
+    std::fs::write(
+        &files,
+        format!("{}\n{}\n", l1.to_str().unwrap(), l2.to_str().unwrap()),
+    )
+    .unwrap();
+
+    // Dry-run first: nothing deleted, v3 still downsyncs.
+    run_ok(&[
+        "prune-store",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-paths",
+        files.to_str().unwrap(),
+        "--dry-run",
+    ]);
+    let dry = tmp.path().join("dry");
+    run_downsync_ok(&store, &l3, &dry, &[]);
+
+    // Real prune.
+    run_ok(&[
+        "prune-store",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-paths",
+        files.to_str().unwrap(),
+    ]);
+    // v1 still good.
+    let out1 = tmp.path().join("out1");
+    run_downsync_ok(&store, &l1, &out1, &[]);
+    capture(&out1).compare(&capture(&s1), false).unwrap();
+    // v3 now fails (its block was pruned).
+    let out3 = tmp.path().join("out3");
+    let bad = run(
+        &[
+            "downsync",
+            "--storage-uri",
+            store.to_str().unwrap(),
+            "--source-path",
+            l3.to_str().unwrap(),
+            "--target-path",
+            out3.to_str().unwrap(),
+            "--no-cache-target-index",
+        ],
+        None,
+    );
+    assert!(!bad.status.success(), "v3 downsync should fail after prune");
 }
 
-/// Source: cmd_prunestore_index_test.go::TestPruneIndex.
+/// cmd_prunestore_index_test.go::TestPruneIndex — only the index is rewritten;
+/// v3 downsync still fails (blocks remain but are unreachable via the index).
 #[test]
-#[ignore = "Stage 7"]
 fn prune_store_index() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, l1, l2, l3, _s1) = three_version_store(tmp.path());
+    let index = store.join("store.lsi");
+    let files = tmp.path().join("files.txt");
+    std::fs::write(
+        &files,
+        format!("{}\n{}\n", l1.to_str().unwrap(), l2.to_str().unwrap()),
+    )
+    .unwrap();
+    run_ok(&[
+        "prune-store-index",
+        "--store-index-path",
+        index.to_str().unwrap(),
+        "--source-paths",
+        files.to_str().unwrap(),
+    ]);
+    // v1 still good; v3 unreachable.
+    let out1 = tmp.path().join("out1");
+    run_downsync_ok(&store, &l1, &out1, &[]);
+    let out3 = tmp.path().join("out3");
+    let bad = run(
+        &[
+            "downsync",
+            "--storage-uri",
+            store.to_str().unwrap(),
+            "--source-path",
+            l3.to_str().unwrap(),
+            "--target-path",
+            out3.to_str().unwrap(),
+            "--no-cache-target-index",
+        ],
+        None,
+    );
+    assert!(
+        !bad.status.success(),
+        "v3 downsync should fail after index prune"
+    );
 }
 
-/// Source: cmd_prunestore_block_test.go::TestPruneStoreBlocks.
+/// cmd_prunestore_block_test.go::TestPruneStoreBlocks — prune the index, then
+/// delete the now-orphan block file; the on-disk .lsb count drops.
 #[test]
-#[ignore = "Stage 7"]
 fn prune_store_blocks() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, l1, l2, _l3, _s1) = three_version_store(tmp.path());
+    let index = store.join("store.lsi");
+    let chunks = store.join("chunks");
+    let files = tmp.path().join("files.txt");
+    std::fs::write(
+        &files,
+        format!("{}\n{}\n", l1.to_str().unwrap(), l2.to_str().unwrap()),
+    )
+    .unwrap();
+    let before = count_ext(&chunks, "lsb");
+    // Shrink the index to v1+v2 blocks.
+    run_ok(&[
+        "prune-store-index",
+        "--store-index-path",
+        index.to_str().unwrap(),
+        "--source-paths",
+        files.to_str().unwrap(),
+    ]);
+    // Dry-run: nothing deleted.
+    run_ok(&[
+        "prune-store-blocks",
+        "--store-index-path",
+        index.to_str().unwrap(),
+        "--blocks-root-path",
+        chunks.to_str().unwrap(),
+        "--dry-run",
+    ]);
+    assert_eq!(count_ext(&chunks, "lsb"), before, "dry-run deletes nothing");
+    // Real: the orphan block is deleted.
+    run_ok(&[
+        "prune-store-blocks",
+        "--store-index-path",
+        index.to_str().unwrap(),
+        "--blocks-root-path",
+        chunks.to_str().unwrap(),
+    ]);
+    assert!(count_ext(&chunks, "lsb") < before, "orphan block deleted");
 }
 
-/// Source: cmd_clonestore_test.go::TestCloneStore.
+/// cmd_clonestore_test.go::TestCloneStore — clone v1/v2/v3 into a target store,
+/// then downsync each from the target.
 #[test]
-#[ignore = "Stage 7"]
 fn clone_store() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (src_store, l1, l2, l3, s1) = three_version_store(tmp.path());
+    let tgt_store = tmp.path().join("tgt-store");
+    let materialize = tmp.path().join("materialize");
+    let (t1, t2, t3) = (
+        tmp.path().join("t1.lvi"),
+        tmp.path().join("t2.lvi"),
+        tmp.path().join("t3.lvi"),
+    );
+    let sources = tmp.path().join("sources.txt");
+    let targets = tmp.path().join("targets.txt");
+    std::fs::write(
+        &sources,
+        format!(
+            "{}\n{}\n{}\n",
+            l1.to_str().unwrap(),
+            l2.to_str().unwrap(),
+            l3.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        &targets,
+        format!(
+            "{}\n{}\n{}\n",
+            t1.to_str().unwrap(),
+            t2.to_str().unwrap(),
+            t3.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    run_ok(&[
+        "clone-store",
+        "--source-storage-uri",
+        src_store.to_str().unwrap(),
+        "--target-storage-uri",
+        tgt_store.to_str().unwrap(),
+        "--target-path",
+        materialize.to_str().unwrap(),
+        "--source-paths",
+        sources.to_str().unwrap(),
+        "--target-paths",
+        targets.to_str().unwrap(),
+    ]);
+    // v1 downsyncs from the TARGET store.
+    let out = tmp.path().join("out");
+    run_downsync_ok(&tgt_store, &t1, &out, &[]);
+    capture(&out).compare(&capture(&s1), false).unwrap();
 }
 
-/// Source: cmd_printstore_test.go::TestPrintStoreIndex.
+/// cmd_printstore_test.go::TestPrintStoreIndex.
 #[test]
-#[ignore = "Stage 7"]
 fn print_store_index() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let out = run_ok(&[
+        "print-store",
+        "--store-index-path",
+        store.join("store.lsi").to_str().unwrap(),
+    ]);
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("Hash Identifier:     blake3"),
+        "print-store: {s}"
+    );
+    assert!(s.contains("Block Count:"), "print-store: {s}");
+    // Compact + details.
+    let out2 = run_ok(&[
+        "print-store",
+        "--store-index-path",
+        store.join("store.lsi").to_str().unwrap(),
+        "--compact",
+        "--details",
+    ]);
+    let s2 = String::from_utf8_lossy(&out2.stdout);
+    assert!(s2.contains('\t') && s2.contains("blake3"), "compact: {s2}");
 }
 
-/// Source: cmd_printversionusage_test.go::TestPrintVersionUsage.
+/// cmd_printversionusage_test.go::TestPrintVersionUsage.
 #[test]
-#[ignore = "Stage 7"]
 fn print_version_usage() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let out = run_ok(&[
+        "print-version-usage",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+    ]);
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("Block Usage:"), "print-version-usage: {s}");
+    assert!(
+        s.contains("Asset Fragmentation:"),
+        "print-version-usage: {s}"
+    );
 }
 
-/// Source: cmd_dumpversionassets_test.go::TestDumpVersionAssets.
+/// cmd_dumpversionassets_test.go::TestDumpVersionAssets.
 #[test]
-#[ignore = "Stage 7"]
 fn dump_version_assets() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let out = run_ok(&[
+        "dump-version-assets",
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+    ]);
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("a.txt"), "dump: {s}");
+    assert!(
+        s.contains("folder/b.txt") || s.contains("folder"),
+        "dump: {s}"
+    );
+    // With details: rwx bits present.
+    let out2 = run_ok(&[
+        "dump-version-assets",
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+        "--details",
+    ]);
+    let s2 = String::from_utf8_lossy(&out2.stdout);
+    assert!(
+        s2.contains("-rw-") || s2.contains("drwx"),
+        "dump details: {s2}"
+    );
 }
 
-/// Source: cmd_cp_test.go::TestCp.
+/// cmd_cp_test.go::TestCp — copy one asset out of a version.
 #[test]
-#[ignore = "Stage 7"]
 fn cp() {
-    todo!()
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let dst = tmp.path().join("copied-b.txt");
+    run_ok(&[
+        "cp",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+        "folder/b.txt",
+        dst.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        std::fs::read(&dst).unwrap(),
+        std::fs::read(src.join("folder/b.txt")).unwrap(),
+        "cp'd content matches the source asset"
+    );
 }
+
+// ---- Stage 7b (pack/unpack + ArchiveIndex) — feature-gated, NOT in Stage 7 ----
 
 /// Source: cmd_pack_test.go::TestPack.
 #[test]
-#[ignore = "Stage 7"]
+#[ignore = "Stage 7b (archive feature — not in Stage 7)"]
 fn pack() {
     todo!()
 }
 
 /// Source: cmd_unpack_test.go::TestUnpack.
 #[test]
-#[ignore = "Stage 7"]
+#[ignore = "Stage 7b (archive feature — not in Stage 7)"]
 fn unpack() {
     todo!()
 }

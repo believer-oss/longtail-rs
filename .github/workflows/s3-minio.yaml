@@ -60,3 +60,49 @@ jobs:
       # absent). The pure store suite (mem/fs) already runs in the pure lane.
       - name: S3 blob/sync tests against minio
         run: cargo test -p longtail-store --test s3_spec
+
+  # Stage 7 interop gate ⑧: Rust CLI + spawned golongtail concurrently upsync
+  # disjoint content to one minio store, then cross-downsync. golongtail's AWS
+  # SDK uses VIRTUAL-HOST addressing (it never sets UsePathStyle), so minio must
+  # run with MINIO_DOMAIN and the endpoint host must resolve `<bucket>.<host>`.
+  # `*.127.0.0.1.nip.io` resolves to 127.0.0.1 via public DNS, so it works on a
+  # runner. Validated locally against podman minio (rust-port-7-results.md §3).
+  s3-interop-gate8:
+    name: s3 lane - gate 8 (mixed writers)
+    runs-on: ubuntu-latest
+    services:
+      minio:
+        image: bitnami/minio:latest
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: longtail-interop
+          MINIO_DOMAIN: 127.0.0.1.nip.io
+    env:
+      LONGTAIL_TEST_S3_ENDPOINT: http://127.0.0.1.nip.io:9000
+      LONGTAIL_TEST_S3_BUCKET: longtail-interop
+      LONGTAIL_TEST_S3_ACCESS_KEY: minioadmin
+      LONGTAIL_TEST_S3_SECRET_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+      - name: Wait for minio
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9000/minio/health/ready; then
+              echo "minio ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "minio did not become ready" >&2; exit 1
+      - name: Fetch pinned golongtail
+        run: cargo run -p xtask -- fetch-golongtail
+      - name: Gate 8 mixed-writer interop
+        run: cargo test -p longtail-cli --test s3_interop -- --nocapture
