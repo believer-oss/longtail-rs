@@ -3,3 +3,91 @@ name = "longtail-bench"
 version.workspace = true
 edition.workspace = true
 publish = false
+
+# Stage 6 benchmarking crate. Produces NUMBERS and DECISION RECORDS, not compat
+# gates. Micro-benches (criterion, harness = false) compare the pure-Rust port
+# against the C library; the e2e harness + drivers live as `[[bin]]`s. See
+# `docs/bench-2026-07-05.md` and `rust-port-6-results.md`.
+
+[dependencies]
+# Pure-Rust algorithm/format layer under measurement. Always available.
+longtail-core = { path = "../../crates/longtail-core" }
+# Path helpers (workspace root, golongtail binary) — the pure part of testkit,
+# no native lib. Used by the e2e harness + dedup driver.
+longtail-testkit = { path = "../longtail-testkit" }
+
+# Deterministic seeded generators for the synthetic buffers / dataset (ChaCha20,
+# algorithmically stable across releases — never StdRng). Mirrors testkit's
+# corpus seeding.
+blake3 = "1"
+rand_chacha = "0.9"
+rand_core = "0.9"
+
+# wait4 / rusage / kill for the e2e harness (per-child CPU + peak RSS, Linux).
+libc = "0.2"
+tempfile = "3"
+
+# Differential lane only: the C library via the ffi wrapper, for the in-process
+# Rust-vs-C micro pairs and the ffi e2e driver bin. Never a default dependency,
+# so the pure bench lane needs no native lib / C toolchain.
+longtail-ffi = { path = "../longtail-ffi", optional = true }
+
+[dev-dependencies]
+# `cargo_bench_support` lets the harness=false benches run under `cargo bench`;
+# default features (plotters/gnuplot) are dropped so no external plotting tool
+# is required to build or run.
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[features]
+# FastCDC chunker variant (benchmarking-only; no compat gates). Pulls the
+# feature through longtail-core. Needed by the dedup driver and the FastCDC
+# throughput column of the chunker micro-bench.
+fastcdc = ["longtail-core/fastcdc"]
+# C-backed differential comparison: pulls longtail-ffi (prebuilt native lib) for
+# the in-process Rust-vs-C micro pairs and the ffi e2e driver. No `dep:cc` — the
+# discriminator shim is testkit's; benches don't use it.
+differential = ["dep:longtail-ffi"]
+
+# --- Micro-benches (criterion, harness = false) ---------------------------
+
+[[bench]]
+name = "chunker"
+harness = false
+
+[[bench]]
+name = "hash"
+harness = false
+
+[[bench]]
+name = "compression"
+harness = false
+
+[[bench]]
+name = "index_codec"
+harness = false
+
+# --- E2E harness + drivers (spawned child processes) ----------------------
+
+# The e2e measurement harness: spawns each implementation as a fresh child per
+# timed run, wait4s per child for isolated CPU/peak-RSS. Needs the ffi driver
+# (differential) as its second implementation.
+[[bin]]
+name = "e2e"
+path = "src/bin/e2e.rs"
+required-features = ["differential"]
+
+# The C implementation's spawnable driver: one downsync via longtail_ffi. Kept a
+# separate process so its RUSAGE is measured in isolation (and so a
+# get_existing_store_index_sync missed-wake hang is recovered by killing +
+# re-spawning with fresh C state).
+[[bin]]
+name = "ffi-driver"
+path = "src/bin/ffi_driver.rs"
+required-features = ["differential"]
+
+# Dedup-ratio comparison: HPCDC vs FastCDC over the synthetic v1/v2 chain.
+# Pure (no native lib); needs FastCDC for the second column.
+[[bin]]
+name = "dedup"
+path = "src/bin/dedup.rs"
+required-features = ["fastcdc"]

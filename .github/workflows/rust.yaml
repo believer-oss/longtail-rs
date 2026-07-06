@@ -26,6 +26,12 @@ jobs:
       - run: cargo test
       - run: cargo run -p xtask -- verify-fixtures
 
+      # Stage 6: bench-crate compile-check (pure lane = plain + fastcdc
+      # variants). Benches never RUN in CI — the numbers are machine-dependent
+      # and recorded in docs/bench-<date>.md; CI only proves they still build.
+      - run: cargo bench --no-run -p longtail-bench
+      - run: cargo bench --no-run -p longtail-bench --features fastcdc
+
   pure-windows:
     name: pure lane - windows
     runs-on: windows-latest
@@ -71,6 +77,11 @@ jobs:
 
       - run: cargo test --workspace
       - run: cargo test -p longtail-testkit --features differential
+
+      # Stage 6: differential-lane bench-crate compile-check. The `differential`
+      # feature pulls longtail-ffi (cannot compile in the pure lane) and builds
+      # the e2e + ffi-driver bins. Never RUN in CI.
+      - run: cargo bench --no-run -p longtail-bench --features differential
 
   differential-windows:
     name: differential lane - windows

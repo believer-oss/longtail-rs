@@ -24,9 +24,11 @@
 //! - **PERF (owned structs).** Every format parses into owned Rust structs
 //!   (`Vec<u64>`/`Vec<u32>`/`Vec<u16>`/`Vec<u8>`) and serialization is a pure
 //!   function of the parsed content. This owned-struct representation was chosen
-//!   for correctness and simplicity; revisit zero-copy views only if Stage 6
-//!   benchmarking/profiling shows format parse/serialize as a genuine hot spot —
-//!   do not pre-optimize now.
+//!   for correctness and simplicity. Stage 6 benchmarking settled the revisit
+//!   trigger: the codecs run at 4–26 GiB/s, so realistic `.lvi`/`.lsi`
+//!   parse+serialize is tens of microseconds (~0.02 % of an e2e downsync wall) —
+//!   not a hot spot. Verdict: keep owned structs, do not adopt zero-copy views
+//!   (see `docs/bench-2026-07-05.md` §5 / verdict 3).
 //! - **Round-trip fidelity beats normalization.** Structs preserve exactly what
 //!   was parsed (raw `name_data` blob + offsets verbatim, all 16 permission
 //!   bits, no sorting/dedup on read), so every committed fixture re-serializes
