@@ -62,6 +62,13 @@ pub struct DownsyncOptions {
     pub cancel: Option<CancellationToken>,
     /// Optional caller-supplied rayon pool (else one is built per operation).
     pub pool: Option<Arc<rayon::ThreadPool>>,
+    /// Test-oriented override of the remote store's prefetch byte budget
+    /// (`None` → the 512 MiB default). Exists for the Stage 7a deadlock
+    /// regression suite — correctness must never depend on this value (the
+    /// budget bounds memory held by unconsumed background prefetches, never
+    /// progress). Deliberately not exposed as a CLI flag.
+    #[doc(hidden)]
+    pub max_prefetch_bytes: Option<usize>,
     /// S3 credential/endpoint injection (feature `s3`).
     #[cfg(feature = "s3")]
     pub s3_options: S3Options,
@@ -94,6 +101,7 @@ impl DownsyncOptions {
             progress: None,
             cancel: None,
             pool: None,
+            max_prefetch_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: S3Options::default(),
         }

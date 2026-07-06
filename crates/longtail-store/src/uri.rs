@@ -83,11 +83,46 @@ fn local_worker_count(requested: usize) -> usize {
     num_cpus::get().max(1)
 }
 
+/// The worker count [`create_block_store_for_uri`] resolves for `uri` when the
+/// caller requests `requested` (`0` = the scheme default: fs → `NumCPU`
+/// uncapped; networked (s3) → `min(NumCPU, 8)` — `CreateBlockStoreForURI`,
+/// remotestore.go:1977-2032). Exposed so callers can bound *their own*
+/// concurrency (e.g. the facade's concurrent block apply, Stage 7a Fix 2) to
+/// the same value without introducing a second knob.
+pub fn resolved_worker_count(uri: &str, requested: usize) -> usize {
+    // s3:// is the only networked scheme (gs/abfs are rejected by
+    // `resolve_backend`); every other accepted form is a filesystem store.
+    let is_networked = crate::blob::split_scheme(uri)
+        .map(|(scheme, _)| scheme == "s3")
+        .unwrap_or(false);
+    if is_networked {
+        networked_worker_count(requested)
+    } else {
+        local_worker_count(requested)
+    }
+}
+
 /// Construct a composed block store for `uri`. Returns
 /// `Compress(Cache(Remote))` or `Compress(Remote)`.
 pub async fn create_block_store_for_uri(
     uri: &str,
     opts: BlockStoreOpts,
+) -> Result<Arc<dyn BlockStore>, StoreError> {
+    create_block_store_for_uri_with_budget(uri, opts, None).await
+}
+
+/// [`create_block_store_for_uri`] with an explicit prefetch byte budget for the
+/// underlying [`RemoteBlockStore`] (`None` →
+/// [`crate::remote::DEFAULT_MAX_PREFETCH_BYTES`]). Test-oriented plumbing for
+/// the Stage 7a deadlock regression (deliberately NOT a [`BlockStoreOpts`]
+/// field: the options struct is constructed by plain literals across the
+/// facade, and no production path tunes the budget). Correctness must never
+/// depend on the budget value — it bounds memory held by unconsumed background
+/// prefetches, never progress.
+pub async fn create_block_store_for_uri_with_budget(
+    uri: &str,
+    opts: BlockStoreOpts,
+    max_prefetch_bytes: Option<usize>,
 ) -> Result<Arc<dyn BlockStore>, StoreError> {
     let (blob_store, worker_count): (Arc<dyn BlobStore>, usize) = resolve_backend(uri, &opts)?;
 
@@ -100,10 +135,11 @@ pub async fn create_block_store_for_uri(
     };
 
     let remote: Arc<dyn BlockStore> = Arc::new(
-        RemoteBlockStore::with_store_index_override(
+        RemoteBlockStore::with_prefetch_budget(
             blob_store,
             opts.access_type,
             worker_count,
+            max_prefetch_bytes.unwrap_or(crate::remote::DEFAULT_MAX_PREFETCH_BYTES),
             override_index,
         )
         .await?,

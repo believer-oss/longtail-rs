@@ -8,17 +8,50 @@
 //! - **Block I/O** (`get`/`put`) runs directly on the calling task, sharing one
 //!   cheaply-cloned [`BlobClient`], bounded by a [`Semaphore`] (worker-count
 //!   equivalent — Go's `remoteWorker` pool).
-//! - **Prefetch** is a `Mutex<HashMap<u64, Shared<future>>>`: get-coalescing
-//!   falls out of `Shared` (structurally subsumes shareblockstore), plus a
-//!   byte-denominated [`Semaphore`] for the 512 MiB prefetch budget. The permit
-//!   count for a block is Σ chunk_sizes from the store index (an upper bound on
-//!   the stored payload); oversize blocks clamp to the whole budget rather than
-//!   deadlock. Acquiring an *estimate up front* is a deliberate, safer-than-Go
-//!   divergence (Go debits the actual size post-fetch, remotestore.go:517/:456).
+//! - **Prefetch** is a `Mutex<PrefetchState>` (an in-flight
+//!   `HashMap<u64, Shared<future>>` + an enqueued-but-undispatched `queued` set):
+//!   get-coalescing falls out of `Shared` (structurally subsumes
+//!   shareblockstore), plus a byte-denominated [`Semaphore`] for the 512 MiB
+//!   prefetch budget.
+//!
+//!   **The budget gates BACKGROUND PREFETCH only — demand fetches always
+//!   proceed** (Stage 7a Fix 1). This mirrors golongtail exactly:
+//!   `PreflightGet` merely enqueues prefetch requests, touching no budget
+//!   (remotestore.go:613-614/:1038-1041); background `remoteWorker`s pull a
+//!   prefetch **only while** `prefetchMemory < maxPrefetchMemory` (:517/:535),
+//!   while a demand `fetchBlock` has NO budget check and runs in every worker
+//!   branch, including over budget (:504-506/:533-534/:560-561). Forward
+//!   progress therefore never depends on budget availability — the budget bounds
+//!   *memory held by not-yet-consumed prefetches*, never *progress* (the liveness
+//!   invariant; any working set completes with any budget ≥ 1 permit).
+//!
+//!   Concretely: [`RemoteBlockStore::preflight_get`] records the wanted set into
+//!   `queued` and spawns one background dispatch task per block **without**
+//!   acquiring budget. Each task acquires its permit only when the prefetch is
+//!   *dispatched* — and the in-flight map entry is created **only then**, after
+//!   acquisition. A demand [`RemoteBlockStore::get_stored_block`] for a block
+//!   whose prefetch is still parked on budget finds no map entry, so it fetches
+//!   inline (bounded by the worker semaphore, exactly like Go) and **claims the
+//!   hash** with a permit-less entry so a later-dispatched prefetch skips it
+//!   (cf. Go's placeholder insert :283-284 / later-prefetch no-op :361-366).
+//!   ⚠ Acquire-**at-dispatch** is a deliberate, stricter-than-Go divergence: Go
+//!   debits the budget at fetch *completion* and only when no waiter claimed the
+//!   block (remotestore.go:387-389; credit-back :270-271/:455-456; the pull-site
+//!   check is a soft atomic read that can overshoot, :517). Dispatch-time
+//!   acquisition is the same safer-accounting family as the Stage 4
+//!   estimate-not-actual-size divergence this module already documents (permit
+//!   count = Σ chunk_sizes, an upper bound on the stored payload); oversize
+//!   blocks clamp to the whole budget so a single block is always acquirable.
 //! - **Flush** drains accumulated block indexes into the remote index via the
-//!   sync module; **close** flushes then stops the owner task.
+//!   sync module AND drains the prefetch backlog: the enqueued-but-undispatched
+//!   `queued` set is cleared first, then unconsumed entries are dropped (Go's
+//!   flushPrefetch drains the channel first, remotestore.go:433-440, then
+//!   evicts, :442-462). Dropping the entries releases their budget permits,
+//!   which wakes any budget-parked dispatch tasks; each finds its `queued`
+//!   claim gone and abandons, releasing its permit. **close** flushes then
+//!   stops the owner task.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -51,8 +84,29 @@ type SharedFetch = Shared<BoxFuture<'static, FetchResult>>;
 
 struct PrefetchEntry {
     fut: SharedFetch,
+    /// The budget permit held by a *dispatched background prefetch*; `None` for
+    /// a demand-claimed entry (demand fetches never touch the budget — Fix 1).
     /// Released when this entry is dropped (consumed by a get, or flushed).
-    _permit: OwnedSemaphorePermit,
+    _permit: Option<OwnedSemaphorePermit>,
+}
+
+/// Prefetch bookkeeping (Fix 1, Stage 7a). Invariants (all transitions happen
+/// under the one mutex, and a hash is never in both sets at once):
+///
+/// - `entries[h]` exists ⇔ a fetch for `h` is actively running or completed
+///   awaiting consumption. Entries are created ONLY (a) at background dispatch,
+///   *after* the budget permit is acquired, or (b) by a demand get claiming the
+///   hash (permit-less). A demand get may therefore always safely await an
+///   entry's future — it can never be budget-parked.
+/// - `queued` holds enqueued-but-undispatched background prefetches (budget not
+///   yet acquired). A demand get must NOT wait on these: it removes the claim
+///   and fetches inline; the parked dispatch task later finds its claim gone
+///   and abandons. This pending-vs-dispatched split is what fixes the Stage 6
+///   whole-working-set budget deadlock.
+#[derive(Default)]
+struct PrefetchState {
+    entries: HashMap<u64, PrefetchEntry>,
+    queued: HashSet<u64>,
 }
 
 enum IndexCommand {
@@ -78,7 +132,7 @@ pub struct RemoteBlockStore {
     access_type: AccessType,
     client: Arc<dyn crate::blob::BlobClient>,
     worker_sem: Arc<Semaphore>,
-    prefetch: Arc<Mutex<HashMap<u64, PrefetchEntry>>>,
+    prefetch: Arc<Mutex<PrefetchState>>,
     prefetch_sem: Arc<Semaphore>,
     max_prefetch_bytes: usize,
     stats: Arc<BlockStoreStats>,
@@ -159,14 +213,17 @@ impl RemoteBlockStore {
             index_owner(owner_store, access_type, seed, index_rx).await;
         });
 
-        // Semaphore permits are u32-bounded; clamp the byte budget.
-        let budget = max_prefetch_bytes.min(Semaphore::MAX_PERMITS);
+        // Per-acquire permit counts are u32-bounded; clamp the byte budget so a
+        // whole-budget (oversize) clamp always fits one `acquire_many` call.
+        let budget = max_prefetch_bytes
+            .min(Semaphore::MAX_PERMITS)
+            .min(u32::MAX as usize);
 
         Ok(RemoteBlockStore {
             access_type,
             client,
             worker_sem: Arc::new(Semaphore::new(worker_count)),
-            prefetch: Arc::new(Mutex::new(HashMap::new())),
+            prefetch: Arc::new(Mutex::new(PrefetchState::default())),
             prefetch_sem: Arc::new(Semaphore::new(budget)),
             max_prefetch_bytes: budget,
             stats,
@@ -183,6 +240,72 @@ impl RemoteBlockStore {
             .map_err(|_| StoreError::WorkerGone)?;
         rx.await.map_err(|_| StoreError::WorkerGone)?
     }
+}
+
+/// Dispatch one enqueued background prefetch (Fix 1, Stage 7a). Acquires the
+/// block's budget permits FIRST (this is the only place the prefetch budget is
+/// awaited — the pull-site backpressure, Go's `remoteWorker` prefetch branch,
+/// remotestore.go:516-517/:535-536), then — only if the `queued` claim is still
+/// present — registers the in-flight entry and drives the fetch. Liveness never
+/// depends on this task making progress: a demand get claims the hash out of
+/// `queued` and fetches inline, after which this task wakes (when budget
+/// frees), finds its claim gone, and abandons, releasing its permit.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_prefetch(
+    prefetch: Arc<Mutex<PrefetchState>>,
+    prefetch_sem: Arc<Semaphore>,
+    client: Arc<dyn crate::blob::BlobClient>,
+    worker_sem: Arc<Semaphore>,
+    stats: Arc<BlockStoreStats>,
+    hash: u64,
+    permits: u32,
+) {
+    // Budget acquired at dispatch, not enqueue. Parks under budget pressure;
+    // nothing awaits this task (map entries are created only below, after
+    // acquisition), so parking here can never block a demand fetch.
+    let permit = match prefetch_sem.acquire_many_owned(permits).await {
+        Ok(p) => p,
+        Err(_) => return, // semaphore closed — store torn down
+    };
+    let tx = {
+        let mut st = prefetch.lock().await;
+        // The claim may be gone: consumed by a demand get, or drained by
+        // flush/close. Abandon; dropping `permit` releases the budget.
+        if !st.queued.remove(&hash) {
+            return;
+        }
+        // `queued` and `entries` are mutually exclusive (all transitions hold
+        // the lock), so the claim's presence implies no entry exists.
+        debug_assert!(!st.entries.contains_key(&hash));
+        // The entry's Shared wraps a oneshot rather than the fetch itself so
+        // this task drives the fetch WITHOUT holding a Shared handle: when the
+        // (typical) single consumer awaits + removes the entry, it holds the
+        // last reference and takes the block via `Arc::try_unwrap` copy-free.
+        let (tx, rx) = oneshot::channel::<FetchResult>();
+        let fut: SharedFetch = async move {
+            match rx.await {
+                Ok(r) => r,
+                Err(_) => Err(Arc::new(StoreError::Backend(
+                    "prefetch task dropped before completing".into(),
+                ))),
+            }
+        }
+        .boxed()
+        .shared();
+        st.entries.insert(
+            hash,
+            PrefetchEntry {
+                fut,
+                _permit: Some(permit),
+            },
+        );
+        tx
+    };
+    // Drive the fetch to completion; the result stays in the entry — holding
+    // the budget permit — until consumed or flushed. A failed send means the
+    // entry was flushed away with no consumer waiting: drop the block.
+    let res = fetch_stored_block(client, worker_sem, stats, hash).await;
+    let _ = tx.send(res.map(Arc::new).map_err(Arc::new));
 }
 
 /// Fetch + parse + validate a stored block by hash, bounded by `worker_sem`.
@@ -297,27 +420,53 @@ impl BlockStore for RemoteBlockStore {
     }
 
     async fn get_stored_block(&self, block_hash: u64) -> Result<StoredBlock, StoreError> {
-        // Coalesce with an in-flight prefetch if present (Shared future).
-        let prefetched = {
-            let map = self.prefetch.lock().await;
-            map.get(&block_hash).map(|e| e.fut.clone())
+        // Coalesce with an in-flight (dispatched or demand-claimed) fetch if an
+        // entry exists; otherwise claim the hash and fetch inline. A demand get
+        // NEVER waits on a budget-parked (queued, undispatched) prefetch —
+        // demand fetches always proceed, budget or not (Go's `fetchBlock` has
+        // no budget check and runs in every worker branch including
+        // over-budget, remotestore.go:504-506/:533-534/:560-561). Demand-fetch
+        // memory is bounded by the worker semaphore, exactly like Go.
+        let fut = {
+            let mut st = self.prefetch.lock().await;
+            if let Some(e) = st.entries.get(&block_hash) {
+                e.fut.clone()
+            } else {
+                // Claim the hash (Go's placeholder insert, remotestore.go:
+                // 283-284): remove any undispatched claim so its parked
+                // dispatch task abandons, and register a permit-less entry so
+                // a later-dispatched background prefetch skips it (Go's
+                // later-prefetch no-op, :361-366). Concurrent demand gets for
+                // the same block coalesce on this entry.
+                st.queued.remove(&block_hash);
+                let fut: SharedFetch = fetch_stored_block(
+                    self.client.clone(),
+                    self.worker_sem.clone(),
+                    self.stats.clone(),
+                    block_hash,
+                )
+                .map(|r| r.map(Arc::new).map_err(Arc::new))
+                .boxed()
+                .shared();
+                st.entries.insert(
+                    block_hash,
+                    PrefetchEntry {
+                        fut: fut.clone(),
+                        _permit: None,
+                    },
+                );
+                fut
+            }
         };
-        if let Some(fut) = prefetched {
-            let result = fut.await;
-            // Consume the entry (releases its budget permit).
-            self.prefetch.lock().await.remove(&block_hash);
-            return match result {
-                Ok(block) => Ok((*block).clone()),
-                Err(e) => Err(clone_store_error(&e)),
-            };
+        // The await consumes our Shared clone; removing the entry then drops
+        // the map's clone (releasing a dispatched prefetch's budget permit).
+        let result = fut.await;
+        self.prefetch.lock().await.entries.remove(&block_hash);
+        match result {
+            // Sole holder (the common demand case) → move the block out copy-free.
+            Ok(block) => Ok(Arc::try_unwrap(block).unwrap_or_else(|arc| (*arc).clone())),
+            Err(e) => Err(clone_store_error(&e)),
         }
-        fetch_stored_block(
-            self.client.clone(),
-            self.worker_sem.clone(),
-            self.stats.clone(),
-            block_hash,
-        )
-        .await
     }
 
     async fn preflight_get(&self, block_hashes: &[u64]) -> Result<(), StoreError> {
@@ -334,44 +483,30 @@ impl BlockStore for RemoteBlockStore {
             }
         }
 
+        // Enqueue WITHOUT acquiring budget (Go's PreflightGet/onPreflightMessage
+        // only posts prefetch messages, remotestore.go:613-614/:1038-1041) —
+        // acquiring the whole working set's budget here is exactly the Stage 6
+        // deadlock. Budget is acquired per block at background *dispatch*, in
+        // the spawned task below.
+        let mut st = self.prefetch.lock().await;
         for &hash in block_hashes {
-            {
-                let map = self.prefetch.lock().await;
-                if map.contains_key(&hash) {
-                    continue; // already prefetching
-                }
+            if st.entries.contains_key(&hash) || !st.queued.insert(hash) {
+                continue; // already fetching, or already enqueued
             }
-            // Estimate; unknown blocks get 1 permit; oversize clamps to budget.
+            // Estimate; unknown blocks get 1 permit; oversize clamps to the
+            // whole budget (Stage 4 rule) so a single block is always
+            // acquirable → any working set completes with any budget ≥ 1.
             let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1);
             let permits = estimate.min(self.max_prefetch_bytes).max(1) as u32;
-            let permit = self
-                .prefetch_sem
-                .clone()
-                .acquire_many_owned(permits)
-                .await
-                .map_err(|_| StoreError::WorkerGone)?;
-
-            let fut: SharedFetch = fetch_stored_block(
+            tokio::spawn(dispatch_prefetch(
+                self.prefetch.clone(),
+                self.prefetch_sem.clone(),
                 self.client.clone(),
                 self.worker_sem.clone(),
                 self.stats.clone(),
                 hash,
-            )
-            .map(|r| r.map(Arc::new).map_err(Arc::new))
-            .boxed()
-            .shared();
-
-            // Drive the fetch eagerly (Shared futures are lazy).
-            let driver = fut.clone();
-            tokio::spawn(async move {
-                let _ = driver.await;
-            });
-
-            let mut map = self.prefetch.lock().await;
-            map.entry(hash).or_insert(PrefetchEntry {
-                fut,
-                _permit: permit,
-            });
+                permits,
+            ));
         }
         Ok(())
     }
@@ -424,8 +559,7 @@ impl BlockStore for RemoteBlockStore {
     }
 
     async fn flush(&self) -> Result<(), StoreError> {
-        // Drop all prefetched-but-unconsumed blocks (releases their budget).
-        self.prefetch.lock().await.clear();
+        drain_prefetch(&self.prefetch).await;
         let (reply, rx) = oneshot::channel();
         self.index_tx
             .send(IndexCommand::Flush { reply })
@@ -438,7 +572,7 @@ impl BlockStore for RemoteBlockStore {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        self.prefetch.lock().await.clear();
+        drain_prefetch(&self.prefetch).await;
         let (reply, rx) = oneshot::channel();
         if self
             .index_tx
@@ -454,6 +588,17 @@ impl BlockStore for RemoteBlockStore {
     fn stats(&self) -> StatsSnapshot {
         self.stats.snapshot()
     }
+}
+
+/// Drain the prefetch machinery (Go's `flushPrefetch`, remotestore.go:433-462):
+/// clear the enqueued-but-undispatched backlog FIRST (Go drains the channel
+/// first, :433-440), then drop unconsumed entries (:442-462). Dropping the
+/// entries releases their budget permits, which wakes budget-parked dispatch
+/// tasks; each finds its `queued` claim gone and abandons.
+async fn drain_prefetch(prefetch: &Mutex<PrefetchState>) {
+    let mut st = prefetch.lock().await;
+    st.queued.clear();
+    st.entries.clear();
 }
 
 /// A best-effort clone of a `StoreError` behind an `Arc` (for the coalesced

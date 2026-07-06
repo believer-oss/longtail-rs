@@ -11,7 +11,7 @@ use longtail_core::{
 };
 use longtail_store::AccessType;
 use longtail_store::block_store::BlockStore;
-use longtail_store::uri::{BlockStoreOpts, create_block_store_for_uri};
+use longtail_store::uri::{BlockStoreOpts, create_block_store_for_uri_with_budget};
 use tokio_util::sync::CancellationToken;
 
 use crate::apply::change_version2;
@@ -81,7 +81,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         .progress
         .clone()
         .unwrap_or_else(|| Arc::new(NullProgress));
-    let progress = RateLimited::new(progress);
+    let progress = Arc::new(RateLimited::new(progress));
     let cancel = opts.cancel.clone().unwrap_or_default();
 
     let pool = match &opts.pool {
@@ -130,7 +130,11 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     let override_index =
         load_store_index_override(&opts.version_local_store_index_paths, &s3).await;
 
-    // Compose the block store (Compress(Cache(Remote))), ReadOnly.
+    // Compose the block store (Compress(Cache(Remote))), ReadOnly. The apply
+    // loop's block-task concurrency shares the store's resolved worker count
+    // (Stage 7a Fix 2 — one knob, no separate apply setting).
+    let apply_concurrency =
+        longtail_store::resolved_worker_count(&opts.storage_uri, opts.remote_worker_count);
     let opts_store = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
@@ -140,8 +144,14 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
-    let store: Arc<dyn BlockStore> =
-        create_block_store_for_uri(&opts.storage_uri, opts_store).await?;
+    // `max_prefetch_bytes` is the Stage 7a deadlock-regression knob (None in
+    // production → the 512 MiB default). Liveness must never depend on it.
+    let store: Arc<dyn BlockStore> = create_block_store_for_uri_with_budget(
+        &opts.storage_uri,
+        opts_store,
+        opts.max_prefetch_bytes,
+    )
+    .await?;
     phases.push(phase.lap("open_store"));
 
     // Diff (from = current target, to = desired source), required chunks,
@@ -165,6 +175,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         &diff,
         &store_index,
         opts.retain_permissions,
+        apply_concurrency,
         &progress,
         &cancel,
     )
