@@ -114,7 +114,7 @@ impl BlockIndex {
 /// opaque payload.
 ///
 /// The payload's `[uncompressed u32][compressed u32][compressed bytes]` framing
-/// for `tag != 0` belongs to the compression layer (Stage 3); at this layer the
+/// for `tag != 0` belongs to the compression layer; at this layer the
 /// payload is kept as opaque bytes = everything after the block-index region.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredBlock {

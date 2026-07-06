@@ -1,10 +1,10 @@
-//! Stage 4: `RemoteBlockStore` + store-index-sync semantics ported from
+//! `RemoteBlockStore` + store-index-sync semantics ported from
 //! golongtail's `remotestore/remotestore_test.go` (the mem/fs subset).
 //!
 //! The S3 shard-sync test is env-gated in `s3_spec.rs`. The two prune tests
-//! (Stage 7) exercise the implemented `prune_blocks` (index rewrite + block
+//! exercise the implemented `prune_blocks` (index rewrite + block
 //! delete) in both locking and lockless flavors. GCS index-sync tests are
-//! omitted (planning §6).
+//! omitted (GCS is out of scope for this port).
 
 use std::sync::Arc;
 
@@ -302,13 +302,13 @@ async fn prune_store_flavor(supports_locking: bool) {
     reader.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithLocking (Stage 7).
+/// Source: remotestore_test.go::TestPruneStoreWithLocking.
 #[tokio::test]
 async fn prune_store_with_locking() {
     prune_store_flavor(true).await;
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithoutLocking (Stage 7).
+/// Source: remotestore_test.go::TestPruneStoreWithoutLocking.
 #[tokio::test]
 async fn prune_store_without_locking() {
     prune_store_flavor(false).await;

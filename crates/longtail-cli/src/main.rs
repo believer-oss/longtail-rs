@@ -1,6 +1,8 @@
 //! `longtail` CLI — a drop-in replacement for the golongtail download-path
 //! commands (`downsync`, `get`, `ls`, `validate-version`, `print-version`).
-//! Flag names match the pinned v0.4.5 `--help` (rust-port-1-results.md §5).
+//! Flag names match the pinned golongtail v0.4.5 `--help`.
+
+#![forbid(unsafe_code)]
 
 use std::process::ExitCode;
 

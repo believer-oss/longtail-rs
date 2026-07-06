@@ -132,7 +132,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
 
     // Compose the block store (Compress(Cache(Remote))), ReadOnly. The apply
     // loop's block-task concurrency shares the store's resolved worker count
-    // (Stage 7a Fix 2 — one knob, no separate apply setting).
+    // (one knob — no separate apply setting).
     let apply_concurrency =
         longtail_store::resolved_worker_count(&opts.storage_uri, opts.remote_worker_count);
     let opts_store = BlockStoreOpts {
@@ -144,7 +144,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
-    // `max_prefetch_bytes` is the Stage 7a deadlock-regression knob (None in
+    // `max_prefetch_bytes` is the deadlock-regression test knob (None in
     // production → the 512 MiB default). Liveness must never depend on it.
     let store: Arc<dyn BlockStore> = create_block_store_for_uri_with_budget(
         &opts.storage_uri,

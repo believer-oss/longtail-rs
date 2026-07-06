@@ -271,7 +271,7 @@ impl VersionIndex {
     }
 
     /// Serialize this `VersionIndex` back to a byte buffer via
-    /// `Longtail_WriteVersionIndexToBuffer`. Used by the Stage 1 self-validation
+    /// `Longtail_WriteVersionIndexToBuffer`. Used by the self-validation
     /// harness to prove the C serializer round-trips committed `.lvi` bytes
     /// byte-identically before any pure-Rust port exists.
     pub fn write_to_buffer(&self) -> Result<Vec<u8>, i32> {

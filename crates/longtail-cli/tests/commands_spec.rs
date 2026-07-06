@@ -1,12 +1,11 @@
-//! Stage 5 / Stage 7 checklist: golongtail CLI black-box tests ported from
-//! `commands/*_test.go`.
+//! golongtail CLI black-box tests ported from `commands/*_test.go`.
 //!
 //! Download-path commands (downsync/get/ls/validate-version/print-version) are
-//! implemented here (Stage 5), driving the built `longtail` binary. The Go
-//! originals upsync first; we satisfy them from committed fixtures instead
-//! (`fixtures/stores/default` carries the v1/v2/v3 chain + zoo over one store;
-//! get-config JSONs are synthesized at test time). Everything on the
-//! upload/maintenance path stays `#[ignore]`d for Stage 7.
+//! driven against the built `longtail` binary. The Go originals upsync first;
+//! we satisfy them from committed fixtures instead (`fixtures/stores/default`
+//! carries the v1/v2/v3 chain + zoo over one store; get-config JSONs are
+//! synthesized at test time). The upload/maintenance path is exercised too;
+//! only the `archive` feature (pack/unpack) remains `#[ignore]`d.
 
 #![cfg(unix)]
 
@@ -80,7 +79,7 @@ fn copy_dir(src: &Path, dst: &Path) {
 }
 
 // =========================================================================
-// Download path — Stage 5
+// Download path
 // =========================================================================
 
 /// cmd_downsync_test.go::TestDownsync — downsync a version into an empty target
@@ -367,7 +366,7 @@ fn downsync_missing_index() {
     );
 }
 
-/// Inherited nit (Stage 5 audit): a corrupt target-index cache
+/// Regression: a corrupt target-index cache
 /// (`.longtail.index.cache.lvi`) is a hard parse error, not silently ignored.
 /// (When `--cache-target-index` is on — the default — the cache file is read as
 /// the target index; a malformed one must fail cleanly.)
@@ -782,7 +781,7 @@ fn synth_config(
 }
 
 // =========================================================================
-// Upload / maintenance path — Stage 7
+// Upload / maintenance path
 // =========================================================================
 //
 // These are round-trip black-box tests over ad-hoc source trees (the seeded
@@ -1333,18 +1332,18 @@ fn cp() {
     );
 }
 
-// ---- Stage 7b (pack/unpack + ArchiveIndex) — feature-gated, NOT in Stage 7 ----
+// ---- pack/unpack + ArchiveIndex (archive feature — not yet implemented) ----
 
 /// Source: cmd_pack_test.go::TestPack.
 #[test]
-#[ignore = "Stage 7b (archive feature — not in Stage 7)"]
+#[ignore = "requires the unimplemented archive feature (pack/unpack)"]
 fn pack() {
     todo!()
 }
 
 /// Source: cmd_unpack_test.go::TestUnpack.
 #[test]
-#[ignore = "Stage 7b (archive feature — not in Stage 7)"]
+#[ignore = "requires the unimplemented archive feature (pack/unpack)"]
 fn unpack() {
     todo!()
 }

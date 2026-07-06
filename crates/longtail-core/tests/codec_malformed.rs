@@ -1,4 +1,4 @@
-//! Malformed-input tests for the Stage 3 framing codec (pure lane, ladder 6):
+//! Malformed-input tests for the framing codec (pure lane):
 //! truncated frame header, `compressed_size` mismatch, wrong decoded length, and
 //! unknown tag all return typed [`CompressError`]s and never panic. Plus a
 //! fuzz-ish proptest that mutates a valid compressed payload and only asserts the

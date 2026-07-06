@@ -1,4 +1,4 @@
-//! Pure-logic tests for the Stage-4 store-index algebra added in Stage 4:
+//! Pure-logic tests for the store-index algebra:
 //! `StoreIndex::from_block_indexes` (CreateStoreIndexFromBlocks) and
 //! `StoreIndex::get_existing_store_index` (GetExistingStoreIndex). The byte-level
 //! agreement with C is proved by the testkit differential lane.

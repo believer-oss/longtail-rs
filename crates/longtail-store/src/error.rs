@@ -1,9 +1,9 @@
 //! `StoreError` — the store-layer error tree.
 //!
-//! Follows Stage 3's sibling-per-crate error pattern (`rust-port-4.md`
-//! Preconditions): a single `StoreError` for `longtail-store`, with source
-//! chaining where real I/O is involved. [`FormatError`] (Stage 2) and
-//! [`CompressError`] (Stage 3) are wrapped rather than flattened, so the caller
+//! Follows the sibling-per-crate error pattern: a single `StoreError` for
+//! `longtail-store`, with source chaining where real I/O is involved.
+//! [`FormatError`] and [`CompressError`] are wrapped rather than flattened, so
+//! the caller
 //! keeps the precise codec/format diagnosis.
 
 use longtail_core::{CompressError, FormatError};
@@ -39,7 +39,7 @@ pub enum StoreError {
     AccessViolation,
 
     /// A feature intentionally not carried into the pure-Rust port: `gs://`
-    /// blob stores (planning §6), Azure, or `prune_blocks` (Stage 7).
+    /// blob stores, Azure, or `prune_blocks`.
     #[error("not supported: {0}")]
     NotSupported(String),
 

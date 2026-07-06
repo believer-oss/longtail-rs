@@ -1,19 +1,19 @@
 //! [`CacheBlockStore`] — a two-tier local/remote block cache (port of
-//! `cacheblockstore`, port-map §3).
+//! `cacheblockstore`).
 //!
-//! **Warm-cache compat** (`rust-port-4.md`): existing launcher caches were
+//! **Warm-cache compat:** existing launcher caches were
 //! written by C's FSBlockStore as `chunks/<first-4-hex>/0x<hash16>.lrb`
 //! (golongtail passes an empty extension → C's default `.lrb`). This store uses
 //! the same block-path scheme with the `.lrb` extension and probes block files
 //! directly. The stored bytes are byte-identical to the `.lsb` stored-block
-//! output — only the extension differs (the Stage 1 passthrough property).
+//! output — only the extension differs (the passthrough property).
 //!
 //! The cache-dir `store.lsi` C maintains is treated as **advisory**: this store
 //! never reads or trusts it (content queries forward to the remote), so a stale
 //! cache index cannot cause a wrong answer. Deliberate compat choice, cheap to
 //! change since caches are disposable.
 //!
-//! Composition (`rust-port-4.md`): compression is outermost, so a
+//! Composition: compression is outermost, so a
 //! `CacheBlockStore` stores whatever bytes the remote returns — **compressed**
 //! blocks. It never (de)compresses; that is [`crate::compress::CompressBlockStore`]'s
 //! job one layer up.

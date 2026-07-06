@@ -4,14 +4,14 @@
 //! discriminator shim (`shim/hpcdc_discriminator_shim.c`) with the host C
 //! compiler via `cc`. The shim exposes the file-static
 //! `HPCDCDiscriminatorFromAvg` expression under an exported symbol so the
-//! discriminator differential can compare Rust against the literal C expression
-//! (rust-port-3.md Task 6). Without `differential` this build script does
+//! discriminator differential can compare Rust against the literal C
+//! expression. Without `differential` this build script does
 //! nothing, so the pure lane needs no C toolchain.
 //!
 //! This adds a **host C compiler requirement to the differential lane only**
-//! (present on GitHub ubuntu/windows runners). Stage 1 designed the differential
-//! lane as "prebuilt lib, no C toolchain"; the Task 6 fallback (golden `d` table
-//! + boundary-table equality) covers environments without a C compiler.
+//! (present on GitHub ubuntu/windows runners). The differential lane was
+//! designed as "prebuilt lib, no C toolchain"; the golden `d` table +
+//! boundary-table equality fallback covers environments without a C compiler.
 
 fn main() {
     // `cc` is an optional build-dependency, pulled in only by the `differential`

@@ -1,7 +1,7 @@
 //! The [`RemoteBlockStore`] actor — a tokio-native reshape of golongtail's
-//! `remoteStore` (`remotestore.go`).
+//! `remoteStore` (`remotestore.go` @49a20e1).
 //!
-//! Topology (plan §2, `rust-port-4.md` Task 4):
+//! Topology (the store's concurrency architecture):
 //! - **One index-owner task** owns the in-memory [`StoreIndex`] and the
 //!   accumulated block indexes, serialized behind an `mpsc` command channel — no
 //!   shared-state lock on the index (Go's `contentIndexWorker` guarantee).
@@ -15,7 +15,7 @@
 //!   prefetch budget.
 //!
 //!   **The budget gates BACKGROUND PREFETCH only — demand fetches always
-//!   proceed** (Stage 7a Fix 1). This mirrors golongtail exactly:
+//!   proceed**. This mirrors golongtail exactly:
 //!   `PreflightGet` merely enqueues prefetch requests, touching no budget
 //!   (remotestore.go:613-614/:1038-1041); background `remoteWorker`s pull a
 //!   prefetch **only while** `prefetchMemory < maxPrefetchMemory` (:517/:535),
@@ -38,7 +38,7 @@
 //!   debits the budget at fetch *completion* and only when no waiter claimed the
 //!   block (remotestore.go:387-389; credit-back :270-271/:455-456; the pull-site
 //!   check is a soft atomic read that can overshoot, :517). Dispatch-time
-//!   acquisition is the same safer-accounting family as the Stage 4
+//!   acquisition is the same safer-accounting family as the
 //!   estimate-not-actual-size divergence this module already documents (permit
 //!   count = Σ chunk_sizes, an upper bound on the stored payload); oversize
 //!   blocks clamp to the whole budget so a single block is always acquirable.
@@ -90,7 +90,7 @@ struct PrefetchEntry {
     _permit: Option<OwnedSemaphorePermit>,
 }
 
-/// Prefetch bookkeeping (Fix 1, Stage 7a). Invariants (all transitions happen
+/// Prefetch bookkeeping. Invariants (all transitions happen
 /// under the one mutex, and a hash is never in both sets at once):
 ///
 /// - `entries[h]` exists ⇔ a fetch for `h` is actively running or completed
@@ -101,7 +101,7 @@ struct PrefetchEntry {
 /// - `queued` holds enqueued-but-undispatched background prefetches (budget not
 ///   yet acquired). A demand get must NOT wait on these: it removes the claim
 ///   and fetches inline; the parked dispatch task later finds its claim gone
-///   and abandons. This pending-vs-dispatched split is what fixes the Stage 6
+///   and abandons. This pending-vs-dispatched split is what avoids the
 ///   whole-working-set budget deadlock.
 #[derive(Default)]
 struct PrefetchState {
@@ -242,7 +242,7 @@ impl RemoteBlockStore {
     }
 }
 
-/// Dispatch one enqueued background prefetch (Fix 1, Stage 7a). Acquires the
+/// Dispatch one enqueued background prefetch. Acquires the
 /// block's budget permits FIRST (this is the only place the prefetch budget is
 /// awaited — the pull-site backpressure, Go's `remoteWorker` prefetch branch,
 /// remotestore.go:516-517/:535-536), then — only if the `queued` claim is still
@@ -485,8 +485,9 @@ impl BlockStore for RemoteBlockStore {
 
         // Enqueue WITHOUT acquiring budget (Go's PreflightGet/onPreflightMessage
         // only posts prefetch messages, remotestore.go:613-614/:1038-1041) —
-        // acquiring the whole working set's budget here is exactly the Stage 6
-        // deadlock. Budget is acquired per block at background *dispatch*, in
+        // acquiring the whole working set's budget here is exactly the
+        // deadlock this split avoids. Budget is acquired per block at
+        // background *dispatch*, in
         // the spawned task below.
         let mut st = self.prefetch.lock().await;
         for &hash in block_hashes {
@@ -494,7 +495,7 @@ impl BlockStore for RemoteBlockStore {
                 continue; // already fetching, or already enqueued
             }
             // Estimate; unknown blocks get 1 permit; oversize clamps to the
-            // whole budget (Stage 4 rule) so a single block is always
+            // whole budget so a single block is always
             // acquirable → any working set completes with any budget ≥ 1.
             let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1);
             let permits = estimate.min(self.max_prefetch_bytes).max(1) as u32;
@@ -709,7 +710,7 @@ async fn merged_index(
 }
 
 /// Build a store index from accumulated block indexes, in a deterministic
-/// (block-hash-sorted) order (`rust-port-4.md`).
+/// (block-hash-sorted) order.
 fn store_index_from_added(added: &[BlockIndex]) -> Result<StoreIndex, StoreError> {
     let mut sorted: Vec<BlockIndex> = added.to_vec();
     sorted.sort_by_key(|b| b.block_hash);

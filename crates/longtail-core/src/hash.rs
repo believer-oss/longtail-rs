@@ -16,7 +16,7 @@
 //! | BLAKE2s | `0x626c6b32` | `"blk2"` | full (read-capable priority)             |
 //! | Meow    | `0x6d656f77` | `"meow"` | recognized, **verification unsupported** |
 //!
-//! Meow is *recognized* (indexes carrying it parse fine — that is Stage 2) but
+//! Meow is *recognized* (indexes carrying it parse fine) but
 //! its digest cannot be reproduced in the pure-Rust port (it needs x86 AES-NI
 //! intrinsics, i.e. `unsafe`, and this crate is `#![forbid(unsafe_code)]`), so
 //! [`hasher`] returns a typed [`HashError::UnsupportedHash`] per the plan's

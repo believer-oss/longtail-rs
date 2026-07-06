@@ -1,15 +1,15 @@
-//! Stage 7 interop gate ⑧ — Rust and spawned golongtail **concurrently** upsync
+//! Interop gate ⑧ — Rust and spawned golongtail **concurrently** upsync
 //! disjoint content to one minio store; the converged store index must contain
 //! every block, and each implementation must then downsync the *other's*
 //! version. Env-gated (skips cleanly without a minio endpoint) and needs the
 //! pinned golongtail binary cached (`xtask fetch-golongtail`).
 //!
-//! **Path-style caveat (proven in the Stage 7 manual smoke):** golongtail never
+//! **Path-style caveat (proven in the manual smoke test):** golongtail never
 //! sets `UsePathStyle`, so its AWS SDK addresses buckets virtual-host style
 //! (`<bucket>.<host>`). Stock minio does not serve that; run minio with
 //! `MINIO_DOMAIN=<host>` and set `LONGTAIL_TEST_S3_ENDPOINT` to a host that
 //! resolves virtual-host names to the minio address (e.g.
-//! `http://127.0.0.1.nip.io:PORT`). See `rust-port-7-results.md` §3.
+//! `http://127.0.0.1.nip.io:PORT`).
 
 #![cfg(unix)]
 
@@ -57,7 +57,7 @@ fn unique_prefix() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("stage7-interop/{nanos}")
+    format!("interop-test/{nanos}")
 }
 
 fn aws_env(cmd: &mut Command, m: &Minio) {

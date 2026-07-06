@@ -183,7 +183,7 @@ proptest! {
     }
 }
 
-/// Explicit non-canonical name-offsets buffer (work-order requirement): a
+/// Explicit non-canonical name-offsets buffer: a
 /// VersionIndex whose `name_offsets` are internally consistent but NOT the
 /// cumulative-ordered offsets a fresh build would produce must still round-trip
 /// byte-identically — proof that we preserve offsets/blob verbatim rather than

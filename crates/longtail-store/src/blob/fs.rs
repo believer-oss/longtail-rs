@@ -5,7 +5,7 @@
 //! `syscall.Flock`) on a per-object `<path>._lck` file, with the generation
 //! state in a `<path>.gen` sidecar and atomic writes via temp-file + rename.
 //!
-//! **Lock guard invariant (trust-critical, `rust-port-4.md`):** [`FlockGuard`]'s
+//! **Lock guard invariant (trust-critical):** [`FlockGuard`]'s
 //! `Drop` releases the OS lock ONLY and is panic-free — it NEVER unlinks the
 //! `._lck` file. Unlinking a flock'd path breaks mutual exclusion by inode
 //! replacement (holder A unlinks, newcomer C recreates+locks a fresh inode while
@@ -17,7 +17,7 @@
 //! **Windows interop caveat** (documented divergence): golongtail on Windows
 //! uses exclusive-open `CreateFile` retry loops, not `LockFileEx`; `fs4` uses
 //! `LockFileEx`. Mixed Rust+Go fs-store writers on Windows therefore do not
-//! mutually exclude. Accepted — the Stage 7 mixed-writer gate is minio-only;
+//! mutually exclude. Accepted — the mixed-writer gate is minio-only;
 //! Linux interop (flock both sides) is sound.
 
 use std::fs::{File, OpenOptions};

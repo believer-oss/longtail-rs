@@ -1,5 +1,5 @@
-//! Progress reporting — a plain callback trait (`ratelimitedprogress`'s role,
-//! planning §6). The facade rate-limits emission; the exact cadence is not
+//! Progress reporting — a plain callback trait (`ratelimitedprogress`'s role).
+//! The facade rate-limits emission; the exact cadence is not
 //! compat-relevant.
 
 use std::sync::Arc;

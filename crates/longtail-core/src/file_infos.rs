@@ -1,7 +1,7 @@
 //! `FileInfos` — the in-memory scanned-file structure that feeds VersionIndex
-//! construction (Stage 5). Not an on-disk format.
+//! construction. Not an on-disk format.
 //!
-//! Stage 2 delivers the pure, I/O-free deterministic parts: the exact C sort
+//! This module provides the pure, I/O-free deterministic parts: the exact C sort
 //! order and the canonical name-blob building. Verified against
 //! `Longtail_GetFilesRecursively2` (longtail.c:1806-1893) and
 //! `SortScannedPaths` (longtail.c:1604-1632); mirrors `struct
@@ -47,7 +47,7 @@ impl FileInfos {
     /// This is distinct from C's caller-supplied-path variant
     /// (`LongtailPrivate_MakeFileInfos`, longtail.c:1382), which copies paths
     /// verbatim with **no** sorting and **no** trailing-`/` insertion. That
-    /// verbatim variant is a Stage 5 concern — the two must not be conflated
+    /// verbatim variant is a version-write concern — the two must not be conflated
     /// (`docs/format-spec.md` §1 caveat).
     pub fn from_scanned_entries(mut entries: Vec<FileEntry>) -> FileInfos {
         // Byte-wise strcmp over the bare relative path (no trailing slash),

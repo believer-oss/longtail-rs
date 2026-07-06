@@ -1,4 +1,4 @@
-//! Stage 7 byte-gates 1-4 through the **full pure-Rust upsync path** (temp
+//! Byte-gates 1-4 through the **full pure-Rust upsync path** (temp
 //! stores only — the committed `fixtures/` are read-only). For each cell:
 //!
 //! 1. `.lvi` byte-identical to the committed fixture (re-assert of gate ⑦
@@ -10,7 +10,7 @@
 //! 4. `comp-none` `.lsb` file bytes identical (tag 0 → no codec drift).
 //!
 //! Chain cells (v1→v2→v3 to one store) exercise the accumulation-order surface:
-//! a chain gate-3 *byte* mismatch implicates Stage 4's deterministic block
+//! a chain gate-3 *byte* mismatch implicates the deterministic block
 //! accumulation order (vs golongtail's completion order), NOT packing. The test
 //! asserts full byte-identity (it holds: the fixtures were generated with
 //! --worker-count 1, so golongtail's accumulation was sequential and coincides
@@ -269,7 +269,7 @@ async fn upsync_byte_gate_default_zoo() {
 
 /// Chain cells: sequential upsync v1→v2→v3 into one temp store. Gate 1 (.lvi)
 /// and the block SET for each version's `.lsi` must match; gate-3 byte-identity
-/// is reported (chain order depends on Stage 4 accumulation, see module docs).
+/// is reported (chain order depends on the deterministic accumulation, see module docs).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn upsync_byte_gate_chain() {
     pin_umask_022();
@@ -314,13 +314,13 @@ async fn upsync_byte_gate_chain() {
         }
         let byte_match = std::fs::read(&out_lsi).unwrap() == std::fs::read(&committed_lsi).unwrap();
         gate3_byte_matches.push((v, byte_match));
-        // Byte-identity holds empirically for the chain too (Stage 4's
+        // Byte-identity holds empirically for the chain too (the
         // deterministic block-hash-sorted accumulation matches the committed
         // fixture's order); assert it as the strong gate.
         if !byte_match {
             failures.push(format!(
                 "chain-{v}: GATE3 .lsi byte mismatch (block SET matched — \
-                 implicates Stage 4 accumulation order, not packing)"
+                 implicates the deterministic accumulation order, not packing)"
             ));
         }
     }

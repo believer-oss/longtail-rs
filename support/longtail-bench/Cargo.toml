@@ -4,10 +4,10 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-# Stage 6 benchmarking crate. Produces NUMBERS and DECISION RECORDS, not compat
+# Benchmarking crate. Produces NUMBERS and DECISION RECORDS, not compat
 # gates. Micro-benches (criterion, harness = false) compare the pure-Rust port
 # against the C library; the e2e harness + drivers live as `[[bin]]`s. See
-# `docs/bench-2026-07-05.md` and `rust-port-6-results.md`.
+# `docs/bench-2026-07-05.md`.
 
 [dependencies]
 # Pure-Rust algorithm/format layer under measurement. Always available.

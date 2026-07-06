@@ -2,7 +2,7 @@
 //!
 //! Everything here drives the reference C library through `longtail-ffi`. It is
 //! used both to GENERATE the committed goldens (boundary tables) and to
-//! REPRODUCE them in the Stage 1 self-validation suite — proving the C library
+//! REPRODUCE them in the self-validation suite — proving the C library
 //! deterministically reproduces every golden before any pure-Rust port exists.
 
 use std::path::Path;
@@ -154,7 +154,7 @@ pub fn store_index_block_hashes_sorted(bytes: &[u8]) -> Result<Vec<u64>, i32> {
 /// is deterministic, so sorting the tuples by block hash gives an
 /// ordering-independent semantic identity.
 ///
-/// Parsed with the pure-Rust reader (proven byte-identical to C in Stage 2), so
+/// Parsed with the pure-Rust reader (proven byte-identical to C), so
 /// this compares the actual on-disk semantics of the regenerated vs committed
 /// `.lsi`.
 pub fn store_index_block_tuples_sorted(bytes: &[u8]) -> Result<Vec<StoreIndexBlockTuple>, String> {

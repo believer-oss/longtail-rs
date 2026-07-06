@@ -1,13 +1,13 @@
-//! [`CompressBlockStore`] — compress on put / decompress on get, via Stage 3's
+//! [`CompressBlockStore`] — compress on put / decompress on get, via the core
 //! payload-framing codec, CPU-bridged to a caller-supplied rayon pool.
 //!
-//! Ports `compressblockstore` (port-map §3). The block index's `tag` selects the
-//! codec; `tag == 0` is passthrough (Stage 3's `encode_block_payload` /
+//! Ports `compressblockstore`. The block index's `tag` selects the
+//! codec; `tag == 0` is passthrough (the core's `encode_block_payload` /
 //! `decode_block_payload` handle tag 0 as identity). Compression is the
-//! *outermost* decorator (`rust-port-4.md`): cached blocks are stored
+//! *outermost* decorator: cached blocks are stored
 //! compressed, so this layer sits above [`crate::cache::CacheBlockStore`].
 //!
-//! CPU work never uses `spawn_blocking` (plan §2): `pool.spawn` + a
+//! CPU work never uses `spawn_blocking`: `pool.spawn` + a
 //! `tokio::sync::oneshot` bridges the rayon pool to the async caller.
 
 use std::sync::Arc;

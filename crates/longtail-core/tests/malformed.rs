@@ -228,7 +228,7 @@ fn version_index_huge_counts_error_not_panic() {
     assert!(VersionIndex::from_bytes(&bytes).is_err());
 }
 
-// --- accessor error paths on wild name blobs (Stage 2 audit advisory) -------
+// --- accessor error paths on wild name blobs ------------------------------
 // version_index.rs:88-114 is bounds-checked but the error paths were untested.
 // A parsed-but-wild index (or a hand-built struct) can carry name offsets/blobs
 // that trip each accessor error without panicking.

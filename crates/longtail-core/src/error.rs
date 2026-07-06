@@ -9,8 +9,8 @@ use thiserror::Error;
 /// on-disk formats.
 ///
 /// The variants map onto the source-verified C reader checks (see
-/// `docs/format-spec.md`), plus the deliberate Rust-side strictness the Stage 2
-/// work order requires (rejecting `ACI < C` and trailing bytes, and returning
+/// `docs/format-spec.md`), plus the deliberate Rust-side strictness this port
+/// adds (rejecting `ACI < C` and trailing bytes, and returning
 /// `Err` where C would silently wrap 32-bit arithmetic).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum FormatError {

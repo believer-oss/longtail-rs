@@ -1,7 +1,7 @@
 //! S3 blob store — a port of `s3Store.go` on `aws-sdk-s3`.
 //!
-//! **Credentials are held as a provider/client, never a snapshot**
-//! (`rust-port-planning.md` decision 4): [`S3Options`] accepts a caller-built
+//! **Credentials are held as a provider/client, never a snapshot:**
+//! [`S3Options`] accepts a caller-built
 //! [`aws_sdk_s3::Client`], an [`aws_config::SdkConfig`], or a
 //! [`SharedCredentialsProvider`] (+ region/endpoint fallbacks). The SDK's lazy
 //! credentials cache then refreshes mid-operation on long transfers — proven by

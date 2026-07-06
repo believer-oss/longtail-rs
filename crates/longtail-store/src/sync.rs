@@ -17,8 +17,7 @@
 //! ⚠ The `fs_store_index_sync_with_locking` spec-stub doc-comment attributes the
 //! fs lock to `store.lsi.sync`; that is **C's FSBlockStore** lock, a different
 //! component. The Go mechanism the cited test actually uses is the
-//! `store.lsi._lck`/`store.lsi.gen` blob-object scheme implemented here
-//! (correction recorded in `rust-port-4-results.md`).
+//! `store.lsi._lck`/`store.lsi.gen` blob-object scheme implemented here.
 //!
 //! Shard naming is **byte-defined**: `sha256` over the exact serialized index
 //! bytes (`store_%x.lsi`, remotestore.go:1213). Because [`StoreIndex::merge`] /
@@ -291,7 +290,8 @@ async fn try_add(
 /// hard errors are tolerated up to 3 times (then propagated). A lost CAS /
 /// shard race retries immediately (no sleep — the lock/CAS serializes writers).
 ///
-/// Public: this is the store-index merge primitive that Stage 5/7 (and the
+/// Public: this is the store-index merge primitive that the download/upload
+/// paths (and the
 /// concurrent-writer chaos test) drive directly. Returns the new consolidated
 /// index when one was produced (`None` for the locking flavor's first write).
 pub async fn add_to_remote_store_index(
@@ -314,7 +314,8 @@ pub async fn add_to_remote_store_index(
 }
 
 /// Read the current merged store index (canonical `store.lsi` + all shards).
-/// Public convenience over [`read_store_store_index_with_items`] for Stage 5/7
+/// Public convenience over [`read_store_store_index_with_items`] for the
+/// download/upload paths
 /// and the chaos test's convergence check.
 pub async fn read_merged_store_index(client: &dyn BlobClient) -> Result<StoreIndex, StoreError> {
     let (index, _used, _retries) = read_store_store_index_with_items(client).await?;
@@ -357,7 +358,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
 
 /// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry [`try_overwrite`]
 /// on a lost CAS; hard errors tolerated up to 3 times. Public: the prune path
-/// (Stage 7) calls this to overwrite the store index BEFORE deleting blocks.
+/// calls this to overwrite the store index BEFORE deleting blocks.
 pub async fn overwrite_remote_store_index(
     client: &dyn BlobClient,
     index: &StoreIndex,
@@ -380,8 +381,8 @@ pub async fn overwrite_remote_store_index(
 /// `getStoreIndexFromBlocks` (remotestore.go:1482): read each `.lsb`, parse its
 /// block index, keep only blocks whose stored hash matches their path, and
 /// build one store index. **Rust-assembled order is sorted by block hash** for
-/// determinism (`rust-port-4.md` — golongtail's order is map/parallel
-/// nondeterminism, so there is no Go order to match).
+/// determinism (golongtail's order is map/parallel nondeterminism, so there is
+/// no Go order to match).
 async fn get_store_index_from_blocks(
     client: &dyn BlobClient,
     block_keys: &[String],
@@ -438,7 +439,7 @@ pub(crate) async fn read_remote_store_index(
     client: &dyn BlobClient,
     access_type: AccessType,
 ) -> Result<StoreIndex, StoreError> {
-    let _ = blob_store; // reserved for the Stage-5 optional-store-index-paths arg
+    let _ = blob_store; // reserved for the optional-store-index-paths arg
     if access_type == AccessType::Init {
         let rebuilt = build_store_index_from_store_blocks(client).await?;
         match add_to_remote_store_index(client, &rebuilt).await {

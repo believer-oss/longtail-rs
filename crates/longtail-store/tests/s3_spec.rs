@@ -1,11 +1,11 @@
-//! Stage 4: S3-backed blob/sync behavioral tests + the credential-refresh proof.
+//! S3-backed blob/sync behavioral tests + the credential-refresh proof.
 //!
 //! - [`fake_expiry_credentials_refresh`] runs **always** (no network): it wires
 //!   a custom, always-expired credentials provider into an S3 client whose HTTP
 //!   layer is `aws-smithy-http-client`'s `StaticReplayClient`, and asserts the
 //!   provider is re-consulted after expiry across requests *without rebuilding
 //!   the client* — the launcher's mid-operation refresh requirement, made
-//!   testable (`rust-port-planning.md` decision 4 / risk register).
+//!   testable (the mid-operation credential-refresh requirement).
 //!   `StaticReplayClient` keeps the full orchestrator + SigV4 signing on-path
 //!   (preferred over operation-level mocks that can short-circuit before
 //!   identity resolution).
@@ -150,7 +150,7 @@ fn unique_prefix(tag: &str) -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("longtail-stage4/{tag}-{nanos}")
+    format!("longtail-s3test/{tag}-{nanos}")
 }
 
 #[tokio::test]

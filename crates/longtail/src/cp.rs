@@ -1,6 +1,6 @@
 //! `cp` (`cmd_cp.go`): extract a single asset from a version by fetching only
 //! the blocks that cover its chunks and assembling the file. No
-//! blockstorestorage port (planning §6) — a targeted block fetch + assemble.
+//! blockstorestorage port — a targeted block fetch + assemble.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

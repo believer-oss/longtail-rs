@@ -51,7 +51,7 @@ pub struct DownsyncOptions {
     pub worker_count: usize,
     /// Remote block-I/O worker count; `0` = the scheme default.
     pub remote_worker_count: usize,
-    /// Accepted **no-op** (boundaries are identical by design; planning §6).
+    /// Accepted **no-op** (boundaries are identical by design).
     pub enable_file_mapping: bool,
     /// Requesting the legacy write path yields a typed
     /// [`crate::LongtailError::LegacyWriteUnsupported`].
@@ -63,7 +63,7 @@ pub struct DownsyncOptions {
     /// Optional caller-supplied rayon pool (else one is built per operation).
     pub pool: Option<Arc<rayon::ThreadPool>>,
     /// Test-oriented override of the remote store's prefetch byte budget
-    /// (`None` → the 512 MiB default). Exists for the Stage 7a deadlock
+    /// (`None` → the 512 MiB default). Exists for the deadlock
     /// regression suite — correctness must never depend on this value (the
     /// budget bounds memory held by unconsumed background prefetches, never
     /// progress). Deliberately not exposed as a CLI flag.

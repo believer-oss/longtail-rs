@@ -61,12 +61,12 @@ jobs:
       - name: S3 blob/sync tests against minio
         run: cargo test -p longtail-store --test s3_spec
 
-  # Stage 7 interop gate ⑧: Rust CLI + spawned golongtail concurrently upsync
+  # Interop gate ⑧: Rust CLI + spawned golongtail concurrently upsync
   # disjoint content to one minio store, then cross-downsync. golongtail's AWS
   # SDK uses VIRTUAL-HOST addressing (it never sets UsePathStyle), so minio must
   # run with MINIO_DOMAIN and the endpoint host must resolve `<bucket>.<host>`.
   # `*.127.0.0.1.nip.io` resolves to 127.0.0.1 via public DNS, so it works on a
-  # runner. Validated locally against podman minio (rust-port-7-results.md §3).
+  # runner. Validated locally against podman minio.
   s3-interop-gate8:
     name: s3 lane - gate 8 (mixed writers)
     runs-on: ubuntu-latest

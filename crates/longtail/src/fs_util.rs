@@ -1,6 +1,6 @@
 //! Narrow internal local-fs helpers over `std::fs` (+ positional
-//! `FileExt::write_at`/`seek_write`) — NOT a port of the 26-fn StorageAPI vtable
-//! (planning §6). The recursive walker, permission mapping, and the
+//! `FileExt::write_at`/`seek_write`) — NOT a port of the 26-fn StorageAPI vtable.
+//! The recursive walker, permission mapping, and the
 //! concurrent-chunk-write equivalent all live here with the facade; `longtail-core`
 //! stays I/O-free.
 

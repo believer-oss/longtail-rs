@@ -8,7 +8,7 @@
 //!   what demonstrates the all-four-targets coverage exit criterion.
 //! - **Ladder 9** — the discriminator `d` exhaustively matches the committed C
 //!   shim over `avg ∈ [48, 9_309_387]` (the range where C's `(uint32_t)` cast is
-//!   defined; above it the expression is UB — see `rust-port-3.md` Task 6).
+//!   defined; above it the expression is UB).
 //!
 //! Compiles to nothing without the `differential` feature.
 #![cfg(feature = "differential")]

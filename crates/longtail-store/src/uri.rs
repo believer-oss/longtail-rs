@@ -10,7 +10,7 @@
 //! Composition is **compression-outermost** (`cmd_downsync.go:206-226`), so
 //! cached blocks are stored compressed: `Compress(Cache(Remote))` with a cache
 //! dir, `Compress(Remote)` without. (Go wraps ShareBlockStore outermost; that is
-//! subsumed by the prefetch coalescing in [`RemoteBlockStore`], per plan §6.)
+//! subsumed by the prefetch coalescing in [`RemoteBlockStore`].)
 //!
 //! Worker-count defaults (`CreateBlockStoreForURI` :1977-2032, documented at
 //! commands/commands.go:12): fsblob → `NumCPU` (uncapped); networked (s3) →
@@ -86,8 +86,8 @@ fn local_worker_count(requested: usize) -> usize {
 /// The worker count [`create_block_store_for_uri`] resolves for `uri` when the
 /// caller requests `requested` (`0` = the scheme default: fs → `NumCPU`
 /// uncapped; networked (s3) → `min(NumCPU, 8)` — `CreateBlockStoreForURI`,
-/// remotestore.go:1977-2032). Exposed so callers can bound *their own*
-/// concurrency (e.g. the facade's concurrent block apply, Stage 7a Fix 2) to
+/// remotestore.go:1977-2032 @49a20e1). Exposed so callers can bound *their own*
+/// concurrency (e.g. the facade's concurrent block apply) to
 /// the same value without introducing a second knob.
 pub fn resolved_worker_count(uri: &str, requested: usize) -> usize {
     // s3:// is the only networked scheme (gs/abfs are rejected by
@@ -114,7 +114,7 @@ pub async fn create_block_store_for_uri(
 /// [`create_block_store_for_uri`] with an explicit prefetch byte budget for the
 /// underlying [`RemoteBlockStore`] (`None` →
 /// [`crate::remote::DEFAULT_MAX_PREFETCH_BYTES`]). Test-oriented plumbing for
-/// the Stage 7a deadlock regression (deliberately NOT a [`BlockStoreOpts`]
+/// the deadlock regression test (deliberately NOT a [`BlockStoreOpts`]
 /// field: the options struct is constructed by plain literals across the
 /// facade, and no production path tunes the budget). Correctness must never
 /// depend on the budget value — it bounds memory held by unconsumed background
@@ -159,7 +159,7 @@ fn resolve_backend(
 ) -> Result<(Arc<dyn BlobStore>, usize), StoreError> {
     // Set fs `enable_locking` by access type: a read-only downsync needs no write
     // CAS, and an enabled read-lock scatters never-unlinked `._lck` files into
-    // customer stores (Stage 4 Deviation #2). Only writing access types lock.
+    // customer stores. Only writing access types lock.
     let fs_locking = opts.access_type != AccessType::ReadOnly;
 
     // fsblob:// and UNC/network paths → fs blob store (local worker count).
@@ -180,7 +180,7 @@ fn resolve_backend(
         match scheme {
             "gs" => {
                 return Err(StoreError::NotSupported(format!(
-                    "gs:// (GCS) block stores are not supported (planning §6); uri `{uri}`"
+                    "gs:// (GCS) block stores are not supported; uri `{uri}`"
                 )));
             }
             "abfs" | "abfss" => {

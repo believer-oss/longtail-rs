@@ -1,10 +1,10 @@
-//! Stage 4: shard-naming assertion against the committed
+//! Shard-naming assertion against the committed
 //! `fixtures/stores/sharded/` shards.
 //!
 //! The lockless shard name is byte-defined: `store_<sha256hex-of-serialized-
 //! bytes>.lsi` (remotestore.go:1213). This proves (a) the committed fixtures
-//! obey that rule, (b) `StoreIndex` round-trips those bytes byte-identically
-//! (Stage 2), so re-deriving the name from the parsed+reserialized index yields
+//! obey that rule, (b) `StoreIndex` round-trips those bytes byte-identically,
+//! so re-deriving the name from the parsed+reserialized index yields
 //! the same file name, and (c) the lockless write path
 //! ([`add_to_remote_store_index`] on a non-locking backend) writes each fixture
 //! index under exactly its committed name.
@@ -40,7 +40,7 @@ fn sharded_fixture_names_match_sha256_of_bytes() {
         // (a) The committed name is sha256 over the exact bytes.
         assert_eq!(shard_key(&bytes), name, "raw-bytes sha256 name mismatch");
 
-        // (b) Parse → re-serialize is byte-identical (Stage 2), so the name
+        // (b) Parse → re-serialize is byte-identical, so the name
         //     re-derives from the parsed index.
         let idx = StoreIndex::from_bytes(&bytes).expect("parse shard");
         let reserialized = idx.to_bytes();

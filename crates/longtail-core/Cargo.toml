@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 thiserror = "2"
 
-# Algorithm layer (Stage 3).
+# Algorithm layer.
 # - blake3: production/default longtail hash (first 8 bytes of the 32-byte digest).
 # - blake2: BLAKE2s parameterized to an 8-byte digest via Blake2sVar::new(8)
 #   (NOT truncation of a 32-byte digest — digest length is part of the parameter
@@ -21,7 +21,7 @@ zstd = "0.13"
 lz4_flex = "0.13"
 brotli = "8"
 
-# FastCDC is benchmarking-only (Stage 6): same Chunker trait, no compat gates.
+# FastCDC is benchmarking-only: same Chunker trait, no compat gates.
 fastcdc = { version = "4", optional = true }
 
 [features]

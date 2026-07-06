@@ -1,7 +1,7 @@
 //! `LongtailError` — the facade-level error tree.
 //!
 //! Wraps the sibling per-crate enums (`FormatError`/`HashError`/`CompressError`/
-//! `ChunkerError`/`StoreError` + the Stage-5 core additions) with `#[from]` and
+//! `ChunkerError`/`StoreError` + the core additions) with `#[from]` and
 //! source chains, so the launcher gets structured causes rather than strings.
 
 use longtail_core::{
@@ -51,7 +51,7 @@ pub enum LongtailError {
     Cancelled,
 
     /// Legacy `--use-legacy-write` was requested; the pure-Rust port implements
-    /// only `ChangeVersion2` (planning §6).
+    /// only `ChangeVersion2`.
     #[error("legacy write path (--use-legacy-write) is not supported in the pure-Rust port")]
     LegacyWriteUnsupported,
 

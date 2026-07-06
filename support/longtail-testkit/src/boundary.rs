@@ -3,7 +3,7 @@
 //!
 //! A boundary table records, for a given (input, target chunk size, chunker
 //! entry point), the ordered chunk boundaries and their longtail chunk hashes.
-//! These tables double as hash goldens for the Stage 3 algorithm port.
+//! These tables double as hash goldens for the algorithm port.
 //!
 //! The HPCDC chunker has TWO entry points that seed the rolling hash
 //! differently and can therefore produce DIFFERENT boundaries when `min > 48`

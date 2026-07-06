@@ -1,4 +1,4 @@
-//! Stage 5 Task 4: the three-way e2e downsync differential.
+//! The three-way e2e downsync differential.
 //!
 //! Pure-Rust facade (`longtail::downsync_blocking`) vs the C library
 //! (`longtail-ffi`, in-process) vs the spawned pinned golongtail binary (when
@@ -107,7 +107,7 @@ fn rust_downsync_multi(
 }
 
 /// The C `get_existing_store_index_sync` has a **missed-wake race** that can
-/// intermittently hang the ffi leg (Stage 5 audit nit d). CI timeout-minutes
+/// intermittently hang the ffi leg. CI timeout-minutes
 /// catch a hang eventually, but an in-test watchdog is better: each ffi downsync
 /// runs on a worker thread bounded by a per-attempt timeout, and because a
 /// missed wake is recovered by a *fresh* call (new C job/cond-var state), a

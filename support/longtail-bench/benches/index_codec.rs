@@ -1,5 +1,5 @@
-//! Index-codec micro-bench — the **owned-struct revisit trigger** (planning
-//! §Stage 6). Stage 2 chose owned-struct `.lvi`/`.lsi` codecs
+//! Index-codec micro-bench — the **owned-struct revisit trigger**.
+//! The core chose owned-struct `.lvi`/`.lsi` codecs
 //! (`Vec<u64>`/`Vec<u32>` …) for correctness/simplicity; this bench measures
 //! parse + serialize at realistic scale to decide whether zero-copy views are
 //! worth revisiting. Verdict expectation: microseconds against seconds of I/O.

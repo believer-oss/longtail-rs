@@ -1,4 +1,4 @@
-//! Stage 7 interop gate ⑥ (both directions) over an fs store — the "fs
+//! Interop gate ⑥ (both directions) over an fs store — the "fs
 //! chaos-style variant" of the mixed-writer interop:
 //!
 //! - Rust `upsync` (in-process facade) → spawned pinned golongtail `downsync`
@@ -7,7 +7,7 @@
 //!
 //! Runs when `xtask fetch-golongtail` has cached the binary; skips cleanly
 //! otherwise. Gate ⑧ (concurrent mixed writers to one minio store) is a separate
-//! env-gated / manual run (see `rust-port-7-results.md`).
+//! env-gated / manual run.
 
 #![cfg(all(feature = "differential", unix))]
 

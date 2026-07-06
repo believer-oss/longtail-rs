@@ -1,7 +1,7 @@
 //! CLI-name → compression-ID mapping (golongtail's `compressionTypeMap`,
 //! longtailutils.go:458-472), including the `zstd_low`/`zstd_high` → `zstd_max`
-//! alias quirk. Used by the byte-gate (upsync-equivalent uniform tag) and, in
-//! Stage 7, by upsync.
+//! alias quirk. Used by the byte-gate (upsync-equivalent uniform tag) and
+//! by upsync.
 
 use longtail_core::compress::{BROTLI_FAMILY, LZ4_ID, ZSTD_FAMILY};
 

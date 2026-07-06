@@ -1,4 +1,4 @@
-//! Stage 2 differential suite (differential lane, via `longtail-ffi`):
+//! Differential suite (differential lane, via `longtail-ffi`):
 //!
 //! 1. **Parse-equivalence** — every committed fixture parsed by the pure-Rust
 //!    `longtail-core` and by the reference C reader agree on every field/array.

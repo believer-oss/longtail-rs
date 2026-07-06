@@ -19,7 +19,7 @@ const HEADER_SIZE: usize = 4 * 4;
 /// A parsed `.lsi` store index.
 ///
 /// Blocks are described in some order (not canonical — golongtail emits them in
-/// Go-map order, `rust-port-1-results.md` §4); [`StoreIndex::from_bytes`] /
+/// Go-map order); [`StoreIndex::from_bytes`] /
 /// [`StoreIndex::to_bytes`] preserve whatever order was parsed, so the
 /// round-trip is byte-identical regardless. Each block `i`'s chunks occupy
 /// `chunk_hashes[block_chunks_offsets[i] .. + block_chunk_counts[i]]` (and the
@@ -187,8 +187,9 @@ impl StoreIndex {
     }
 
     /// Merge two store indexes, matching `Longtail_MergeStoreIndex`
-    /// (longtail.c:9151) **byte-for-byte on the success path** (Stage 4 shard
-    /// naming hashes these bytes).
+    /// (longtail.c:9151 @96241fe) **byte-for-byte on the success path** (the S3
+    /// store-index shard name is the sha256 of these bytes, so byte-identity is
+    /// load-bearing).
     ///
     /// Semantics (derived from source, cited by line):
     /// - **Hash identifier** (longtail.c:9166-9188): local's if local is
@@ -280,7 +281,7 @@ impl StoreIndex {
     /// The caller owns the ordering: golongtail's `contentIndexWorker` feeds
     /// blocks in Go-map (nondeterministic) order, so there is no Go order to
     /// match; where the Rust store layer assembles the list itself it must first
-    /// sort by block hash for determinism (`rust-port-4.md` binding decisions),
+    /// sort by block hash for determinism,
     /// then round-trip / merge byte-identity carries the rest.
     ///
     /// (Accepted adversarial divergence: the cumulative chunk offset is a
@@ -388,9 +389,9 @@ impl StoreIndex {
     ///   with identifier `0` (`CreateStoreIndexFromBlocks(0,0)`,
     ///   longtail.c:7209/:7263).
     ///
-    /// **Deliberate divergence from C, documented (`rust-port-4-results.md`):**
-    /// the kept block's `tag` is taken from the block's own `block_tags[b]` (the
-    /// correct value, matching `Longtail_MakeBlockIndex`, longtail.c:9145).
+    /// **Deliberate divergence from C:** the kept block's `tag` is taken from
+    /// the block's own `block_tags[b]` (the correct value, matching
+    /// `Longtail_MakeBlockIndex`, longtail.c:9145 @96241fe).
     /// `Longtail_GetExistingStoreIndex` instead indexes `m_BlockTags` with the
     /// *chunk* offset (longtail.c:7307) — a latent C bug that reads the wrong
     /// slot (or out of bounds) whenever a kept block's chunk offset differs from

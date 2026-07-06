@@ -1,4 +1,4 @@
-//! Stage 4 differential suite (differential lane, via `longtail-ffi`) for the
+//! Differential suite (differential lane, via `longtail-ffi`) for the
 //! store-index algebra added to `longtail-core`:
 //!
 //! 1. **CreateStoreIndexFromBlocks** — `StoreIndex::from_block_indexes` is

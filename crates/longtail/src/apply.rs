@@ -3,7 +3,7 @@
 //! 10-retry) → zero-size/dir + per-block positional writes (first touch truncates
 //! to final size) → **permissions LAST** (only when `retain_permissions`).
 //!
-//! The per-block writes run **concurrently** (Stage 7a Fix 2): N block tasks in
+//! The per-block writes run **concurrently**: N block tasks in
 //! flight, bounded to the resolved remote worker count (one knob — the same
 //! value that bounds the store's block I/O). Correctness rests on true range
 //! disjointness: every `(asset, offset, len)` range has exactly ONE writer,
@@ -423,7 +423,7 @@ fn delete_assets(
 
 #[cfg(test)]
 mod tests {
-    //! Stage 7a Fix 2 unit tests: write-order independence (a permuted block
+    //! Concurrent-apply unit tests: write-order independence (a permuted block
     //! completion order produces byte-identical trees), the step-5b first-touch
     //! ordering (every write-plan file exists at final size before the FIRST
     //! block fetch), and first-error-wins termination.

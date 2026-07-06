@@ -186,7 +186,7 @@ impl CompressionRegistry {
 
     /// Resolve the raw compression API + its settings id for a raw compression
     /// ID (`m_Tag`), mirroring `CompressBlock`/`DecompressBlock`'s
-    /// `GetCompressionAPI` call. Used by the Stage 3 codec differential.
+    /// `GetCompressionAPI` call. Used by the codec differential.
     fn api_for_id(&self, id: u32) -> Result<(*mut Longtail_CompressionAPI, u32), i32> {
         let mut api = std::ptr::null_mut::<Longtail_CompressionAPI>();
         let mut settings_id: u32 = 0;
@@ -207,7 +207,7 @@ impl CompressionRegistry {
     /// Compress `data` through the C codec registered for `id` (raw codec bytes,
     /// no framing header). Mirrors `CompressBlock`'s
     /// `GetMaxCompressedSize` + `Compress` calls
-    /// (`compressblockstore.c:105-133`). For the Stage 3 encode/decode
+    /// (`compressblockstore.c:105-133`). For the encode/decode
     /// cross-compat differential only.
     pub fn compress_buffer(&self, id: u32, data: &[u8]) -> Result<Vec<u8>, i32> {
         let (api, settings_id) = self.api_for_id(id)?;

@@ -33,7 +33,7 @@ tracing = "0.1"
 num_cpus = "1.17"
 # CPU bridge for the CompressBlockStore decorator: compress/decompress runs on a
 # caller-supplied rayon pool via `pool.spawn` + a tokio oneshot — never
-# `spawn_blocking` for CPU work (plan §2).
+# `spawn_blocking` for CPU work.
 rayon = "1"
 
 # S3 backend (feature `s3`, default on)

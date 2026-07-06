@@ -21,7 +21,7 @@ const HEADER_SIZE: usize = 6 * 4;
 /// consistent) offsets must still re-serialize byte-identically (compat gate ①).
 /// Path *accessors* ([`VersionIndex::path`]) decode strings out of the blob on
 /// demand; the canonical blob is only built by [`crate::FileInfos`] when
-/// constructing a new index (Stage 5).
+/// constructing a new index.
 ///
 /// The `version` field is intentionally not stored: the reader rejects any value
 /// other than [`VERSION`], so [`VersionIndex::to_bytes`] always writes that

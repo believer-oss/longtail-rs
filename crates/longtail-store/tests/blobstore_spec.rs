@@ -1,4 +1,4 @@
-//! Stage 4: `BlobStore` semantics ported from golongtail's
+//! `BlobStore` semantics ported from golongtail's
 //! `longtailstorelib/blobStore_test.go` and `longtailstorelib/fsstore_test.go`.
 //!
 //! mem/fs cases run everywhere (pure lane — no native lib, no network). The two
@@ -6,7 +6,7 @@
 //! pure construction (no network), so they run too; the S3-backed
 //! *behavioral* cases live in `s3_spec.rs` under the env-gated job.
 //!
-//! GCS and Azure backends are intentionally omitted (planning §6).
+//! GCS and Azure backends are intentionally omitted (out of scope for this port).
 
 use longtail_store::blob::{BlobStore, MemBlobStore};
 use longtail_store::create_blob_store_for_uri;

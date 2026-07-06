@@ -4,7 +4,7 @@
  * `lib/hpcdcchunker/longtail_hpcdcchunker.c` (lines 126-129) and therefore not
  * reachable through the longtail FFI, so this file exposes the **verbatim**
  * expression under an exported name for the exhaustive discriminator
- * differential (Stage 3, rust-port-3.md Task 6).
+ * differential.
  *
  * Verbatim source (longtail@96241fe, lib/hpcdcchunker/longtail_hpcdcchunker.c:126-129):
  *

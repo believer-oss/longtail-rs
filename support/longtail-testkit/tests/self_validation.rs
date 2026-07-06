@@ -1,4 +1,4 @@
-//! Stage 1 self-validation suite (§5 of `rust-port-1.md`).
+//! Self-validation suite.
 //!
 //! These tests prove the reference C library (driven ONLY through
 //! `longtail-ffi`) deterministically reproduces every committed golden BEFORE

@@ -1,4 +1,4 @@
-//! Shared inputs for the Stage 6 benchmarks: deterministic seeded buffer
+//! Shared inputs for the benchmarks: deterministic seeded buffer
 //! generators, a synthetic large-index builder (owned-struct revisit trigger),
 //! and the ~1 GiB parametric dataset + churn generators for the e2e harness.
 //!
@@ -95,7 +95,7 @@ pub fn compressible(tag: &str, n: usize) -> Vec<u8> {
 }
 
 // -------------------------------------------------------------------------
-// Synthetic large index (owned-struct revisit trigger, planning §Stage 6)
+// Synthetic large index (owned-struct revisit trigger)
 // -------------------------------------------------------------------------
 
 /// Build a synthetic large [`longtail_core::VersionIndex`] with `assets` assets
@@ -221,7 +221,7 @@ pub struct FilePlan {
 }
 
 /// Deterministic file layout summing to ~`total_bytes`: a mix of a few large
-/// assets (up to 256 MiB — the work order's cap so RSS measures the pipeline,
+/// assets (up to 256 MiB — capped so RSS measures the pipeline,
 /// not one giant buffer), medium assets, and many small assets, split between
 /// incompressible (random) and compressible (text) content. Stable for a given
 /// `total_bytes` so v1 and its churned v2 share a base layout.

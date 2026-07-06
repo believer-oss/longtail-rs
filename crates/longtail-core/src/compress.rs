@@ -66,8 +66,8 @@
 //! Note generic-default and generic-max share quality 11 and differ only by
 //! window bits (22 vs 24); text variants use `BROTLI_MODE_TEXT`.
 //!
-//! **Encode byte-parity is a deliberate NON-gate** (`rust-port-planning.md` §4):
-//! block identity is the hash of the chunk-hash array, not the compressed bytes.
+//! **Encode byte-parity is a deliberate NON-gate:** block identity is the hash
+//! of the chunk-hash array, not the compressed bytes.
 //! The encode gate is: C decodes every Rust-compressed payload back to identical
 //! plaintext, for every ID (proved in the testkit `differential` lane).
 
@@ -103,7 +103,7 @@ pub enum CompressError {
     /// The frame's declared `compressed_size` does not equal the number of bytes
     /// following the header. **Stricter than C** (whose decoder ignores trailing
     /// bytes, passing only `compressed_size` bytes to the codec) — consistent
-    /// with Stage 2's trailing-bytes rejection policy so round-trips are sound.
+    /// with the format layer's trailing-bytes rejection policy so round-trips are sound.
     #[error("frame compressed_size {declared} != payload body length {actual}")]
     CompressedSizeMismatch { declared: usize, actual: usize },
 
@@ -357,8 +357,8 @@ mod tests {
 
     // zstd is the only FFI codec (libzstd). Under miri, foreign calls are
     // unsupported, so the miri lane exercises the pure codecs (lz4_flex, brotli)
-    // + the registry/framing logic and excludes zstd — documented in
-    // rust-port-3-results.md. The non-miri lane covers every ID.
+    // + the registry/framing logic and excludes zstd. The non-miri lane covers
+    // every ID.
     const PURE_IDS: &[u32] = &[
         LZ4_ID,
         0x6274_6c30,

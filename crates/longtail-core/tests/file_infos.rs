@@ -31,7 +31,7 @@ fn sorted_paths(entries: Vec<FileEntry>) -> Vec<String> {
 #[test]
 fn byte_wise_strcmp_order() {
     // '-'=0x2D < '.'=0x2E < '/'=0x2F < '0'=0x30 < 'B'=0x42 < 'a'=0x61 < 'b'=0x62
-    // (the adversarial chain from the work order).
+    // (an adversarial ordering chain).
     let entries = vec![
         file("ab"),
         file("aB"),

@@ -13,6 +13,8 @@
 //! Never uses cwd-relative paths: everything resolves from the workspace root
 //! (found by walking up from this crate's `CARGO_MANIFEST_DIR`).
 
+#![forbid(unsafe_code)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

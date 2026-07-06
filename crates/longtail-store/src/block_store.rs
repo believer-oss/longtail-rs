@@ -1,7 +1,7 @@
 //! The async, dyn-dispatchable [`BlockStore`] trait + atomic stats.
 //!
 //! Maps `Longtail_BlockStoreAPI` (the C completion-callback vtable) to plain
-//! `async fn`s (port-map §2): `put_stored_block`/`get_stored_block`/
+//! `async fn`s: `put_stored_block`/`get_stored_block`/
 //! `preflight_get`/`get_existing_content`/`prune_blocks`/`flush`/`close`/`stats`.
 //! Runtime composition (`Compress(Cache(Remote(…)))`) works because the trait is
 //! object-safe (via `async_trait`).
@@ -35,8 +35,8 @@ pub trait BlockStore: Send + Sync {
         min_block_usage_percent: u32,
     ) -> Result<StoreIndex, StoreError>;
 
-    /// Remove blocks not in `keep_block_hashes`. **Stage 7** — returns
-    /// [`StoreError::NotSupported`] until then.
+    /// Remove blocks not in `keep_block_hashes`. Stores that cannot prune
+    /// return [`StoreError::NotSupported`].
     async fn prune_blocks(&self, keep_block_hashes: &[u64]) -> Result<u32, StoreError>;
 
     /// Drain in-flight writes and persist accumulated block indexes into the
@@ -51,7 +51,7 @@ pub trait BlockStore: Send + Sync {
 }
 
 /// Atomic per-op counters (`BlockStoreStats`-equivalent). A plain struct of
-/// `AtomicU64` — no metrics framework (`rust-port-4.md` Stats).
+/// `AtomicU64` — no metrics framework.
 #[derive(Debug, Default)]
 pub struct BlockStoreStats {
     pub get_count: AtomicU64,
@@ -72,7 +72,7 @@ impl BlockStoreStats {
         field.fetch_add(n, Ordering::Relaxed);
     }
 
-    /// A plain-value snapshot for callers (Stage 5/7 reporting).
+    /// A plain-value snapshot for callers (stats reporting).
     pub fn snapshot(&self) -> StatsSnapshot {
         StatsSnapshot {
             get_count: self.get_count.load(Ordering::Relaxed),

@@ -1,4 +1,4 @@
-//! Stage 4: RemoteBlockStore actor internals — the read retry ladder (under
+//! RemoteBlockStore actor internals — the read retry ladder (under
 //! tokio paused time), prefetch get-coalescing, read-only enforcement, and
 //! stats counters.
 
@@ -213,7 +213,7 @@ async fn read_only_rejects_put() {
     store.close().await.unwrap();
 }
 
-/// `prune_blocks` (Stage 7): keeps the requested blocks, deletes the rest, and
+/// `prune_blocks`: keeps the requested blocks, deletes the rest, and
 /// rewrites the store index. A ReadOnly store rejects it with AccessViolation.
 #[tokio::test]
 async fn prune_blocks_keeps_and_deletes() {

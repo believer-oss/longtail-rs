@@ -4,6 +4,13 @@ on:
     branches:
       - "main"
   pull_request:
+  # The differential lanes (regression against the retained C implementation)
+  # run weekly and on manual dispatch, not per-PR: the C library no longer
+  # changes per-PR and each differential run costs a native-lib build. The pure
+  # lane, clippy/fmt, and miri still gate every PR.
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -26,7 +33,7 @@ jobs:
       - run: cargo test
       - run: cargo run -p xtask -- verify-fixtures
 
-      # Stage 6: bench-crate compile-check (pure lane = plain + fastcdc
+      # Bench-crate compile-check (pure lane = plain + fastcdc
       # variants). Benches never RUN in CI — the numbers are machine-dependent
       # and recorded in docs/bench-<date>.md; CI only proves they still build.
       - run: cargo bench --no-run -p longtail-bench
@@ -46,19 +53,19 @@ jobs:
       - run: cargo test
       - run: cargo run -p xtask -- verify-fixtures
 
-  # Differential lane: pulls the prebuilt native lib via longtail-sys. Runs the
-  # whole workspace plus the Stage 1 self-validation suite that proves the C
-  # library reproduces every committed golden, and the Stage 3 codec/chunker/hash
-  # differentials.
+  # Differential lane (scheduled + manual only): regression against the retained
+  # C implementation via longtail-sys. Runs the whole workspace plus the
+  # self-validation suite that proves the C library reproduces every committed
+  # golden, and the codec/chunker/hash differentials.
   #
-  # NOTE (Stage 3): the `differential` feature now also compiles a small C shim
+  # The `differential` feature also compiles a small C shim
   # (support/longtail-testkit/shim/hpcdc_discriminator_shim.c) via `cc` in
-  # longtail-testkit's build.rs, so this lane now requires a **host C compiler**
-  # (present on the GitHub ubuntu/windows runners). Stage 1 designed this lane as
-  # "prebuilt lib, no C toolchain"; the Task 6 fallback (golden `d` table +
-  # boundary-table equality) covers environments without a C compiler.
+  # longtail-testkit's build.rs, so this lane requires a **host C compiler**
+  # (present on the GitHub ubuntu/windows runners); the golden `d` table +
+  # boundary-table equality fallback covers environments without a C compiler.
   differential-linux:
     name: differential lane - linux
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -70,7 +77,7 @@ jobs:
           pushd test-data
           ./mkdata.sh
 
-      # Fetch the pinned golongtail binary so the Stage-5 three-way e2e
+      # Fetch the pinned golongtail binary so the three-way e2e
       # differential runs its spawned third way (Rust vs ffi vs golongtail). The
       # test skips this third way cleanly if the fetch is unavailable.
       - run: cargo run -p xtask -- fetch-golongtail
@@ -78,13 +85,14 @@ jobs:
       - run: cargo test --workspace
       - run: cargo test -p longtail-testkit --features differential
 
-      # Stage 6: differential-lane bench-crate compile-check. The `differential`
+      # Differential-lane bench-crate compile-check. The `differential`
       # feature pulls longtail-ffi (cannot compile in the pure lane) and builds
       # the e2e + ffi-driver bins. Never RUN in CI.
       - run: cargo bench --no-run -p longtail-bench --features differential
 
   differential-windows:
     name: differential lane - windows
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
@@ -127,7 +135,7 @@ jobs:
 
   # Miri: catch undefined behaviour across the trust-critical pure logic of
   # `longtail-core`. Covers the format layer's unaligned byte-cursor reads (packed
-  # `u64` arrays can land on 4-byte boundaries) AND, since Stage 3, the algorithm
+  # `u64` arrays can land on 4-byte boundaries) AND the algorithm
   # layer — the chunker, the payload framing codec, the codec/hash registries, the
   # pure codecs (lz4_flex, brotli), and the hash layer (blake2 is pure Rust;
   # blake3 has portable `cfg(miri)` fallbacks). The zstd codec is FFI (libzstd) —

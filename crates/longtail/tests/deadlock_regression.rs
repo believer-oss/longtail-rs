@@ -1,8 +1,8 @@
-//! Stage 7a deadlock regression (CI-able, cheap): a full fixture downsync with
+//! Deadlock regression (CI-able, cheap): a full fixture downsync with
 //! a prefetch budget far below the working set. Pre-Fix-1, `preflight_get`
 //! acquired the WHOLE working set's budget before any block was consumed, so
-//! any budget smaller than Σ block sizes parked forever (the Stage 6 1 GiB
-//! deadlock, `rust-port-6-results.md` §1) — this test hangs pre-fix and
+//! any budget smaller than Σ block sizes parked forever (the 1 GiB
+//! deadlock found in benchmarking) — this test hangs pre-fix and
 //! completes post-fix. Liveness invariant: any working set completes with ANY
 //! budget ≥ 1 permit; the budget bounds prefetch memory, never progress.
 //!

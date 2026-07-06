@@ -1,11 +1,11 @@
-//! Stage 6 end-to-end downsync harness (differential feature, Linux-only).
+//! End-to-end downsync harness (differential feature, Linux-only).
 //!
 //! Measures wall time, user+sys CPU, and peak RSS for three implementations —
 //! (1) the Rust `longtail` CLI, (2) the C library via the `ffi-driver` bin,
 //! (3) the pinned golongtail binary — across cold / warm-cache / incremental
 //! scenarios over a synthetic ~1 GiB dataset.
 //!
-//! ## Fairness rules (all binding, from the work order)
+//! ## Fairness rules (all binding)
 //!
 //! - **Every timed run is a fresh spawned child process** for all three
 //!   implementations — never in-process. `RUSAGE_SELF` is a process-lifetime

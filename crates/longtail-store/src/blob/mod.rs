@@ -1,6 +1,6 @@
 //! The async blob abstraction (`longtailstorelib`'s `BlobStore` / `BlobClient`
 //! / `BlobObject`), reshaped Rust-idiomatically but preserving the semantics the
-//! Stage-4 spec stubs pin down (`blobStore_test.go`, `fsstore_test.go`):
+//! spec stubs pin down (`blobStore_test.go`, `fsstore_test.go`):
 //! list-by-prefix, read/write/delete, exists, and generation-versioned
 //! (optimistic-locking) writes.
 //!
@@ -105,7 +105,7 @@ pub trait BlobObject: Send + Sync {
 ///
 /// - `fsblob://path`, `file://path`, and bare paths → [`FsBlobStore`].
 /// - `s3://bucket/prefix` → [`S3BlobStore`] (feature `s3`).
-/// - `gs://…` → [`StoreError::NotSupported`] (planning §6 — GCS deferred; a
+/// - `gs://…` → [`StoreError::NotSupported`] (GCS is out of scope; a
 ///   deliberate divergence from Go, which constructs a GCS store).
 /// - `abfs://`/`abfss://` → [`StoreError::NotSupported`] (Azure, matching Go's
 ///   "not yet implemented" error).
@@ -126,7 +126,7 @@ pub fn create_blob_store_for_uri(uri: &str) -> Result<Box<dyn BlobStore>, StoreE
         match scheme {
             "gs" => {
                 return Err(StoreError::NotSupported(format!(
-                    "gs:// (GCS) blob stores are not supported (planning §6); uri `{uri}`"
+                    "gs:// (GCS) blob stores are not supported; uri `{uri}`"
                 )));
             }
             "abfs" => {

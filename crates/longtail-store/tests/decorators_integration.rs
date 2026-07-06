@@ -1,11 +1,11 @@
-//! Stage 4 Task 5: the downsync-shaped read path in pure Rust.
+//! The downsync-shaped read path in pure Rust.
 //!
 //! Fetch every block of a committed compressed fixture store through
 //! `Compress(Cache(Remote(fs-blob)))`, then:
 //! - verify each decompressed block's payload is `Σ chunk_sizes` bytes and every
-//!   chunk's blake3 hash recomputes to the stored chunk hash (Stage 3 codecs +
-//!   the Stage 1 decode gate, now in pure Rust);
-//! - verify the cache was populated with byte-identical `.lrb` files (the Stage 1
+//!   chunk's blake3 hash recomputes to the stored chunk hash (the codecs +
+//!   the decode gate, now in pure Rust);
+//! - verify the cache was populated with byte-identical `.lrb` files (the
 //!   passthrough property: `.lrb` bytes == the remote `.lsb` bytes, only the
 //!   extension differs).
 

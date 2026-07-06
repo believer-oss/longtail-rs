@@ -1,4 +1,4 @@
-//! Stage 5 core: `create_version_index` assembly + `CreateVersionDiff` +
+//! Core version assembly: `create_version_index` + `CreateVersionDiff` +
 //! `GetRequiredChunkHashes` + `MergeVersionIndex` + `ValidateStore` over
 //! synthetic in-memory inputs. Miri-friendly (no fs, no fixtures, no native lib).
 

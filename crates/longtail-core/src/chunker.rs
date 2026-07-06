@@ -17,7 +17,7 @@
 //! as a labeled differential target for the committed `*.buffer.json` tables and
 //! is **not** used by any production path.
 //!
-//! Bench note (Stage 6): [`HpcdcChunker::chunk`] allocates only the output `Vec`
+//! Bench note: [`HpcdcChunker::chunk`] allocates only the output `Vec`
 //! and a fixed 48-byte stack window — no per-chunk allocation — so the inner
 //! loop can be benchmarked without refactoring.
 
@@ -35,7 +35,7 @@ pub const WINDOW_SIZE: usize = 48;
 /// and, past the denominator's pole (`avg ≈ 9_324_556`), goes negative — there
 /// C's `(uint32_t)` cast is undefined (C17 §6.3.1.4), so there is no compatible
 /// behavior to mirror. Every real target sits far below (avg = target/2; even a
-/// 16 MiB target → avg = 2²³ ≈ 8.4M). See `rust-port-3.md` Task 6.
+/// 16 MiB target → avg = 2²³ ≈ 8.4M).
 pub const MAX_AVG: u32 = 9_309_387;
 
 /// The 256-entry gear table, copied **verbatim** from
@@ -214,7 +214,7 @@ impl Chunker for FastCdcChunker {
 }
 
 /// A chunk boundary plus its longtail hash (the composed chunk+hash shape wanted
-/// by Stages 5/7 and every boundary/hash test).
+/// by the version-build/upload paths and every boundary/hash test).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkHash {
     pub offset: u64,
@@ -413,7 +413,7 @@ impl HpcdcChunker {
 mod tests {
     use super::*;
 
-    /// Golden `d` table for the four standard targets (`rust-port-3.md` Task 3):
+    /// Golden `d` table for the four standard targets:
     /// independently computed by IEEE-f64 evaluation of the exact expression with
     /// avg = target/2. Any float drift fails here, loudly and locally.
     #[test]
