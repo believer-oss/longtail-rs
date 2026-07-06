@@ -17,7 +17,7 @@ use longtail_core::VersionIndex;
 #[command(
     name = "longtail",
     version,
-    about = "Pure-Rust longtail — download-path CLI (drop-in for golongtail)"
+    about = "Pure-Rust longtail CLI (drop-in for golongtail)"
 )]
 struct Cli {
     /// CPU worker count (chunk/hash); 0 = logical CPUs.
