@@ -1,9 +1,12 @@
 //! `put` (`cmd_put.go`): derive default storage/`.lvi`/`.lsi` paths from the
 //! get-config `--target-path`, upsync, then write the get-config JSON.
 
+use std::sync::Arc;
+
 use crate::error::LongtailError;
 use crate::fs_util::{self, S3OptionsArg};
 use crate::options::{UpsyncOptions, UpsyncReport};
+use crate::progress::ProgressSink;
 use crate::upsync::upsync;
 
 /// Options for [`crate::put`].
@@ -38,6 +41,8 @@ pub struct PutOptions {
     pub remote_worker_count: usize,
     pub enable_file_mapping: bool,
     pub use_legacy_write: bool,
+    /// Optional progress sink (forwarded to the underlying upsync).
+    pub progress: Option<Arc<dyn ProgressSink>>,
     #[cfg(feature = "s3")]
     pub s3_options: longtail_store::S3Options,
 }
@@ -65,6 +70,7 @@ impl PutOptions {
             remote_worker_count: 0,
             enable_file_mapping: false,
             use_legacy_write: false,
+            progress: None,
             #[cfg(feature = "s3")]
             s3_options: longtail_store::S3Options::default(),
         }
@@ -148,6 +154,7 @@ pub async fn put(opts: PutOptions) -> Result<UpsyncReport, LongtailError> {
     up.remote_worker_count = opts.remote_worker_count;
     up.enable_file_mapping = opts.enable_file_mapping;
     up.use_legacy_write = opts.use_legacy_write;
+    up.progress = opts.progress.clone();
     #[cfg(feature = "s3")]
     {
         up.s3_options = opts.s3_options.clone();

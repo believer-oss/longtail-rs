@@ -128,6 +128,10 @@ Each is intentional; the end state stays compatible.
 - **HPCDC rejects an out-of-range target.** For target `avg` above ≈ 9.31M the C `(uint32_t)`
   cast of the discriminator is undefined (the expression crosses its denominator pole), so no
   compatible behaviour exists; the Rust chunker returns a typed error instead.
+- **S3 Transfer Acceleration defaults off.** The legacy FFI `get_with_cache` path hardcoded
+  `s3_transfer_acceleration = Some(true)`; `S3Options::default()` sets `transfer_acceleration:
+  false`. Acceleration requires the bucket to opt in and adds cost, so `false` is the safer
+  library default — callers that want the old throughput set it explicitly (the launcher does).
 
 ## Upstream findings
 

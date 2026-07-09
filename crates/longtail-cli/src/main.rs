@@ -4,7 +4,10 @@
 
 #![forbid(unsafe_code)]
 
+mod progress;
+
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
 use longtail::{
@@ -12,6 +15,8 @@ use longtail::{
     read_version_index_from_uri, validate_version,
 };
 use longtail_core::VersionIndex;
+
+use crate::progress::CliProgress;
 
 #[derive(Parser)]
 #[command(
@@ -454,7 +459,9 @@ fn main() -> ExitCode {
     match runtime.block_on(run(&cli)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            // Render the full source chain: LongtailError's top-level Display is
+            // a category (e.g. "store error"); the cause hangs off `#[source]`.
+            eprintln!("error: {}", e.full_chain());
             ExitCode::FAILURE
         }
     }
@@ -531,7 +538,11 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = downsync(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = downsync(opts).await;
+    progress.finish(); // clear the bar before stats / error output
+    let report = result?;
     if cli.show_stats {
         print_stats(&report);
     }
@@ -558,7 +569,11 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = get(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = get(opts).await;
+    progress.finish(); // clear the bar before stats / error output
+    let report = result?;
     if cli.show_stats {
         print_stats(&report);
     }
@@ -619,7 +634,11 @@ async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailE
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = longtail::upsync(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::upsync(opts).await;
+    progress.finish();
+    let report = result?;
     if cli.show_stats {
         eprintln!(
             "upsync complete: {} blocks written, {} bytes, target {}",
@@ -652,7 +671,11 @@ async fn run_put(cli: &Cli, a: &PutArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = longtail::put(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::put(opts).await;
+    progress.finish();
+    let report = result?;
     if cli.show_stats {
         eprintln!(
             "put complete: {} blocks written, get-config {}",
@@ -789,7 +812,11 @@ async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::
             opts.target_s3_options.endpoint_url = Some(u.clone());
         }
     }
-    let cloned = longtail::clone_store(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::clone_store(opts).await;
+    progress.finish();
+    let cloned = result?;
     if cli.show_stats {
         eprintln!("clone-store complete: {cloned} versions cloned");
     }

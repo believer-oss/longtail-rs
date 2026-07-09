@@ -68,6 +68,19 @@ pub enum StoreError {
         source: std::io::Error,
     },
 
+    /// The store rejected our credentials (HTTP 401/403, or an S3
+    /// `AccessDenied`/`InvalidAccessKeyId`/`SignatureDoesNotMatch` code). Split
+    /// out of `Backend` so a consumer can distinguish "credentials rejected"
+    /// from a transport failure without string-matching.
+    #[error("not authorized: {0}")]
+    NotAuthorized(String),
+
+    /// A transport/timeout failure reaching the store (dispatch failure,
+    /// request timeout, malformed response). Distinct from `NotAuthorized` so a
+    /// consumer can render "check your connection" vs "credentials rejected".
+    #[error("network error: {0}")]
+    Network(String),
+
     /// A backend-specific error (S3 SDK, etc.) that has no more specific variant.
     #[error("backend error: {0}")]
     Backend(String),

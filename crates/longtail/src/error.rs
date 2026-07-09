@@ -10,6 +10,12 @@ use longtail_core::{
 use longtail_store::StoreError;
 
 /// The unified error surfaced by the download-path facade API.
+///
+/// The top-level `Display` of each variant is deliberately a *category*
+/// (`"store error"`, `"format error"`, …); the actionable detail hangs off the
+/// `#[source]` chain. A consumer that renders only `format!("{e}")` therefore
+/// loses the cause — render [`LongtailError::full_chain`] (or walk
+/// [`std::error::Error::source`] yourself) to surface it.
 #[derive(Debug, thiserror::Error)]
 pub enum LongtailError {
     /// A `.lvi`/`.lsi`/`.lsb` codec error.
@@ -78,6 +84,26 @@ pub enum LongtailError {
 }
 
 impl LongtailError {
+    /// Render this error joined with its full `source()` chain.
+    ///
+    /// The top-level `Display` is a category, not the detail (see the type
+    /// docs); this walks [`std::error::Error::source`] and joins each level
+    /// with `": "`, so a single string carries the whole cause — e.g.
+    /// `"store error: backend error: not authorized: …"`. Convenience for
+    /// consumers (and the CLI) that want the detail without reimplementing the
+    /// walk.
+    pub fn full_chain(&self) -> String {
+        use std::error::Error;
+        let mut out = self.to_string();
+        let mut src = self.source();
+        while let Some(e) = src {
+            out.push_str(": ");
+            out.push_str(&e.to_string());
+            src = e.source();
+        }
+        out
+    }
+
     /// Attach filesystem context to an `io::Error`.
     pub(crate) fn io(context: impl Into<String>, source: std::io::Error) -> LongtailError {
         LongtailError::Io {

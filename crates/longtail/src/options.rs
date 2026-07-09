@@ -223,6 +223,8 @@ pub struct UpsyncOptions {
     pub remote_worker_count: usize,
     pub enable_file_mapping: bool,
     pub use_legacy_write: bool,
+    /// Optional progress sink.
+    pub progress: Option<Arc<dyn ProgressSink>>,
     pub cancel: Option<CancellationToken>,
     pub pool: Option<Arc<rayon::ThreadPool>>,
     #[cfg(feature = "s3")]
@@ -254,6 +256,7 @@ impl UpsyncOptions {
             remote_worker_count: 0,
             enable_file_mapping: false,
             use_legacy_write: false,
+            progress: None,
             cancel: None,
             pool: None,
             #[cfg(feature = "s3")]
