@@ -32,7 +32,7 @@ pub use blob::{
     create_blob_store_for_uri,
 };
 pub use block_store::{BlockStore, BlockStoreStats, StatsSnapshot};
-pub use cache::CacheBlockStore;
+pub use cache::{CacheBlockStore, EvictionReport, evict_cache_dir};
 pub use compress::CompressBlockStore;
 pub use error::StoreError;
 pub use remote::{DEFAULT_MAX_PREFETCH_BYTES, RemoteBlockStore};

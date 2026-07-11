@@ -108,21 +108,26 @@ pub async fn create_block_store_for_uri(
     uri: &str,
     opts: BlockStoreOpts,
 ) -> Result<Arc<dyn BlockStore>, StoreError> {
-    create_block_store_for_uri_with_budget(uri, opts, None).await
+    create_block_store_for_uri_with_budget(uri, opts, None, None).await
 }
 
-/// [`create_block_store_for_uri`] with an explicit prefetch byte budget for the
-/// underlying [`RemoteBlockStore`] (`None` →
-/// [`crate::remote::DEFAULT_MAX_PREFETCH_BYTES`]). Test-oriented plumbing for
-/// the deadlock regression test (deliberately NOT a [`BlockStoreOpts`]
-/// field: the options struct is constructed by plain literals across the
-/// facade, and no production path tunes the budget). Correctness must never
-/// depend on the budget value — it bounds memory held by unconsumed background
-/// prefetches, never progress.
+/// [`create_block_store_for_uri`] with two side-channel knobs the plain
+/// constructor defaults:
+///
+/// - `max_prefetch_bytes` — the underlying [`RemoteBlockStore`]'s prefetch byte
+///   budget (`None` → [`crate::remote::DEFAULT_MAX_PREFETCH_BYTES`]).
+///   Test-oriented (the deadlock regression test); correctness must never depend
+///   on it — it bounds memory held by unconsumed prefetches, never progress.
+/// - `cache_size_limit` — the local block cache's byte budget (`None` →
+///   unbounded). When set, the [`CacheBlockStore`] tracks per-block access time
+///   and LRU-evicts to the budget on close. This is a real production knob
+///   (`downsync`/`get`); it lives here rather than on [`BlockStoreOpts`] only to
+///   avoid touching every literal construction of that struct.
 pub async fn create_block_store_for_uri_with_budget(
     uri: &str,
     opts: BlockStoreOpts,
     max_prefetch_bytes: Option<usize>,
+    cache_size_limit: Option<u64>,
 ) -> Result<Arc<dyn BlockStore>, StoreError> {
     let (blob_store, worker_count): (Arc<dyn BlobStore>, usize) = resolve_backend(uri, &opts)?;
 
@@ -146,7 +151,7 @@ pub async fn create_block_store_for_uri_with_budget(
     );
 
     let base: Arc<dyn BlockStore> = match &opts.cache_dir {
-        Some(dir) => Arc::new(CacheBlockStore::new(dir, remote).await?),
+        Some(dir) => Arc::new(CacheBlockStore::new(dir, remote, cache_size_limit).await?),
         None => remote,
     };
 

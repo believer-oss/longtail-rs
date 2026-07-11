@@ -9,8 +9,9 @@
 //!   passthrough property: `.lrb` bytes == the remote `.lsb` bytes, only the
 //!   extension differs).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use longtail_core::StoreIndex;
 use longtail_core::hash::{BLAKE3_ID, blake3_hash};
@@ -22,6 +23,154 @@ use longtail_store::{AccessType, FsBlobStore, block_path};
 
 fn fixture_store_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/stores/comp-lz4/store")
+}
+
+/// The cache-relative `.lrb` path for a block hash (mirrors `cache_block_path`).
+fn lrb_rel(hash: u64) -> String {
+    let file_name = format!("0x{hash:016x}.lrb");
+    let sub = &file_name[2..6];
+    format!("chunks/{sub}/{file_name}")
+}
+
+/// Build a bare `CacheBlockStore(cache_dir, Remote(fs-blob fixture))` (no
+/// compression layer) with the given size limit.
+async fn cache_over_fixture(cache_dir: &Path, size_limit: Option<u64>) -> CacheBlockStore {
+    let blob_store = Arc::new(FsBlobStore::new(fixture_store_dir(), false));
+    let remote: Arc<dyn BlockStore> = Arc::new(
+        RemoteBlockStore::new(blob_store, AccessType::ReadOnly, 2)
+            .await
+            .unwrap(),
+    );
+    CacheBlockStore::new(cache_dir, remote, size_limit)
+        .await
+        .unwrap()
+}
+
+fn fixture_index() -> StoreIndex {
+    StoreIndex::from_bytes(&std::fs::read(fixture_store_dir().join("store.lsi")).unwrap()).unwrap()
+}
+
+/// A deleted (evicted) cache file must be transparently re-fetched from the
+/// remote AND rewritten to disk. The C library got this wrong: its cache-dir
+/// store index stayed authoritative, so a deleted block was never rewritten.
+/// Our store treats that index as advisory and probes the block file directly.
+#[tokio::test]
+async fn cache_refetches_and_recaches_deleted_block() {
+    let index = fixture_index();
+    let hash = index.block_hashes[0];
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cached = cache_over_fixture(cache_dir.path(), Some(u64::MAX)).await;
+    let lrb = cache_dir.path().join(lrb_rel(hash));
+
+    // 1. First get: cache miss → remote fetch (get_count = 1) + write-back.
+    let first = cached.get_stored_block(hash).await.unwrap();
+    assert!(lrb.exists(), "first get should populate the cache");
+    assert_eq!(cached.stats().get_count, 1);
+
+    // 2. Evict the cache file out from under the live store.
+    std::fs::remove_file(&lrb).unwrap();
+    assert!(!lrb.exists());
+
+    // 3. Second get MUST re-fetch from the remote (get_count = 2) and rewrite
+    //    the cache file — not serve a phantom hit from a stale index.
+    let second = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(
+        first.to_bytes(),
+        second.to_bytes(),
+        "same block bytes after re-fetch"
+    );
+    assert!(
+        lrb.exists(),
+        "deleted cache file must be re-created on re-fetch"
+    );
+    assert_eq!(
+        cached.stats().get_count,
+        2,
+        "second get must hit the remote again, not a stale-index phantom"
+    );
+    cached.close().await.unwrap();
+}
+
+/// A cache hit stamps the block file's mtime to now, so the LRU sweep sees it as
+/// recently used (only when a size limit is configured).
+#[tokio::test]
+async fn cache_hit_touches_mtime_when_limited() {
+    let index = fixture_index();
+    let hash = index.block_hashes[0];
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cached = cache_over_fixture(cache_dir.path(), Some(u64::MAX)).await;
+    let lrb = cache_dir.path().join(lrb_rel(hash));
+
+    // Populate, then backdate the file far into the past.
+    cached.get_stored_block(hash).await.unwrap();
+    let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&lrb)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+
+    // A hit must bump the mtime forward (touch-on-hit, awaited).
+    cached.get_stored_block(hash).await.unwrap();
+    let after = std::fs::metadata(&lrb).unwrap().modified().unwrap();
+    assert!(
+        after > old,
+        "cache hit should advance the block file's mtime"
+    );
+    cached.close().await.unwrap();
+}
+
+/// Closing a size-limited cache evicts down to the budget. The fixture's large
+/// block alone exceeds a small cap, so it must be dropped and the small one kept.
+#[tokio::test]
+async fn cache_evicts_to_limit_on_close() {
+    let index = fixture_index();
+    assert_eq!(index.block_count(), 2, "fixture assumption: two blocks");
+    let cache_dir = tempfile::tempdir().unwrap();
+    // 300 KiB budget: holds the ~219 KB block but not the ~1.5 MB one.
+    let cached = cache_over_fixture(cache_dir.path(), Some(300_000)).await;
+
+    // Populate both blocks.
+    let mut sizes = Vec::new();
+    for &h in &index.block_hashes {
+        cached.get_stored_block(h).await.unwrap();
+        let lrb = cache_dir.path().join(lrb_rel(h));
+        sizes.push((h, std::fs::metadata(&lrb).unwrap().len()));
+    }
+    let (small_hash, small_size) = *sizes.iter().min_by_key(|(_, s)| *s).unwrap();
+    let (large_hash, large_size) = *sizes.iter().max_by_key(|(_, s)| *s).unwrap();
+    assert!(
+        large_size > 300_000 && small_size <= 300_000,
+        "size assumption"
+    );
+
+    // Make the large block the LRU (oldest) so it is evicted first; the small
+    // block, being newer, is reached only after we're already under budget.
+    let base = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    for (h, mtime) in [
+        (large_hash, base),
+        (small_hash, base + Duration::from_secs(10)),
+    ] {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(cache_dir.path().join(lrb_rel(h)))
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+    }
+
+    // Close → eviction runs.
+    cached.close().await.unwrap();
+
+    assert!(
+        cache_dir.path().join(lrb_rel(small_hash)).exists(),
+        "the block that fits must survive"
+    );
+    assert!(
+        !cache_dir.path().join(lrb_rel(large_hash)).exists(),
+        "the oversized block must be evicted"
+    );
 }
 
 #[tokio::test]
@@ -44,7 +193,7 @@ async fn downsync_read_path_compress_cache_remote() {
     );
     let cache_dir = tempfile::tempdir().unwrap();
     let cached: Arc<dyn BlockStore> = Arc::new(
-        CacheBlockStore::new(cache_dir.path(), remote)
+        CacheBlockStore::new(cache_dir.path(), remote, None)
             .await
             .unwrap(),
     );

@@ -95,6 +95,9 @@ struct DownsyncArgs {
     target_index_path: Option<String>,
     #[arg(long)]
     cache_path: Option<String>,
+    /// Cap the local block cache; LRU-evict after the download (e.g. `2GiB`, `500MB`).
+    #[arg(long, value_parser = parse_size)]
+    cache_size_limit: Option<u64>,
     #[arg(long, default_value_t = false)]
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
@@ -137,6 +140,9 @@ struct GetArgs {
     target_index_path: Option<String>,
     #[arg(long)]
     cache_path: Option<String>,
+    /// Cap the local block cache; LRU-evict after the download (e.g. `2GiB`, `500MB`).
+    #[arg(long, value_parser = parse_size)]
+    cache_size_limit: Option<u64>,
     #[arg(long, default_value_t = false)]
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
@@ -514,12 +520,19 @@ fn merge_paths(single: &Option<String>, multi: &[String]) -> Vec<String> {
     out
 }
 
+/// clap value parser for `--cache-size-limit`: a human-readable byte size
+/// (`2GiB`, `500MB`, `1.5GiB`, or a bare byte count) parsed to bytes.
+fn parse_size(s: &str) -> Result<u64, String> {
+    s.parse::<bytesize::ByteSize>().map(|b| b.as_u64())
+}
+
 async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::LongtailError> {
     let sources = merge_paths(&a.source_path, &a.source_paths);
     let mut opts = DownsyncOptions::new(sources, a.storage_uri.clone(), String::new());
     opts.target_path = a.target_path.clone();
     opts.target_index_path = a.target_index_path.clone();
     opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.validate = a.validate;
     opts.version_local_store_index_paths = merge_paths(
@@ -555,6 +568,7 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     opts.target_path = a.target_path.clone();
     opts.target_index_path = a.target_index_path.clone();
     opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.validate = a.validate;
     opts.include_filter_regex = a.include_filter_regex.clone();

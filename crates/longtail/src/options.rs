@@ -27,6 +27,10 @@ pub struct DownsyncOptions {
     pub storage_uri: String,
     /// Optional local cache directory (`.lrb` blocks).
     pub cache_path: Option<PathBuf>,
+    /// Optional cache byte budget. When set (and `cache_path` is set), the local
+    /// block cache tracks per-block access time and LRU-evicts down to this many
+    /// bytes after the operation completes. `None` = unbounded.
+    pub cache_size_limit: Option<u64>,
     /// Version-local store index URIs (`.lsi`) — the ReadOnly store-index
     /// override (speeds reads, must yield the same tree).
     pub version_local_store_index_paths: Vec<String>,
@@ -86,6 +90,7 @@ impl DownsyncOptions {
             target_path: Some(target_path.into()),
             storage_uri: storage_uri.into(),
             cache_path: None,
+            cache_size_limit: None,
             version_local_store_index_paths: Vec::new(),
             include_filter_regex: None,
             exclude_filter_regex: None,
@@ -178,6 +183,9 @@ pub struct GetOptions {
     pub target_path: Option<String>,
     /// Optional local cache directory.
     pub cache_path: Option<PathBuf>,
+    /// Optional cache byte budget (LRU eviction after the operation); `None` =
+    /// unbounded. See [`DownsyncOptions::cache_size_limit`].
+    pub cache_size_limit: Option<u64>,
     pub retain_permissions: bool,
     pub validate: bool,
     pub scan_target: bool,
@@ -290,6 +298,7 @@ impl GetOptions {
             get_config_paths,
             target_path: Some(target_path.into()),
             cache_path: None,
+            cache_size_limit: None,
             retain_permissions: true,
             validate: false,
             scan_target: true,

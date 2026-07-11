@@ -101,6 +101,7 @@ pub async fn get(opts: GetOptions) -> Result<DownsyncReport, LongtailError> {
     ds.target_path = opts.target_path;
     ds.version_local_store_index_paths = lsi_paths;
     ds.cache_path = opts.cache_path;
+    ds.cache_size_limit = opts.cache_size_limit;
     ds.retain_permissions = opts.retain_permissions;
     ds.validate = opts.validate;
     ds.scan_target = opts.scan_target;

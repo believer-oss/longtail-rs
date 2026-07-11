@@ -132,6 +132,15 @@ Each is intentional; the end state stays compatible.
   `s3_transfer_acceleration = Some(true)`; `S3Options::default()` sets `transfer_acceleration:
   false`. Acceleration requires the bucket to opt in and adds cost, so `false` is the safer
   library default — callers that want the old throughput set it explicitly (the launcher does).
+- **Bounded block cache with access-time LRU.** `CacheBlockStore` takes an optional byte budget
+  (`DownsyncOptions`/`GetOptions::cache_size_limit`, CLI `--cache-size-limit`). When set, each
+  cached `.lrb` file's mtime is stamped on every access — including cache *hits* — so it is a true
+  last-access clock, and a post-run sweep (`evict_cache_dir`, on `close`) deletes least-recently-used
+  blocks down to the budget. This supersedes the legacy FFI `get_with_cache` prune, which sorted by
+  `max(mtime, atime)` and never refreshed a hit block's timestamp (so hot blocks were evicted first),
+  and the unused C block-count `LRUBlockStoreAPI`. The cache-dir `store.lsi` stays advisory: an
+  evicted block is transparently re-fetched and re-cached on next read (the C library's authoritative
+  cache index meant a deleted file was never rewritten — regression-tested here).
 
 ## Upstream findings
 
@@ -167,8 +176,8 @@ mmap/locks (→ `std` + `fs4`).
 
 **Deferred** (real functionality, postponed): the GCS (`gs://`) blob store — our stores are S3 +
 fs and GCS cannot be tested here, so `gs://` returns a clear "not supported"; `ArchiveIndex` +
-`pack`/`unpack` (behind an `archive` feature, droppable); `lrublockstore` (a trivial `lru`
-decorator if ever needed); the `clone-store` zip fallback; and `blockstorestorage` — rather than
+`pack`/`unpack` (behind an `archive` feature, droppable); the `clone-store` zip fallback; and
+`blockstorestorage` — rather than
 port its 1.6k-line virtual filesystem, `ls` is a pure index walk and `cp` is a targeted block
 fetch.
 

@@ -150,6 +150,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         &opts.storage_uri,
         opts_store,
         opts.max_prefetch_bytes,
+        opts.cache_size_limit,
     )
     .await?;
     phases.push(phase.lap("open_store"));
