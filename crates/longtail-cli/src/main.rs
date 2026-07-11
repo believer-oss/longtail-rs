@@ -31,7 +31,9 @@ struct Cli {
     /// Remote block-I/O worker count; 0 = scheme default.
     #[arg(long, global = true, default_value_t = 0)]
     remote_worker_count: usize,
-    /// Log level (accepted for parity; the CLI logs to stderr on error).
+    /// Default log level (`error`/`warn`/`info`/`debug`/`trace`, or an
+    /// `EnvFilter` directive). Overridden by `RUST_LOG` when set. Logs go to
+    /// stderr.
     #[arg(long, global = true, default_value = "warn")]
     log_level: String,
     /// Print store/time stats after the operation.
@@ -450,8 +452,23 @@ struct CpArgs {
     target_path: String,
 }
 
+/// Install a stderr `tracing` subscriber so library logs (e.g. cache-eviction
+/// summaries, retries) surface. `RUST_LOG` wins when set; otherwise the
+/// `--log-level` default applies. `try_init` so tests/repeat calls don't panic.
+fn init_tracing(default_level: &str) {
+    use tracing_subscriber::EnvFilter;
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .try_init();
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    init_tracing(&cli.log_level);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
