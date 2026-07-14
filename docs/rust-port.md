@@ -55,8 +55,14 @@ The public API is a plain `async fn downsync(...)` (and a `_blocking` convenienc
 the caller's ambient runtime — the library never creates a runtime. Credentials are held as a
 provider/`Client`, never as a snapshot, so the AWS SDK's lazy credentials cache refreshes
 mid-operation on long transfers. Cancellation is a `CancellationToken`; progress is a callback
-trait; rayon loops poll the token between work items. `BlockStore` is an async, dyn-dispatched
-trait, so the download stack composes at runtime as `Compress(Cache(Remote(S3)))`.
+trait (`ProgressSink`) whose `Progress` sample carries two dimensions at once — an item count
+(blocks for the download apply loop, files for the target scan) and a byte count — so a consumer
+can show item progress and an approximate data rate together (the CLI collapses both onto one
+bar — count plus rate/ETA; a GUI could draw a double bar). The download byte figure is
+decompressed bytes materialized, so its rate runs a
+little above raw wire bytes. Rayon loops poll the cancel token between work items. `BlockStore`
+is an async, dyn-dispatched trait, so the download stack composes at runtime as
+`Compress(Cache(Remote(S3)))`.
 
 The store follows golongtail's remotestore model: a retry ladder of {0, 100 ms, 250 ms, 500 ms,
 1 s, 2 s}, and store-index sync that is optimistic locking on fs (lock → read → merge → write →

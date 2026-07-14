@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::LongtailError;
 use crate::fs_util;
-use crate::progress::RateLimited;
+use crate::progress::{Progress, RateLimited};
 
 /// Byte/asset counters produced by an apply.
 #[derive(Debug, Default, Clone, Copy)]
@@ -165,8 +165,18 @@ pub(crate) async fn change_version2(
     //    count of COMPLETED blocks (not launch position), reported under a lock
     //    so emissions stay monotone.
     let total_blocks = block_writes.len() as u32;
+    // Total decompressed bytes to fetch = Σ full-block payload sizes over the
+    // blocks the write plan needs (each fetched block's payload == Σ its chunk
+    // sizes in the store index). This matches the per-block `payload.len()`
+    // summed into `done_bytes` below, so the byte progress never overshoots.
+    let block_bytes = block_decompressed_sizes(store_index);
+    let total_bytes: u64 = block_writes
+        .keys()
+        .map(|bh| block_bytes.get(bh).copied().unwrap_or(0))
+        .sum();
     progress.phase("Updating version");
     let done_blocks = Arc::new(AtomicU32::new(0));
+    let done_bytes = Arc::new(AtomicU64::new(0));
     let bytes_written = Arc::new(AtomicU64::new(0));
     let report_lock = Arc::new(std::sync::Mutex::new(()));
     let sem = Arc::new(tokio::sync::Semaphore::new(apply_concurrency.max(1)));
@@ -197,11 +207,15 @@ pub(crate) async fn change_version2(
         let target_root = target_root.to_path_buf();
         let progress = progress.clone();
         let done_blocks = done_blocks.clone();
+        let done_bytes = done_bytes.clone();
         let bytes_written = bytes_written.clone();
         let report_lock = report_lock.clone();
         tasks.spawn(async move {
             let _permit = permit;
             let block = store.get_stored_block(block_hash).await?;
+            // Full decompressed block payload we just fetched — the download
+            // byte dimension (captured before `block` moves into the writer).
+            let payload_len = block.payload.len() as u64;
             // The sync positional writes run on the blocking pool — N tasks
             // doing sync file I/O on the tokio workers is a known footgun.
             let n = tokio::task::spawn_blocking(move || {
@@ -215,12 +229,17 @@ pub(crate) async fn change_version2(
                 )
             })??;
             bytes_written.fetch_add(n, Ordering::Relaxed);
+            done_bytes.fetch_add(payload_len, Ordering::Relaxed);
             done_blocks.fetch_add(1, Ordering::Relaxed);
             {
                 // Fresh load under the lock → reported values never decrease.
                 let _g = report_lock.lock().unwrap();
-                let done = done_blocks.load(Ordering::Relaxed);
-                progress.report(done, total_blocks);
+                progress.report(Progress {
+                    done_items: done_blocks.load(Ordering::Relaxed) as u64,
+                    total_items: total_blocks as u64,
+                    done_bytes: done_bytes.load(Ordering::Relaxed),
+                    total_bytes,
+                });
             }
             Ok(())
         });
@@ -341,6 +360,29 @@ fn flatten_apply_task(
             std::io::Error::other(format!("task panicked: {e}")),
         )),
     }
+}
+
+/// Map each block hash to its decompressed payload size (Σ of its chunk sizes),
+/// for the download byte total. Mirrors the block→chunk-range walk in
+/// [`build_chunk_block_map`].
+fn block_decompressed_sizes(store_index: &StoreIndex) -> HashMap<u64, u64> {
+    let mut map = HashMap::new();
+    for b in 0..store_index.block_count() as usize {
+        let count = store_index.block_chunk_counts[b] as usize;
+        let offset = store_index.block_chunks_offsets[b] as usize;
+        let end = match offset.checked_add(count) {
+            Some(e) if e <= store_index.chunk_sizes.len() => e,
+            _ => continue,
+        };
+        let size: u64 = store_index.chunk_sizes[offset..end]
+            .iter()
+            .map(|&s| s as u64)
+            .sum();
+        // First block wins, matching `build_chunk_block_map`'s dedup so the set
+        // of summed blocks lines up with the blocks actually fetched.
+        map.entry(store_index.block_hashes[b]).or_insert(size);
+    }
+    map
 }
 
 /// Build a `chunk_hash -> block_hash` map (first block containing a chunk wins,

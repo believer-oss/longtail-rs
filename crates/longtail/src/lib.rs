@@ -67,7 +67,7 @@ pub use options::{
     UpsyncReport,
 };
 pub use path_filter::RegexPathFilter;
-pub use progress::{NullProgress, ProgressSink};
+pub use progress::{NullProgress, Progress, ProgressSink};
 // Re-exported so a facade-only consumer can match on the store-error classes
 // (`StoreError::NotAuthorized` / `Network` / `NotFound`) reachable through
 // `LongtailError::Store(_)` without a direct `longtail-store` dependency.

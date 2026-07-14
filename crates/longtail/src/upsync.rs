@@ -23,7 +23,7 @@ use crate::fs_util::{self, S3OptionsArg};
 use crate::hash_util::make_hasher;
 use crate::options::{UpsyncOptions, UpsyncReport};
 use crate::path_filter::RegexPathFilter;
-use crate::progress::{NullProgress, ProgressSink, RateLimited};
+use crate::progress::{NullProgress, Progress, ProgressSink, RateLimited};
 use crate::version::create_version_index_from_folder;
 
 /// The default upsync block-packing parameters (golongtail `options.go`).
@@ -96,6 +96,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
         } else {
             let hash_id = crate::hash_util::hash_identifier_for_name(&opts.hash_algorithm)?;
             let hasher = make_hasher(hash_id)?;
+            let on_scan = crate::version::scan_progress_forwarder(progress.clone());
             create_version_index_from_folder(
                 &source_folder,
                 &filter,
@@ -104,6 +105,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
                 compression_tag,
                 &pool,
                 &cancel,
+                Some(&on_scan),
             )?
         };
     lap("index_version", &mut timer);
@@ -228,6 +230,11 @@ pub(crate) async fn write_content(
         }
     }
 
+    // Byte dimension: total decompressed payload = Σ all missing chunk sizes
+    // (every block is written); `done_bytes` accrues each block's payload length.
+    let total_bytes: u64 = missing.chunk_sizes.iter().map(|&s| s as u64).sum();
+    let mut done_bytes = 0u64;
+
     let mut stats = WriteContentStats::default();
     // Single-asset read cache (chunks within a block are asset-order-grouped, so
     // the asset changes monotonically — one open per asset per block, as in C).
@@ -273,13 +280,20 @@ pub(crate) async fn write_content(
         let block_index = missing.block_index_at(b).ok_or_else(|| {
             LongtailError::InvalidArgument(format!("missing store index block {b} is malformed"))
         })?;
+        let payload_len = payload.len() as u64;
         store
             .put_stored_block(StoredBlock {
                 block_index,
                 payload,
             })
             .await?;
-        progress.report(b as u32 + 1, total_blocks);
+        done_bytes += payload_len;
+        progress.report(Progress {
+            done_items: b as u64 + 1,
+            total_items: total_blocks as u64,
+            done_bytes,
+            total_bytes,
+        });
     }
     Ok(stats)
 }

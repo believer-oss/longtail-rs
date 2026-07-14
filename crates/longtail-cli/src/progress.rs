@@ -1,26 +1,37 @@
-//! CLI progress rendering for `get`/`downsync`.
+//! CLI progress rendering for `get`/`downsync` (and `upsync`/`put`/`clone-store`).
 //!
-//! Implements [`longtail::ProgressSink`]. On an interactive stderr it drives an
-//! `indicatif` bar with a steady tick — so the pre-download indexing/diff phases
-//! (which emit `on_phase` but no `on_progress`) still animate a spinner rather
-//! than sitting silent. When stderr is not a terminal (piped / CI) it falls back
-//! to throttled `eprintln!` lines so logs stay readable.
-//!
-//! The library already reports incrementally (per completed block in
-//! `apply.rs`, plus phase markers) through a facade-side rate limiter; the CLI
-//! previously attached no sink, so all of that was discarded to `NullProgress`.
+//! Implements [`longtail::ProgressSink`]. On an interactive stderr it drives a
+//! single `indicatif` bar that shows both dimensions on one line: the phase name
+//! (prefix), the item count `XXX/YYY` (blocks for the download apply loop, files
+//! for the target scan) as the message, and — driving the bar fill — the byte
+//! dimension with a live data rate + ETA. The bar is byte-driven so indicatif's
+//! smoothed rate applies to the actual data; the item count rides along as text.
+//! Phases that report no progress (reading indexes, validating) show a plain
+//! spinner + phase name. When stderr is not a terminal (piped / CI) it falls back
+//! to a single throttled line carrying both metrics.
 
 use std::io::IsTerminal;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
+use bytesize::ByteSize;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use longtail::ProgressSink;
+use longtail::{Progress, ProgressSink};
+
+/// Fixed phase-label column width (the longest label, "Reading version index"),
+/// so the bar starts at the same column regardless of phase.
+const MSG_WIDTH: usize = 21;
 
 /// A terminal-aware progress sink for the CLI.
 pub enum CliProgress {
-    /// Interactive: an indicatif bar drawn on stderr with a steady tick.
-    Bar(ProgressBar),
+    /// Interactive: one indicatif bar carrying phase + item count + byte rate.
+    Bar {
+        bar: ProgressBar,
+        /// Whether the byte/count ("full") style is installed for the current
+        /// phase (vs the plain spinner used until real progress arrives).
+        full: AtomicBool,
+    },
     /// Non-interactive: throttled plain-text lines on stderr.
     Plain(Mutex<PlainState>),
 }
@@ -29,8 +40,37 @@ pub enum CliProgress {
 /// takes `&self`).
 pub struct PlainState {
     phase: String,
-    /// Last printed decile (`done*10/total`), or `-1` before the first print.
+    /// Last printed decile of the driving dimension, or `-1` before the first
+    /// print.
     last_decile: i32,
+    /// When the current phase began (for the average byte rate).
+    phase_start: Instant,
+}
+
+/// Plain spinner + phase name, for phases that report no per-item progress.
+fn spinner_style() -> ProgressStyle {
+    ProgressStyle::with_template("{spinner:.green} {prefix}")
+        .unwrap_or_else(|_| ProgressStyle::default_spinner())
+}
+
+/// The single combined bar: phase, item count (`{msg}`), then the byte-driven
+/// bar/size/rate/ETA.
+fn full_style() -> ProgressStyle {
+    ProgressStyle::with_template(&format!(
+        "{{spinner:.green}} {{prefix:{MSG_WIDTH}}} [{{bar:30.cyan/blue}}] {{msg}}  {{bytes}}/{{total_bytes}} ({{binary_bytes_per_sec}}, ETA {{eta}})"
+    ))
+    .unwrap_or_else(|_| ProgressStyle::default_bar())
+    .progress_chars("=>-")
+}
+
+/// Like [`full_style`] but for the finished line left on screen: shows the
+/// elapsed time (`in {elapsed}`) instead of a now-meaningless `ETA 0s`.
+fn finished_style() -> ProgressStyle {
+    ProgressStyle::with_template(&format!(
+        "{{spinner:.green}} {{prefix:{MSG_WIDTH}}} [{{bar:30.cyan/blue}}] {{msg}}  {{bytes}}/{{total_bytes}} ({{binary_bytes_per_sec}}, in {{elapsed}})"
+    ))
+    .unwrap_or_else(|_| ProgressStyle::default_bar())
+    .progress_chars("=>-")
 }
 
 impl CliProgress {
@@ -38,59 +78,92 @@ impl CliProgress {
     /// terminal.
     pub fn new() -> CliProgress {
         if std::io::stderr().is_terminal() {
-            // Length unknown until the first `on_progress`; start as a spinner so
-            // the indexing/diff phases animate. `{wide_bar}` renders empty until a
-            // length is set, then fills.
             let bar = ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr());
-            bar.set_style(
-                ProgressStyle::with_template(
-                    "{spinner:.green} {msg:20} [{wide_bar:.cyan/blue}] {pos}/{len} ({elapsed})",
-                )
-                .unwrap_or_else(|_| ProgressStyle::default_bar())
-                .progress_chars("=>-"),
-            );
+            bar.set_style(spinner_style());
             bar.enable_steady_tick(Duration::from_millis(120));
-            CliProgress::Bar(bar)
+            CliProgress::Bar {
+                bar,
+                full: AtomicBool::new(false),
+            }
         } else {
             CliProgress::Plain(Mutex::new(PlainState {
                 phase: String::new(),
                 last_decile: -1,
+                phase_start: Instant::now(),
             }))
         }
     }
 
-    /// Finish and clear any live bar. Call before printing stats or an error so
-    /// the leftover bar line does not clash with subsequent output.
+    /// Finish the live bar, **leaving its final line on screen** so the totals
+    /// (final count + bytes + rate) remain visible after the run. Stops the
+    /// steady tick and drops to a new line, so subsequent stats/errors print
+    /// below it.
     pub fn finish(&self) {
-        if let CliProgress::Bar(bar) = self {
-            bar.finish_and_clear();
+        if let CliProgress::Bar { bar, full } = self {
+            // If a progress phase was active, swap to the elapsed-time style so
+            // the frozen line reads "in 14s" rather than "ETA 0s".
+            if full.load(Ordering::Relaxed) {
+                bar.set_style(finished_style());
+            }
+            bar.finish();
         }
     }
 }
 
 impl ProgressSink for CliProgress {
-    fn on_progress(&self, done: u32, total: u32) {
+    fn on_progress(&self, p: Progress) {
         match self {
-            CliProgress::Bar(bar) => {
-                // `total` may grow as phases are entered; keep the length in sync.
-                bar.set_length(total as u64);
-                bar.set_position(done as u64);
+            CliProgress::Bar { bar, full } => {
+                // First real sample of the phase → switch to the combined style.
+                if !full.swap(true, Ordering::Relaxed) {
+                    bar.set_style(full_style());
+                }
+                // Byte-driven fill (indicatif derives the rate); the item count
+                // rides along as the message.
+                bar.set_length(p.total_bytes);
+                bar.set_position(p.done_bytes);
+                if p.total_items != 0 {
+                    bar.set_message(format!("{}/{}", p.done_items, p.total_items));
+                }
             }
             CliProgress::Plain(state) => {
                 let mut s = state.lock().expect("progress mutex poisoned");
-                let terminal = total != 0 && done >= total;
-                // Coalesce to ~decile steps (plus the terminal report) so a large
-                // block count does not flood the log — the facade forwards every
-                // block, `RateLimited` uses step = 1.
-                let decile = if total == 0 {
-                    0
+                // Drive the decile off whichever dimension is known (prefer items).
+                let (done, total) = if p.total_items != 0 {
+                    (p.done_items, p.total_items)
                 } else {
-                    (done as u64 * 10 / total as u64) as i32
+                    (p.done_bytes, p.total_bytes)
                 };
+                let terminal = total != 0 && done >= total;
+                let decile = done
+                    .checked_mul(10)
+                    .and_then(|x| x.checked_div(total))
+                    .unwrap_or(0) as i32;
                 if s.last_decile != decile || terminal {
                     s.last_decile = decile;
-                    let pct = (done as u64 * 100).checked_div(total as u64).unwrap_or(100);
-                    eprintln!("  {}: {done}/{total} ({pct}%)", s.phase);
+                    let mut line = format!("  {}:", s.phase);
+                    if p.total_items != 0 {
+                        let pct = p
+                            .done_items
+                            .checked_mul(100)
+                            .and_then(|x| x.checked_div(p.total_items))
+                            .unwrap_or(0);
+                        line.push_str(&format!(" {}/{} ({pct}%)", p.done_items, p.total_items));
+                    }
+                    if p.total_bytes != 0 {
+                        let secs = s.phase_start.elapsed().as_secs_f64();
+                        let rate = if secs > 0.0 {
+                            (p.done_bytes as f64 / secs) as u64
+                        } else {
+                            0
+                        };
+                        line.push_str(&format!(
+                            " {} ({}/s)",
+                            ByteSize(p.done_bytes),
+                            ByteSize(rate)
+                        ));
+                    }
+                    eprintln!("{line}");
                 }
             }
         }
@@ -98,16 +171,20 @@ impl ProgressSink for CliProgress {
 
     fn on_phase(&self, phase: &str) {
         match self {
-            CliProgress::Bar(bar) => {
-                // Reset for the new phase; the next `on_progress` sets the length.
-                bar.set_position(0);
-                bar.set_length(0);
-                bar.set_message(phase.to_string());
+            CliProgress::Bar { bar, full } => {
+                // Back to the plain spinner until this phase reports progress;
+                // fresh per-phase elapsed/rate/ETA.
+                bar.reset();
+                bar.set_style(spinner_style());
+                bar.set_message("");
+                bar.set_prefix(phase.to_string());
+                full.store(false, Ordering::Relaxed);
             }
             CliProgress::Plain(state) => {
                 let mut s = state.lock().expect("progress mutex poisoned");
                 s.phase = phase.to_string();
                 s.last_decile = -1;
+                s.phase_start = Instant::now();
                 eprintln!("{phase}...");
             }
         }
