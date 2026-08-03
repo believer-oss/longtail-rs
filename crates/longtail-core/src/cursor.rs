@@ -72,25 +72,26 @@ impl<'a> Reader<'a> {
     pub(crate) fn u16_vec(&mut self, n: usize) -> Result<Vec<u16>, FormatError> {
         let bytes = checked_mul(n, 2)?;
         let b = self.take(bytes)?;
-        Ok(b.chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect())
+        // `as_chunks` yields fixed `[u8; N]` arrays (an exact split — `take`
+        // returned exactly `n * N` bytes, so the remainder is empty) and
+        // `from_le_bytes` copies byte-wise, so this stays alignment-free (no
+        // `&[u16]` cast; see the unaligned-cursor rule in docs/format-spec.md).
+        let (chunks, _rest) = b.as_chunks::<2>();
+        Ok(chunks.iter().map(|c| u16::from_le_bytes(*c)).collect())
     }
 
     pub(crate) fn u32_vec(&mut self, n: usize) -> Result<Vec<u32>, FormatError> {
         let bytes = checked_mul(n, 4)?;
         let b = self.take(bytes)?;
-        Ok(b.chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect())
+        let (chunks, _rest) = b.as_chunks::<4>();
+        Ok(chunks.iter().map(|c| u32::from_le_bytes(*c)).collect())
     }
 
     pub(crate) fn u64_vec(&mut self, n: usize) -> Result<Vec<u64>, FormatError> {
         let bytes = checked_mul(n, 8)?;
         let b = self.take(bytes)?;
-        Ok(b.chunks_exact(8)
-            .map(|c| u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-            .collect())
+        let (chunks, _rest) = b.as_chunks::<8>();
+        Ok(chunks.iter().map(|c| u64::from_le_bytes(*c)).collect())
     }
 }
 

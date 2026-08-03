@@ -124,14 +124,15 @@ jobs:
       - name: Rustfmt Check
         run: cargo +nightly fmt --all --check
 
+      # `-D warnings`: warnings fail the build, so lint regressions can't merge.
       - name: Clippy
-        run: cargo +nightly clippy --workspace --all-targets
+        run: cargo +nightly clippy --workspace --all-targets -- -D warnings
 
       # Also lint the pure `fastcdc` chunker feature (no native lib needed). The
       # `differential`-feature clippy runs in the differential lane / locally, as
       # it needs the prebuilt lib + a C compiler.
       - name: Clippy (fastcdc feature)
-        run: cargo +nightly clippy --workspace --all-targets --features longtail-core/fastcdc
+        run: cargo +nightly clippy --workspace --all-targets --features longtail-core/fastcdc -- -D warnings
 
   # Miri: catch undefined behaviour across the trust-critical pure logic of
   # `longtail-core`. Covers the format layer's unaligned byte-cursor reads (packed
