@@ -17,7 +17,7 @@ longtail-core = { path = "../longtail-core" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1.49", features = ["rt-multi-thread", "signal"] }
 serde_json = "1"
-indicatif = "0.17"
+indicatif = "0.18"
 bytesize = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
