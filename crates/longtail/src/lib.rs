@@ -68,6 +68,17 @@ pub use options::{
 };
 pub use path_filter::RegexPathFilter;
 pub use progress::{NullProgress, Progress, ProgressSink};
+// Re-exported so a caller can construct/trigger cancellation without a direct
+// `tokio-util` dependency (or a version-coupling to it). Put a clone in
+// `DownsyncOptions`/`GetOptions::cancel` and call `.cancel()` to stop: in-flight
+// blocks finish, the partial target and its `.lrb` block cache stay valid, and
+// the op returns `LongtailError::Cancelled`. This is also the pause primitive —
+// "pause" = cancel and keep the target folder; "resume" = call `get`/`downsync`
+// again (delta-only; already-fetched blocks come from the cache, not the store,
+// though resume does re-scan the target); "cancel" = the same, then delete the
+// target. Cancellation is block-granular: it stops launching the next block but
+// cannot abort an already-in-flight fetch.
+pub use tokio_util::sync::CancellationToken;
 // Re-exported so a facade-only consumer can match on the store-error classes
 // (`StoreError::NotAuthorized` / `Network` / `NotFound`) reachable through
 // `LongtailError::Store(_)` without a direct `longtail-store` dependency.

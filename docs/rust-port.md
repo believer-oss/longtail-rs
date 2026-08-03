@@ -54,7 +54,11 @@ structured errors) and a CI/CD pipeline that needs a drop-in golongtail CLI.
 The public API is a plain `async fn downsync(...)` (and a `_blocking` convenience) that runs on
 the caller's ambient runtime — the library never creates a runtime. Credentials are held as a
 provider/`Client`, never as a snapshot, so the AWS SDK's lazy credentials cache refreshes
-mid-operation on long transfers. Cancellation is a `CancellationToken`; progress is a callback
+mid-operation on long transfers. Cancellation is a `CancellationToken` (re-exported from the
+facade as `longtail::CancellationToken`) — checked between block launches in apply and per-asset
+in the scan, so a cancel leaves the target resumable; it doubles as the pause primitive (pause =
+cancel + keep the tree/cache, resume = re-invoke, which re-scans + diffs + fetches only the delta
+from cache). The CLI wires ctrl-c to it for a graceful stop. Progress is a callback
 trait (`ProgressSink`) whose `Progress` sample carries two dimensions at once — an item count
 (blocks for the download apply loop, files for the target scan) and a byte count — so a consumer
 can show item progress and an approximate data rate together (the CLI collapses both onto one

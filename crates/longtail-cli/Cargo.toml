@@ -15,7 +15,7 @@ s3 = ["longtail/s3"]
 longtail = { path = "../longtail", default-features = false }
 longtail-core = { path = "../longtail-core" }
 clap = { version = "4", features = ["derive"] }
-tokio = { version = "1.49", features = ["rt-multi-thread"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "signal"] }
 serde_json = "1"
 indicatif = "0.17"
 bytesize = "1"

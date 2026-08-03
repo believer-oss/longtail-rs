@@ -481,6 +481,14 @@ fn main() -> ExitCode {
     };
     match runtime.block_on(run(&cli)) {
         Ok(()) => ExitCode::SUCCESS,
+        // A ctrl-c cancel is a clean stop, not an error: the partial target is
+        // left resumable (re-run the same command to continue). Exit 130 (SIGINT).
+        // User-facing terminal output (like `error:`/stats below) → eprintln, not
+        // a RUST_LOG-gated tracing log, so it always shows.
+        Err(longtail::LongtailError::Cancelled) => {
+            eprintln!("cancelled — partial download left in place; run the same command to resume");
+            ExitCode::from(130)
+        }
         Err(e) => {
             // Render the full source chain: LongtailError's top-level Display is
             // a category (e.g. "store error"); the cause hangs off `#[source]`.
@@ -488,6 +496,30 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Build a cancellation token and spawn a ctrl-c watcher that triggers it on the
+/// first SIGINT (in-flight blocks finish, the store flushes/closes, the target is
+/// left resumable) and force-quits on a second. The returned token goes into
+/// `opts.cancel` for the long-running download/upload ops.
+fn install_cancel_handler() -> longtail::CancellationToken {
+    let token = longtail::CancellationToken::new();
+    let watch = token.clone();
+    tokio::spawn(async move {
+        let mut n = 0u32;
+        while tokio::signal::ctrl_c().await.is_ok() {
+            n += 1;
+            if n == 1 {
+                // Interactive feedback in response to the user's signal → eprintln
+                // (must show regardless of RUST_LOG), consistent with the bar.
+                eprintln!("\nCancelling… finishing in-flight blocks (ctrl-c again to force quit)");
+                watch.cancel();
+            } else {
+                std::process::exit(130);
+            }
+        }
+    });
+    token
 }
 
 async fn run(cli: &Cli) -> Result<(), longtail::LongtailError> {
@@ -568,10 +600,11 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
+    opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
     let result = downsync(opts).await;
-    progress.finish(); // clear the bar before stats / error output
+    progress.finish(result.is_ok());
     let report = result?;
     if cli.show_stats {
         print_stats(&report);
@@ -600,10 +633,11 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
+    opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
     let result = get(opts).await;
-    progress.finish(); // clear the bar before stats / error output
+    progress.finish(result.is_ok());
     let report = result?;
     if cli.show_stats {
         print_stats(&report);
@@ -665,10 +699,11 @@ async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailE
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
+    opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
     let result = longtail::upsync(opts).await;
-    progress.finish();
+    progress.finish(result.is_ok());
     let report = result?;
     if cli.show_stats {
         eprintln!(
@@ -705,7 +740,7 @@ async fn run_put(cli: &Cli, a: &PutArgs) -> Result<(), longtail::LongtailError> 
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
     let result = longtail::put(opts).await;
-    progress.finish();
+    progress.finish(result.is_ok());
     let report = result?;
     if cli.show_stats {
         eprintln!(
@@ -846,7 +881,7 @@ async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
     let result = longtail::clone_store(opts).await;
-    progress.finish();
+    progress.finish(result.is_ok());
     let cloned = result?;
     if cli.show_stats {
         eprintln!("clone-store complete: {cloned} versions cloned");

@@ -98,14 +98,20 @@ impl CliProgress {
     /// (final count + bytes + rate) remain visible after the run. Stops the
     /// steady tick and drops to a new line, so subsequent stats/errors print
     /// below it.
-    pub fn finish(&self) {
+    /// Freeze the bar and leave its final line on screen. On `completed` the bar
+    /// snaps to 100% (the run finished); otherwise (cancel/error) it is abandoned
+    /// at its actual position so the frozen line honestly shows how far it got.
+    /// Either way the elapsed-time style replaces the now-meaningless ETA.
+    pub fn finish(&self, completed: bool) {
         if let CliProgress::Bar { bar, full } = self {
-            // If a progress phase was active, swap to the elapsed-time style so
-            // the frozen line reads "in 14s" rather than "ETA 0s".
             if full.load(Ordering::Relaxed) {
                 bar.set_style(finished_style());
             }
-            bar.finish();
+            if completed {
+                bar.finish();
+            } else {
+                bar.abandon();
+            }
         }
     }
 }
