@@ -20,7 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # `issues: write` for the scheduled-run issue reports; `checks: write` so
+      # the action can create its check-run on push events (without it the API
+      # call fails with "Resource not accessible by integration").
       issues: write
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
