@@ -207,6 +207,31 @@ pub fn synthetic_store_index(blocks: usize, chunks_per_block: usize) -> longtail
     }
 }
 
+/// Write a synthetic `store.lsi` of approximately `size_mb` MiB to `path` — a
+/// valid, internally-consistent [`longtail_core::StoreIndex`] standing in for a
+/// large accumulated store index (Fellowship's ~1.29 GB shards). Seeding a store
+/// with this and upsyncing a small delta exercises the read-merge-flush path
+/// (the upsync OOM vector) without generating millions of real blocks. Returns
+/// the block count actually written.
+pub fn write_synthetic_store_lsi(
+    path: &Path,
+    size_mb: usize,
+    chunks_per_block: usize,
+) -> std::io::Result<usize> {
+    // On-disk StoreIndex size ≈ 20·B (block_hash + 3× u32 per block) + 12·B·K
+    // (u64 chunk_hash + u32 chunk_size per chunk); solve for the block count B.
+    let target = size_mb.max(1) * MIB;
+    let per_block = 20 + 12 * chunks_per_block.max(1);
+    let blocks = (target / per_block).max(1);
+    let si = synthetic_store_index(blocks, chunks_per_block.max(1));
+    let bytes = si.to_bytes();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, &bytes)?;
+    Ok(blocks)
+}
+
 // -------------------------------------------------------------------------
 // The synthetic ~1 GiB dataset + v1→v2 churn (e2e harness / dedup driver)
 // -------------------------------------------------------------------------

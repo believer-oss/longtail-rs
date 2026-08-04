@@ -29,11 +29,17 @@
 //!   5× a measured baseline), a timed-out run is killed, recorded as such, and
 //!   retried with a fresh process (fresh C state) — never averaged in.
 //!
+//! An additional `upsync` scenario measures the PUT-path flush (Rust + golongtail
+//! only): it seeds a store with a large synthetic `store.lsi` and times a small
+//! upsync, so peak RSS reflects the read-merge-flush of the large store index
+//! (the constrained-host OOM path), not block I/O.
+//!
 //! Config via env (all optional):
 //!   LONGTAIL_BENCH_DATA_SIZE_MB (1024) · LONGTAIL_BENCH_ITERS (5)
 //!   LONGTAIL_BENCH_COLD_WORKERS ("2,4,8,0"; 0 = NumCPU)
 //!   LONGTAIL_BENCH_MAIN_WORKERS (8) · LONGTAIL_BENCH_SCENARIOS
-//!   ("cold,warm,incremental") · LONGTAIL_BENCH_TIMEOUT_MULT (5)
+//!   ("cold,warm,incremental"; add "upsync") · LONGTAIL_BENCH_TIMEOUT_MULT (5)
+//!   LONGTAIL_BENCH_STORE_INDEX_MB (256, the upsync-seed store.lsi size)
 //!   LONGTAIL_BENCH_SKIP_GO (unset) · LONGTAIL_BENCH_SKIP_FFI (unset)
 
 use std::mem::MaybeUninit;
@@ -41,7 +47,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use longtail_bench::{ChurnSummary, bench_root, dataset_plan, write_churned_v2, write_dataset};
+use longtail_bench::{
+    ChurnSummary, bench_root, dataset_plan, write_churned_v2, write_dataset,
+    write_synthetic_store_lsi,
+};
 use longtail_testkit::paths::golongtail_binary;
 
 // ---------------------------------------------------------------------------
@@ -226,7 +235,7 @@ fn go_upsync(go: &Path, src: &Path, lvi: &Path, store: &Path, store_lsi: &Path) 
     );
 }
 
-fn setup() -> Paths {
+fn setup(need_download: bool) -> Paths {
     let root = bench_root();
     std::fs::create_dir_all(&root).expect("create target/bench");
 
@@ -242,8 +251,9 @@ fn setup() -> Paths {
         "Rust CLI not found at {} — build it: cargo build --release -p longtail-cli",
         rust_cli.display()
     );
+    // The ffi-driver is only used by the download scenarios.
     assert!(
-        ffi_driver.is_file(),
+        !need_download || ffi_driver.is_file(),
         "ffi-driver not found at {} — build it: cargo build --release -p longtail-bench --features differential --bin ffi-driver",
         ffi_driver.display()
     );
@@ -268,51 +278,55 @@ fn setup() -> Paths {
     rm(&scratch);
     std::fs::create_dir_all(&scratch).unwrap();
 
-    let size_mb = env_usize("LONGTAIL_BENCH_DATA_SIZE_MB", 1024);
-    let total = size_mb * 1024 * 1024;
-    let plan = dataset_plan(total);
+    // The download dataset + golongtail-built store are only needed by the
+    // download scenarios; skip them entirely for an `upsync`-only run.
+    if need_download {
+        let size_mb = env_usize("LONGTAIL_BENCH_DATA_SIZE_MB", 1024);
+        let total = size_mb * 1024 * 1024;
+        let plan = dataset_plan(total);
 
-    if !dir_nonempty(&data_v1) {
-        eprintln!(
-            "generating v1 dataset (~{size_mb} MiB, {} files) into {}",
-            plan.len(),
-            data_v1.display()
-        );
-        std::fs::create_dir_all(&data_v1).unwrap();
-        let n = write_dataset(&data_v1, &plan).expect("write v1");
-        eprintln!("  wrote {:.1} MiB", n as f64 / (1024.0 * 1024.0));
-    }
-    if !dir_nonempty(&data_v2) {
-        eprintln!("generating v2 (churned) into {}", data_v2.display());
-        std::fs::create_dir_all(&data_v2).unwrap();
-        let s: ChurnSummary = write_churned_v2(&data_v1, &data_v2, &plan).expect("write v2");
-        eprintln!("  churn: {s:?}");
-    }
-
-    // Upsync both versions into a single fs store via golongtail (the shared
-    // source of truth every impl downloads from). Requires golongtail.
-    if !v1_lvi.is_file() || !v2_lvi.is_file() {
-        let go_bin = go.clone().expect("golongtail required to build the bench store (upsync); cache it with `xtask fetch-golongtail` or set LONGTAIL_BENCH_SKIP_GO only after the store exists");
-        std::fs::create_dir_all(&store).unwrap();
-        if !v1_lvi.is_file() {
-            eprintln!("upsync v1 -> store (golongtail)");
-            go_upsync(
-                &go_bin,
-                &data_v1,
-                &v1_lvi,
-                &store,
-                &store.join("v1-store.lsi"),
+        if !dir_nonempty(&data_v1) {
+            eprintln!(
+                "generating v1 dataset (~{size_mb} MiB, {} files) into {}",
+                plan.len(),
+                data_v1.display()
             );
+            std::fs::create_dir_all(&data_v1).unwrap();
+            let n = write_dataset(&data_v1, &plan).expect("write v1");
+            eprintln!("  wrote {:.1} MiB", n as f64 / (1024.0 * 1024.0));
         }
-        if !v2_lvi.is_file() {
-            eprintln!("upsync v2 -> store (golongtail)");
-            go_upsync(
-                &go_bin,
-                &data_v2,
-                &v2_lvi,
-                &store,
-                &store.join("v2-store.lsi"),
-            );
+        if !dir_nonempty(&data_v2) {
+            eprintln!("generating v2 (churned) into {}", data_v2.display());
+            std::fs::create_dir_all(&data_v2).unwrap();
+            let s: ChurnSummary = write_churned_v2(&data_v1, &data_v2, &plan).expect("write v2");
+            eprintln!("  churn: {s:?}");
+        }
+
+        // Upsync both versions into a single fs store via golongtail (the shared
+        // source of truth every impl downloads from). Requires golongtail.
+        if !v1_lvi.is_file() || !v2_lvi.is_file() {
+            let go_bin = go.clone().expect("golongtail required to build the bench store (upsync); cache it with `xtask fetch-golongtail` or set LONGTAIL_BENCH_SKIP_GO only after the store exists");
+            std::fs::create_dir_all(&store).unwrap();
+            if !v1_lvi.is_file() {
+                eprintln!("upsync v1 -> store (golongtail)");
+                go_upsync(
+                    &go_bin,
+                    &data_v1,
+                    &v1_lvi,
+                    &store,
+                    &store.join("v1-store.lsi"),
+                );
+            }
+            if !v2_lvi.is_file() {
+                eprintln!("upsync v2 -> store (golongtail)");
+                go_upsync(
+                    &go_bin,
+                    &data_v2,
+                    &v2_lvi,
+                    &store,
+                    &store.join("v2-store.lsi"),
+                );
+            }
         }
     }
 
@@ -445,6 +459,61 @@ fn impls(p: &Paths) -> Vec<Impl> {
     v
 }
 
+/// Build an `upsync` command for the given impl (Rust CLI or golongtail) that
+/// uploads `src` into `store_dir` (pre-seeded with a large `store.lsi`), writing
+/// the version index to `lvi`. The measured cost is the read-merge-flush of the
+/// large store index. Fixed hash/compression/chunk-size so every impl does the
+/// same work; the fs store's canonical `store.lsi` is what the flush rewrites.
+/// (No ffi arm: `ffi-driver` is downsync-only.)
+fn build_upsync_cmd(
+    p: &Paths,
+    imp: Impl,
+    src: &Path,
+    lvi: &Path,
+    store_dir: &Path,
+    workers: usize,
+) -> Command {
+    let w = workers.to_string();
+    let bin = match imp {
+        Impl::Rust => &p.rust_cli,
+        Impl::Go => p.go.as_ref().expect("go bin"),
+        Impl::Ffi => unreachable!("upsync has no ffi arm"),
+    };
+    let mut c = Command::new(bin);
+    c.args([
+        "upsync",
+        "--storage-uri",
+        &store_dir.to_string_lossy(),
+        "--source-path",
+        &src.to_string_lossy(),
+        "--target-path",
+        &lvi.to_string_lossy(),
+        "--hash-algorithm",
+        "blake3",
+        "--compression-algorithm",
+        "zstd",
+        "--target-chunk-size",
+        "32768",
+        "--worker-count",
+        &w,
+        "--remote-worker-count",
+        &w,
+        "--log-level",
+        "error",
+    ]);
+    c
+}
+
+/// Impls that run the upsync scenario (Rust + golongtail; no C — `ffi-driver`
+/// only does downsync).
+fn upsync_impls(p: &Paths) -> Vec<Impl> {
+    let mut v = vec![Impl::Rust];
+    if p.go.is_some() {
+        v.push(Impl::Go);
+    }
+    v
+}
+
 // ---------------------------------------------------------------------------
 // Stats + reporting
 // ---------------------------------------------------------------------------
@@ -501,7 +570,6 @@ fn measure_cell(
 }
 
 fn main() {
-    let p = setup();
     let iters = env_usize("LONGTAIL_BENCH_ITERS", 5);
     let main_workers = env_usize("LONGTAIL_BENCH_MAIN_WORKERS", 8);
     let timeout_mult = env_usize("LONGTAIL_BENCH_TIMEOUT_MULT", 5) as u32;
@@ -516,40 +584,51 @@ fn main() {
         .split(',')
         .map(|s| s.trim().to_string())
         .collect();
+    // Download scenarios need the golongtail-built store + the ffi-driver; the
+    // `upsync` scenario needs neither. Skip that setup when it isn't requested.
+    let need_download = scenarios
+        .iter()
+        .any(|s| matches!(s.as_str(), "cold" | "warm" | "incremental"));
 
-    eprintln!("== pre-warming store page cache ==");
-    read_all_files(&p.store);
+    let p = setup(need_download);
 
-    // Establish a baseline (single warm golongtail-or-rust cold downsync of v1)
-    // to size the per-run hard timeout = mult × baseline.
-    eprintln!("== measuring timeout baseline ==");
-    let baseline_target = p.scratch.join("baseline");
-    rm(&baseline_target);
-    let base_imp = if p.go.is_some() { Impl::Go } else { Impl::Rust };
-    let base = run_timed(
-        build_cmd(
-            &p,
-            base_imp,
-            &p.v1_lvi,
-            &baseline_target,
-            main_workers,
-            None,
-        ),
-        Duration::from_secs(1800),
-    );
-    rm(&baseline_target);
-    let baseline = if base.ok {
-        base.wall
+    // Timeout: for download runs, size it off a baseline v1 downsync; otherwise a
+    // fixed generous default (the upsync flush is bounded by the store-index size).
+    let (baseline, timeout) = if need_download {
+        eprintln!("== pre-warming store page cache ==");
+        read_all_files(&p.store);
+        eprintln!("== measuring timeout baseline ==");
+        let baseline_target = p.scratch.join("baseline");
+        rm(&baseline_target);
+        let base_imp = if p.go.is_some() { Impl::Go } else { Impl::Rust };
+        let base = run_timed(
+            build_cmd(
+                &p,
+                base_imp,
+                &p.v1_lvi,
+                &baseline_target,
+                main_workers,
+                None,
+            ),
+            Duration::from_secs(1800),
+        );
+        rm(&baseline_target);
+        let baseline = if base.ok {
+            base.wall
+        } else {
+            Duration::from_secs(120)
+        };
+        let t = (baseline * timeout_mult).max(Duration::from_secs(60));
+        eprintln!(
+            "baseline downsync ({}) = {:.1}s; per-run hard timeout = {:.0}s",
+            base_imp.name(),
+            baseline.as_secs_f64(),
+            t.as_secs_f64()
+        );
+        (baseline, t)
     } else {
-        Duration::from_secs(120)
+        (Duration::ZERO, Duration::from_secs(600))
     };
-    let timeout = (baseline * timeout_mult).max(Duration::from_secs(60));
-    eprintln!(
-        "baseline downsync ({}) = {:.1}s; per-run hard timeout = {:.0}s",
-        base_imp.name(),
-        baseline.as_secs_f64(),
-        timeout.as_secs_f64()
-    );
 
     let impls = impls(&p);
     let mut cells: Vec<Cell> = Vec::new();
@@ -643,6 +722,69 @@ fn main() {
                     };
                     let cleanup = || rm(&target);
                     let make = || build_cmd(&p, imp, &p.v2_lvi, &target, main_workers, None);
+                    let (mut w, mut c, mut r, to) =
+                        measure_cell(&make, &prep, &cleanup, iters, timeout, &label);
+                    cells.push(Cell {
+                        scenario: scenario.clone(),
+                        imp: imp.name().to_string(),
+                        workers: main_workers,
+                        n_ok: w.len(),
+                        n_timeout: to,
+                        wall_ms: median(&mut w),
+                        cpu_ms: median(&mut c),
+                        rss_mib: median(&mut r),
+                    });
+                }
+            }
+            "upsync" => {
+                // The PUT-path memory scenario: a store pre-seeded with a large
+                // synthetic `store.lsi` (~STORE_INDEX_MB) + a small source. The
+                // timed upsync's cost is the read-merge-flush of the large index
+                // (GetExistingContent clones the union; flush merges + serializes
+                // it) — the Fellowship OOM path — not block I/O.
+                let root = bench_root();
+                let store_index_mb = env_usize("LONGTAIL_BENCH_STORE_INDEX_MB", 256);
+                let delta_src = root.join("upsync-delta");
+                let seed_lsi = root.join("upsync-seed.lsi");
+                if !dir_nonempty(&delta_src) {
+                    eprintln!(
+                        "generating small upsync delta source into {}",
+                        delta_src.display()
+                    );
+                    std::fs::create_dir_all(&delta_src).unwrap();
+                    let plan = dataset_plan(16 * 1024 * 1024);
+                    write_dataset(&delta_src, &plan).expect("write upsync delta");
+                }
+                if !seed_lsi.is_file() {
+                    eprintln!("generating ~{store_index_mb} MiB synthetic store.lsi seed");
+                    let n = write_synthetic_store_lsi(&seed_lsi, store_index_mb, 8)
+                        .expect("write seed store.lsi");
+                    eprintln!(
+                        "  seed: {n} blocks, {:.1} MiB",
+                        std::fs::metadata(&seed_lsi).unwrap().len() as f64 / 1048576.0
+                    );
+                }
+                read_all_files(&delta_src);
+                let _ = std::fs::read(&seed_lsi); // warm the seed into page cache
+
+                for &imp in &upsync_impls(&p) {
+                    let store_dir = p.scratch.join(format!("upsync-store-{}", imp.name()));
+                    let lvi = p.scratch.join(format!("upsync-{}.lvi", imp.name()));
+                    let label = format!("upsync/{}/w{main_workers}", imp.name());
+                    eprintln!("== {label} ({iters} iters) ==");
+                    // prep: fresh store holding only the pristine large store.lsi.
+                    let prep = || {
+                        rm(&store_dir);
+                        std::fs::create_dir_all(&store_dir).unwrap();
+                        std::fs::copy(&seed_lsi, store_dir.join("store.lsi"))
+                            .expect("seed store.lsi");
+                    };
+                    let cleanup = || {
+                        rm(&store_dir);
+                        let _ = std::fs::remove_file(&lvi);
+                    };
+                    let make =
+                        || build_upsync_cmd(&p, imp, &delta_src, &lvi, &store_dir, main_workers);
                     let (mut w, mut c, mut r, to) =
                         measure_cell(&make, &prep, &cleanup, iters, timeout, &label);
                     cells.push(Cell {
