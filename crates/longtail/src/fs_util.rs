@@ -96,15 +96,6 @@ fn scan_dir(
     Ok(())
 }
 
-/// Read an asset's bytes (empty for a directory).
-pub fn read_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<Vec<u8>, LongtailError> {
-    if is_dir {
-        return Ok(Vec::new());
-    }
-    let path = root.join(rel_path);
-    fs::read(&path).map_err(|e| LongtailError::io(format!("read {path:?}"), e))
-}
-
 /// Open a source asset read-only for ranged reads (the upload pack path reads
 /// each chunk's byte range positionally rather than slurping the whole file, so
 /// a multi-GB asset never resides in memory).
