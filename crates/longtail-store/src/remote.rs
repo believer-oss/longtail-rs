@@ -653,12 +653,26 @@ async fn index_owner(
                 min_block_usage_percent,
                 reply,
             } => {
-                let r = merged_index(&mut index, &added, &blob_store, &*client, access_type)
-                    .await
-                    .map(|idx| {
-                        idx.get_existing_store_index(&chunk_hashes, min_block_usage_percent)
-                    });
+                let r = existing_content(
+                    &mut index,
+                    &added,
+                    &blob_store,
+                    &*client,
+                    access_type,
+                    &chunk_hashes,
+                    min_block_usage_percent,
+                )
+                .await;
                 let _ = reply.send(r);
+                // ReadWrite stores (upsync / clone-store re-upload) query the
+                // union exactly once, before any puts; the retained union is not
+                // needed for the block writes or the flush (`persist` re-reads
+                // from the backend), so drop it to free ~union-sized memory during
+                // the write path. ReadOnly stores reuse the loaded index across
+                // many gets — keep it.
+                if access_type != AccessType::ReadOnly {
+                    index = None;
+                }
             }
             IndexCommand::Flush { reply } => {
                 let r = persist(&mut index, &mut added, &*client, access_type, false).await;
@@ -707,6 +721,39 @@ async fn merged_index(
     }
     let added_idx = store_index_from_added(added)?;
     base.merge(&added_idx).map_err(StoreError::from)
+}
+
+/// `GetExistingStoreIndex(chunk_hashes)` **without cloning the full union**.
+///
+/// The subset returned by `get_existing_store_index` covers only the blocks that
+/// carry `chunk_hashes` — typically a tiny fraction of the store. The old path
+/// materialized a full copy of the union first (`merged_index` → `base.clone()`),
+/// which at Fellowship scale doubles a >1 GB allocation per query. Here, in the
+/// common case (`added` empty — the query happens before any puts), the subset is
+/// derived directly from the loaded `base`; only once block indexes have
+/// accumulated is a merged view built (rare on this path).
+async fn existing_content(
+    index: &mut Option<StoreIndex>,
+    added: &[BlockIndex],
+    blob_store: &Arc<dyn BlobStore>,
+    client: &dyn crate::blob::BlobClient,
+    access_type: AccessType,
+    chunk_hashes: &[u64],
+    min_block_usage_percent: u32,
+) -> Result<StoreIndex, StoreError> {
+    if index.is_none() {
+        let loaded = sync::read_remote_store_index(&**blob_store, client, access_type).await?;
+        *index = Some(loaded);
+    }
+    let base = index.as_ref().unwrap();
+    if added.is_empty() {
+        Ok(base.get_existing_store_index(chunk_hashes, min_block_usage_percent))
+    } else {
+        let added_idx = store_index_from_added(added)?;
+        Ok(base
+            .merge(&added_idx)?
+            .get_existing_store_index(chunk_hashes, min_block_usage_percent))
+    }
 }
 
 /// Build a store index from accumulated block indexes, in a deterministic
