@@ -75,6 +75,26 @@ fn lsi_block_names(lsi_path: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+/// Order-independent content view of a store index: one tuple per block
+/// `(block_hash, tag, [(chunk_hash, chunk_size)…] in block order)`, sorted by
+/// block hash. Two indexes holding the same blocks in a different **block**
+/// order compare equal — that is exactly the port-vs-golongtail semantic-equality
+/// relation for a flushed `store.lsi` (block content is identical; only the
+/// accumulation order differs).
+fn store_index_block_tuples(si: &StoreIndex) -> Vec<(u64, u32, Vec<(u64, u32)>)> {
+    let mut out = Vec::with_capacity(si.block_hashes.len());
+    for b in 0..si.block_hashes.len() {
+        let off = si.block_chunks_offsets[b] as usize;
+        let cnt = si.block_chunk_counts[b] as usize;
+        let chunks: Vec<(u64, u32)> = (off..off + cnt)
+            .map(|i| (si.chunk_hashes[i], si.chunk_sizes[i]))
+            .collect();
+        out.push((si.block_hashes[b], si.block_tags[b], chunks));
+    }
+    out.sort_by_key(|(h, _, _)| *h);
+    out
+}
+
 struct Fresh {
     /// Committed cell dir under `fixtures/stores/`.
     cell: &'static str,
@@ -214,6 +234,21 @@ async fn upsync_byte_gates_fresh_cells() {
                     failures.push(format!("{}: GATE4 .lsb {} byte mismatch", cell.cell, name));
                 }
             }
+        }
+        // Gate 5: the canonical flushed `store.lsi` (the fs store's own index,
+        // written by the ReadWrite flush/persist path). It is NOT byte-identical
+        // to golongtail's — the port accumulates block-hash-sorted while
+        // golongtail uses completion order — but it must be semantically equal:
+        // the same (block_hash → sorted chunk-hash list) content, which is what
+        // makes it interoperable. This gate guards the flush/merge/serialize path
+        // the memory-optimization work touches against content drift.
+        let got_store =
+            StoreIndex::from_bytes(&std::fs::read(store_dir.join("store.lsi")).unwrap()).unwrap();
+        let want_store =
+            StoreIndex::from_bytes(&std::fs::read(committed_store.join("store.lsi")).unwrap())
+                .unwrap();
+        if store_index_block_tuples(&got_store) != store_index_block_tuples(&want_store) {
+            failures.push(format!("{}: GATE5 store.lsi content mismatch", cell.cell));
         }
     }
 
