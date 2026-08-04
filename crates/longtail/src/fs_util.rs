@@ -105,6 +105,14 @@ pub fn read_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<Vec<u8>, 
     fs::read(&path).map_err(|e| LongtailError::io(format!("read {path:?}"), e))
 }
 
+/// Open a source asset read-only for ranged reads (the upload pack path reads
+/// each chunk's byte range positionally rather than slurping the whole file, so
+/// a multi-GB asset never resides in memory).
+pub fn open_asset(root: &Path, rel_path: &str) -> Result<fs::File, LongtailError> {
+    let path = root.join(rel_path);
+    fs::File::open(&path).map_err(|e| LongtailError::io(format!("open {path:?}"), e))
+}
+
 /// `mkdir -p` for a directory asset.
 pub fn create_dir(root: &Path, rel_path: &str) -> Result<(), LongtailError> {
     let path = root.join(rel_path);

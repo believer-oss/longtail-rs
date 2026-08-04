@@ -7,6 +7,7 @@
 //! clone-store.
 
 use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -236,9 +237,12 @@ pub(crate) async fn write_content(
     let mut done_bytes = 0u64;
 
     let mut stats = WriteContentStats::default();
-    // Single-asset read cache (chunks within a block are asset-order-grouped, so
-    // the asset changes monotonically — one open per asset per block, as in C).
-    let mut cached: Option<(usize, Vec<u8>)> = None;
+    // One open file handle per source asset (chunks within a block are
+    // asset-order-grouped, so the asset changes monotonically and reads stay
+    // sequential). We read each chunk's byte range positionally into the block
+    // payload rather than slurping the whole asset — so a multi-GB pak never
+    // resides in memory (peak here is one block's payload, ~target_block_size).
+    let mut cached: Option<(usize, std::fs::File)> = None;
 
     let total_blocks = missing.block_count();
     for b in 0..missing.block_count() as usize {
@@ -256,25 +260,29 @@ pub(crate) async fn write_content(
                     "missing chunk {ch:#018x} not found in any source asset"
                 ))
             })?;
-            let bytes = match &cached {
-                Some((idx, data)) if *idx == asset_index => data,
+            let file = match &mut cached {
+                Some((idx, f)) if *idx == asset_index => f,
                 _ => {
                     let path = version_index.path(asset_index)?;
                     let path = fs_util::strip_trailing_slash(path).to_string();
-                    let data = fs_util::read_asset(source_folder, &path, false)?;
-                    cached = Some((asset_index, data));
-                    &cached.as_ref().unwrap().1
+                    let f = fs_util::open_asset(source_folder, &path)?;
+                    cached = Some((asset_index, f));
+                    &mut cached.as_mut().unwrap().1
                 }
             };
-            let start = asset_offset as usize;
-            let end = start + cs;
-            if end > bytes.len() {
-                return Err(LongtailError::InvalidArgument(format!(
-                    "source asset for chunk {ch:#018x} is shorter than indexed ({} < {end})",
-                    bytes.len()
-                )));
-            }
-            payload.extend_from_slice(&bytes[start..end]);
+            // Read exactly this chunk's bytes at its offset, straight into the
+            // block payload. A short read means the source asset is shorter than
+            // the index claims (the old whole-file path returned InvalidArgument).
+            file.seek(SeekFrom::Start(asset_offset))
+                .map_err(|e| LongtailError::io(format!("seek asset {asset_index}"), e))?;
+            let start = payload.len();
+            payload.resize(start + cs, 0);
+            file.read_exact(&mut payload[start..]).map_err(|e| {
+                LongtailError::InvalidArgument(format!(
+                    "source asset for chunk {ch:#018x} is shorter than indexed \
+                     (read {cs} at offset {asset_offset} failed): {e}"
+                ))
+            })?;
         }
         stats.raw_bytes += payload.len() as u64;
         let block_index = missing.block_index_at(b).ok_or_else(|| {
