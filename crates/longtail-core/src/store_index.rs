@@ -214,6 +214,18 @@ impl StoreIndex {
     /// chunk offset would exceed `u32` returns [`FormatError::SizeOverflow`]
     /// where C's `uint32_t` accumulation silently wraps — accepted, adversarial
     /// only.)
+    /// Reserve capacity in all six parallel arrays ahead of a bulk build
+    /// (`blocks` block entries, `chunks` chunk entries) so they don't
+    /// grow-by-double. Purely an allocation hint — never changes contents.
+    fn reserve_capacity(&mut self, blocks: usize, chunks: usize) {
+        self.block_hashes.reserve(blocks);
+        self.block_chunks_offsets.reserve(blocks);
+        self.block_chunk_counts.reserve(blocks);
+        self.block_tags.reserve(blocks);
+        self.chunk_hashes.reserve(chunks);
+        self.chunk_sizes.reserve(chunks);
+    }
+
     pub fn merge(&self, other: &StoreIndex) -> Result<StoreIndex, FormatError> {
         let local = self;
         let remote = other;
@@ -238,6 +250,13 @@ impl StoreIndex {
         };
 
         let mut out = StoreIndex::empty(hash_identifier);
+        // Pre-size the output arrays to the union upper bound (dedup only ever
+        // removes), killing the doubling-realloc overshoot — at GB scale the
+        // grow-by-doubling transiently allocated up to ~2× the final buffers.
+        out.reserve_capacity(
+            local_block_count + remote_block_count,
+            local.chunk_hashes.len() + remote.chunk_hashes.len(),
+        );
 
         // Pass 1: local's unique blocks, in local order (first occurrence wins).
         let mut local_seen: HashSet<u64> = HashSet::with_capacity(local_block_count);
@@ -295,6 +314,9 @@ impl StoreIndex {
             }
         }
         let mut out = StoreIndex::empty(hash_identifier);
+        // Exact pre-size: one block each, Σ chunk counts total (no dedup here).
+        let total_chunks: usize = blocks.iter().map(|b| b.chunk_hashes.len()).sum();
+        out.reserve_capacity(blocks.len(), total_chunks);
         for block in blocks {
             let n = block.chunk_hashes.len();
             // C `memcpy`s `block_chunk_count` entries from each array; the two

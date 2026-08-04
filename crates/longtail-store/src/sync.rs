@@ -218,7 +218,9 @@ async fn try_add_with_locking(
             Err(e) => return Err(e),
         };
         let remote = StoreIndex::from_bytes(&existing)?;
+        drop(existing); // the serialized source bytes are done once parsed
         let merged = remote.merge(add)?;
+        drop(remote); // the pre-merge union is not needed once `merged` exists
         let bytes = merged.to_bytes();
         let ok = obj.write(&bytes).await?;
         if !ok {
@@ -282,6 +284,10 @@ async fn try_add(
     // `read_store_store_index_with_items` always yields a valid (possibly empty)
     // index, so — matching Go's reachable branch — we always merge then write.
     let merged = existing.merge(add)?;
+    // `existing` (a full union copy) is no longer needed once `merged` exists —
+    // free it before serialization so the flush peak is `merged` + the `to_bytes`
+    // buffer, not `existing` + `merged` + buffer.
+    drop(existing);
     let ok = try_write_shard(client, &merged, &items).await?;
     Ok((ok, Some(merged)))
 }
