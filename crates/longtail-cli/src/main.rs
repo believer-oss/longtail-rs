@@ -87,6 +87,11 @@ struct DownsyncArgs {
     storage_uri: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     source_path: Option<String>,
     #[arg(long, value_delimiter = '|')]
@@ -136,6 +141,11 @@ struct GetArgs {
     source_paths: Vec<String>,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     target_path: Option<String>,
     #[arg(long)]
@@ -190,6 +200,11 @@ struct ValidateArgs {
     version_index_path: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
 }
 
 #[derive(Args)]
@@ -208,6 +223,11 @@ struct UpsyncArgs {
     storage_uri: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     source_path: String,
     #[arg(long)]
@@ -600,6 +620,10 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
+    }
     opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
@@ -633,6 +657,10 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
+    }
     opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
     opts.progress = Some(progress.clone());
@@ -663,6 +691,10 @@ async fn run_validate(cli: &Cli, a: &ValidateArgs) -> Result<(), longtail::Longt
     #[cfg(feature = "s3")]
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
     }
     validate_version(opts).await?;
     println!("Version index `{}` is valid", a.version_index_path);
@@ -698,6 +730,10 @@ async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailE
     #[cfg(feature = "s3")]
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
     }
     opts.cancel = Some(install_cancel_handler());
     let progress = Arc::new(CliProgress::new());
