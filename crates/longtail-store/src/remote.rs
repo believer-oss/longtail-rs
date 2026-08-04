@@ -119,6 +119,12 @@ enum IndexCommand {
     GetIndex {
         reply: oneshot::Sender<Result<StoreIndex, StoreError>>,
     },
+    /// Σ chunk sizes for just the requested block hashes — the download prefetch
+    /// wants permit sizes without cloning the whole union (unlike `GetIndex`).
+    GetBlockSizes {
+        block_hashes: Vec<u64>,
+        reply: oneshot::Sender<Result<HashMap<u64, u64>, StoreError>>,
+    },
     Flush {
         reply: oneshot::Sender<Result<(), StoreError>>,
     },
@@ -236,6 +242,20 @@ impl RemoteBlockStore {
         let (reply, rx) = oneshot::channel();
         self.index_tx
             .send(IndexCommand::GetIndex { reply })
+            .await
+            .map_err(|_| StoreError::WorkerGone)?;
+        rx.await.map_err(|_| StoreError::WorkerGone)?
+    }
+
+    /// Σ chunk sizes for the requested block hashes only — the download prefetch
+    /// permit sizes, without cloning the union index (cf. `get_index_snapshot`).
+    async fn block_sizes(&self, block_hashes: &[u64]) -> Result<HashMap<u64, u64>, StoreError> {
+        let (reply, rx) = oneshot::channel();
+        self.index_tx
+            .send(IndexCommand::GetBlockSizes {
+                block_hashes: block_hashes.to_vec(),
+                reply,
+            })
             .await
             .map_err(|_| StoreError::WorkerGone)?;
         rx.await.map_err(|_| StoreError::WorkerGone)?
@@ -475,15 +495,12 @@ impl BlockStore for RemoteBlockStore {
         if block_hashes.is_empty() {
             return Ok(());
         }
-        // Size prefetch permits from the store index (Σ chunk_sizes per block).
-        let index = self.get_index_snapshot().await?;
-        let mut size_by_hash: HashMap<u64, usize> = HashMap::new();
-        for b in 0..index.block_count() as usize {
-            if let Some(bi) = index.block_index_at(b) {
-                let sz: usize = bi.chunk_sizes.iter().map(|&s| s as usize).sum();
-                size_by_hash.insert(bi.block_hash, sz);
-            }
-        }
+        // Prefetch permit sizes (Σ chunk_sizes per block) for **only** the
+        // requested blocks. A targeted owner query, not `get_index_snapshot`:
+        // the old path cloned the whole union store index (>1 GB at Fellowship
+        // scale, on end-user machines) and mapped every block in the store just
+        // to read sizes for this working set.
+        let size_by_hash = self.block_sizes(block_hashes).await?;
 
         // Enqueue WITHOUT acquiring budget (Go's PreflightGet/onPreflightMessage
         // only posts prefetch messages, remotestore.go:613-614/:1038-1041) —
@@ -499,7 +516,7 @@ impl BlockStore for RemoteBlockStore {
             // Estimate; unknown blocks get 1 permit; oversize clamps to the
             // whole budget so a single block is always
             // acquirable → any working set completes with any budget ≥ 1.
-            let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1);
+            let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1) as usize;
             let permits = estimate.min(self.max_prefetch_bytes).max(1) as u32;
             tokio::spawn(dispatch_prefetch(
                 self.prefetch.clone(),
@@ -650,6 +667,21 @@ async fn index_owner(
                 let r = merged_index(&mut index, &added, &blob_store, &*client, access_type).await;
                 let _ = reply.send(r);
             }
+            IndexCommand::GetBlockSizes {
+                block_hashes,
+                reply,
+            } => {
+                let r = block_sizes(
+                    &mut index,
+                    &added,
+                    &blob_store,
+                    &*client,
+                    access_type,
+                    &block_hashes,
+                )
+                .await;
+                let _ = reply.send(r);
+            }
             IndexCommand::GetExistingContent {
                 chunk_hashes,
                 min_block_usage_percent,
@@ -695,6 +727,9 @@ fn fail_command(cmd: IndexCommand, err: impl Fn() -> StoreError) {
         IndexCommand::GetIndex { reply } => {
             let _ = reply.send(Err(err()));
         }
+        IndexCommand::GetBlockSizes { reply, .. } => {
+            let _ = reply.send(Err(err()));
+        }
         IndexCommand::GetExistingContent { reply, .. } => {
             let _ = reply.send(Err(err()));
         }
@@ -723,6 +758,37 @@ async fn merged_index(
     }
     let added_idx = store_index_from_added(added)?;
     base.merge(&added_idx).map_err(StoreError::from)
+}
+
+/// Σ chunk sizes for just the requested `block_hashes`, loading the store index
+/// if needed (like [`merged_index`]) but **never cloning or merging the whole
+/// union** — the download prefetch only needs permit sizes for its working set.
+/// Any accumulated (`added`) blocks not yet on the store are folded in so a
+/// just-written block still sizes correctly.
+async fn block_sizes(
+    index: &mut Option<StoreIndex>,
+    added: &[BlockIndex],
+    blob_store: &Arc<dyn BlobStore>,
+    client: &dyn crate::blob::BlobClient,
+    access_type: AccessType,
+    block_hashes: &[u64],
+) -> Result<HashMap<u64, u64>, StoreError> {
+    if index.is_none() {
+        let loaded = sync::read_remote_store_index(&**blob_store, client, access_type).await?;
+        *index = Some(loaded);
+    }
+    let base = index.as_ref().unwrap();
+    let mut out = base.block_payload_sizes(block_hashes);
+    if !added.is_empty() {
+        let want: HashSet<u64> = block_hashes.iter().copied().collect();
+        for bi in added {
+            if want.contains(&bi.block_hash) {
+                out.entry(bi.block_hash)
+                    .or_insert_with(|| bi.chunk_sizes.iter().map(|&s| s as u64).sum());
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// `GetExistingStoreIndex(chunk_hashes)` **without cloning the full union**.

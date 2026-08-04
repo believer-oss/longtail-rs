@@ -116,3 +116,45 @@ fn get_existing_wild_index_no_panic() {
     let existing = si.get_existing_store_index(&[1], 0);
     assert_eq!(existing.block_count(), 0); // skipped, no panic
 }
+
+// --- block_payload_sizes (download-prefetch permit sizing) ---
+
+#[test]
+fn block_payload_sizes_sums_only_requested_blocks() {
+    let a = block(100, 7, 1, &[(1, 10), (2, 20)]); // Σ = 30
+    let b = block(200, 7, 2, &[(3, 30)]); //           Σ = 30
+    let c = block(300, 7, 3, &[(4, 5), (5, 7), (6, 9)]); // Σ = 21
+    let si = StoreIndex::from_block_indexes(&[a, b, c]).unwrap();
+
+    // Only the requested hashes are returned; sizes are the per-block Σ.
+    let sizes = si.block_payload_sizes(&[100, 300]);
+    assert_eq!(sizes.len(), 2);
+    assert_eq!(sizes.get(&100), Some(&30));
+    assert_eq!(sizes.get(&300), Some(&21));
+    assert_eq!(sizes.get(&200), None); // not requested → absent
+
+    // A hash not in the store is simply absent (no entry, no panic).
+    let sizes = si.block_payload_sizes(&[200, 999]);
+    assert_eq!(sizes.get(&200), Some(&30));
+    assert_eq!(sizes.get(&999), None);
+
+    // Equivalent to the old block_index_at-based sum, for every block.
+    for b in 0..si.block_count() as usize {
+        let bi = si.block_index_at(b).unwrap();
+        let want: u64 = bi.chunk_sizes.iter().map(|&s| s as u64).sum();
+        assert_eq!(
+            si.block_payload_sizes(&[bi.block_hash]).get(&bi.block_hash),
+            Some(&want)
+        );
+    }
+}
+
+#[test]
+fn block_payload_sizes_skips_malformed_block() {
+    // A block whose chunk range runs off the arrays contributes no entry
+    // (mirrors block_index_at's bounds check) rather than panicking.
+    let mut si = StoreIndex::from_block_indexes(&[block(100, 7, 1, &[(1, 10)])]).unwrap();
+    si.block_chunk_counts[0] = 5; // claim 5 chunks; only 1 present
+    let sizes = si.block_payload_sizes(&[100]);
+    assert_eq!(sizes.get(&100), None);
+}

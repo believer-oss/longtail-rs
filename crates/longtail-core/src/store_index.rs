@@ -4,7 +4,7 @@
 //! `InitStoreIndexFromData` (longtail.c:8979), and `Longtail_MergeStoreIndex`
 //! (longtail.c:9151).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::block::BlockIndex;
 use crate::cursor::{Reader, Writer, checked_add, checked_mul};
@@ -364,6 +364,45 @@ impl StoreIndex {
             chunk_hashes: self.chunk_hashes[offset..end].to_vec(),
             chunk_sizes: self.chunk_sizes[offset..end].to_vec(),
         })
+    }
+
+    /// Total decompressed payload size (Σ chunk sizes) for each block whose hash
+    /// is in `wanted`, computed straight from the packed arrays without
+    /// materializing a [`BlockIndex`] per block. Used by the download prefetch to
+    /// size permits for just the requested working set — the alternative
+    /// (cloning the whole union index and mapping every block) allocates a full
+    /// copy of a multi-GB store index per `preflight_get`. First occurrence of a
+    /// block hash wins; blocks whose chunk range runs off the arrays are skipped
+    /// (they contribute no size, mirroring [`Self::block_index_at`]'s bounds
+    /// check).
+    pub fn block_payload_sizes(&self, wanted: &[u64]) -> HashMap<u64, u64> {
+        let want: HashSet<u64> = wanted.iter().copied().collect();
+        let mut out: HashMap<u64, u64> = HashMap::with_capacity(want.len());
+        for b in 0..self.block_hashes.len() {
+            let block_hash = self.block_hashes[b];
+            if !want.contains(&block_hash) || out.contains_key(&block_hash) {
+                continue;
+            }
+            let (Some(&count), Some(&offset)) = (
+                self.block_chunk_counts.get(b),
+                self.block_chunks_offsets.get(b),
+            ) else {
+                continue;
+            };
+            let (count, offset) = (count as usize, offset as usize);
+            let Some(end) = offset.checked_add(count) else {
+                continue;
+            };
+            if end > self.chunk_sizes.len() {
+                continue;
+            }
+            let size: u64 = self.chunk_sizes[offset..end]
+                .iter()
+                .map(|&s| s as u64)
+                .sum();
+            out.insert(block_hash, size);
+        }
+        out
     }
 
     /// Keep only the blocks whose hash is in `keep_block_hashes`, matching
