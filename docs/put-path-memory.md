@@ -230,6 +230,13 @@ The plan in this doc was executed; measurements are in
 | 6 | Sized, rewindable S3 upload bodies | already solved; **improved** — `BlobObject::write` now takes owned `Bytes` (blob-write path no longer copies the body; the S3 GET drops a double-copy). |
 | — | Rust-only whole-file asset reads (scan + pack) | **landed** — ranged reads in `write_content` (P1c, `c703b32`) + streaming scan chunker (P2a, `c13a4d1`). Peak now independent of asset size. |
 
+**Review follow-ups** (from a fable review of the landed work; see the bench doc):
+
+| # | item | status |
+|---|---|---|
+| finding 6 | Download prefetch cloned the whole union in `preflight_get` | **landed** — `StoreIndex::block_payload_sizes` + `IndexCommand::GetBlockSizes` size only the requested working set; no union clone on the Tauri `get` path (download analogue of item 4). |
+| finding 7 | Read/union merge held ~3 shards (`existing + tmp + output`) | **landed** — `StoreIndex::merge_consuming` reuses the canonical `local` as merge Pass 1's output, holding ~2 shards. Measured **−331 MiB (−24%, ~one shard)** on a 332 MiB/shard micro-bench, byte-identical (proptest-gated). ~1.3 GB off the real `validate-version` read peak. |
+
 **Measured outcome** (256 MiB flush scenario; full numbers in the bench doc):
 flush peak RSS **843 → 305 MiB (−64%)** across P1/P2a + the owned-`Bytes` blob-I/O
 follow-up. The port went from **57% heavier** than golongtail on this path to **43%

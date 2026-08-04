@@ -169,7 +169,10 @@ async fn merge_store_index_items(
         *retry_counter += retries;
         acc = Some(match acc {
             None => tmp,
-            Some(existing) => existing.merge(&tmp)?,
+            // Consume the running union in place and append only `tmp`'s new
+            // blocks — at the two-file steady state this holds ~2 shards, not 3,
+            // the single biggest chunk of the read/union peak.
+            Some(existing) => existing.merge_consuming(&tmp)?,
         });
         used.push(item.clone());
     }
@@ -219,8 +222,9 @@ async fn try_add_with_locking(
         };
         let remote = StoreIndex::from_bytes(&existing)?;
         drop(existing); // the serialized source bytes are done once parsed
-        let merged = remote.merge(add)?;
-        drop(remote); // the pre-merge union is not needed once `merged` exists
+        // Consume `remote` into the union (it's canonical from `from_bytes`), so
+        // the pre-merge union is never held alongside a separate `merged`.
+        let merged = remote.merge_consuming(add)?;
         let bytes = merged.to_bytes();
         let ok = obj.write(bytes.into()).await?;
         if !ok {
@@ -283,11 +287,10 @@ async fn try_add(
     let (existing, items, _retries) = read_store_store_index_with_items(client).await?;
     // `read_store_store_index_with_items` always yields a valid (possibly empty)
     // index, so — matching Go's reachable branch — we always merge then write.
-    let merged = existing.merge(add)?;
-    // `existing` (a full union copy) is no longer needed once `merged` exists —
-    // free it before serialization so the flush peak is `merged` + the `to_bytes`
-    // buffer, not `existing` + `merged` + buffer.
-    drop(existing);
+    // Consume `existing` (canonical, from the store index read) into the union
+    // in place, so the flush peak is `merged` + the `to_bytes` buffer, never
+    // `existing` + `merged` + buffer.
+    let merged = existing.merge_consuming(add)?;
     let ok = try_write_shard(client, &merged, &items).await?;
     Ok((ok, Some(merged)))
 }

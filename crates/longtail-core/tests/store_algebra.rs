@@ -158,3 +158,80 @@ fn block_payload_sizes_skips_malformed_block() {
     let sizes = si.block_payload_sizes(&[100]);
     assert_eq!(sizes.get(&100), None);
 }
+
+// --- merge_consuming (in-place union; byte-identical to merge) ---
+
+// Assert both APIs agree byte-for-byte on the Ok path.
+fn assert_merge_eq(a: &StoreIndex, b: &StoreIndex) {
+    let via_merge = a.merge(b).expect("merge ok");
+    let via_consuming = a.clone().merge_consuming(b).expect("merge_consuming ok");
+    assert_eq!(
+        via_merge.to_bytes(),
+        via_consuming.to_bytes(),
+        "merge_consuming bytes must equal merge bytes"
+    );
+}
+
+#[test]
+fn merge_consuming_empty_sides() {
+    let empty = StoreIndex::from_block_indexes(&[]).unwrap();
+    let x = StoreIndex::from_block_indexes(&[block(100, 7, 1, &[(1, 10), (2, 20)])]).unwrap();
+    assert_merge_eq(&empty, &empty); // both empty
+    assert_merge_eq(&x, &empty); // remote empty (canonicalizes local)
+    assert_merge_eq(&empty, &x); // local empty (builds remote into empty self)
+}
+
+#[test]
+fn merge_consuming_disjoint_and_overlap() {
+    let a = StoreIndex::from_block_indexes(&[
+        block(100, 7, 1, &[(1, 10)]),
+        block(200, 7, 2, &[(2, 20), (3, 30)]),
+    ])
+    .unwrap();
+    // Disjoint remote → both blocks appended after local's.
+    let b = StoreIndex::from_block_indexes(&[block(300, 7, 3, &[(4, 40)])]).unwrap();
+    assert_merge_eq(&a, &b);
+    // Overlapping block hash (200) → local wins the tie, remote's 200 skipped.
+    let c = StoreIndex::from_block_indexes(&[
+        block(200, 7, 9, &[(9, 99)]), // same hash as a's block 200, different content
+        block(400, 7, 4, &[(5, 50)]),
+    ])
+    .unwrap();
+    assert_merge_eq(&a, &c);
+}
+
+#[test]
+fn merge_consuming_fallback_internal_dup_local() {
+    // `local` with a duplicate block hash is NOT canonical-Pass-1-reproducible
+    // (Pass 1 dedups it), so merge_consuming must fall back — and still match.
+    let a = StoreIndex::from_block_indexes(&[
+        block(100, 7, 1, &[(1, 10)]),
+        block(100, 7, 2, &[(2, 20)]), // duplicate block hash
+    ])
+    .unwrap();
+    let b = StoreIndex::from_block_indexes(&[block(300, 7, 3, &[(3, 30)])]).unwrap();
+    assert_merge_eq(&a, &b);
+}
+
+#[test]
+fn merge_consuming_fallback_non_canonical_local() {
+    // Hand-built local with a non-cumulative offset: merge canonicalizes it,
+    // so reusing self verbatim would diverge — merge_consuming must fall back.
+    let mut a = StoreIndex::from_block_indexes(&[
+        block(100, 7, 1, &[(1, 10)]),
+        block(200, 7, 2, &[(2, 20)]),
+    ])
+    .unwrap();
+    a.block_chunks_offsets[1] = 0; // wrong offset (should be 1) → non-canonical
+    let b = StoreIndex::from_block_indexes(&[block(300, 7, 3, &[(3, 30)])]).unwrap();
+    assert_merge_eq(&a, &b);
+}
+
+#[test]
+fn merge_consuming_conflicting_identifier_errors_like_merge() {
+    let a = StoreIndex::from_block_indexes(&[block(100, 7, 1, &[(1, 10)])]).unwrap();
+    let b = StoreIndex::from_block_indexes(&[block(200, 9, 2, &[(2, 20)])]).unwrap();
+    // Both non-empty with differing hash identifiers → both must Err.
+    assert!(a.merge(&b).is_err());
+    assert!(a.clone().merge_consuming(&b).is_err());
+}

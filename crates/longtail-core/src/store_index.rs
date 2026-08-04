@@ -284,6 +284,104 @@ impl StoreIndex {
         Ok(out)
     }
 
+    /// Whether the block/chunk arrays are in **canonical layout**: the six
+    /// parallel arrays have consistent lengths and `block_chunks_offsets` is
+    /// exactly cumulative from `0` (block `i` starts at `Σ counts[0..i]`), with
+    /// the final block's range ending precisely at `chunk_hashes.len()`. Any
+    /// store index parsed from a valid `.lsi` or produced by [`Self::merge`] /
+    /// [`Self::from_block_indexes`] is canonical — the writers always emit this
+    /// form. This is the precondition under which [`Self::merge_consuming`] may
+    /// reuse `self` verbatim as merge Pass 1's output (see there).
+    fn is_canonical(&self) -> bool {
+        let b = self.block_hashes.len();
+        if self.block_chunk_counts.len() != b
+            || self.block_chunks_offsets.len() != b
+            || self.block_tags.len() != b
+            || self.chunk_hashes.len() != self.chunk_sizes.len()
+        {
+            return false;
+        }
+        let mut expected: u64 = 0;
+        for i in 0..b {
+            if u64::from(self.block_chunks_offsets[i]) != expected {
+                return false;
+            }
+            expected += u64::from(self.block_chunk_counts[i]);
+        }
+        expected == self.chunk_hashes.len() as u64
+    }
+
+    /// [`Self::merge`] that **consumes `self`** and, in the common case, reuses
+    /// its allocations as the union instead of building a fresh output alongside
+    /// both inputs. **Byte-identical to `self.merge(other)` in every case** (the
+    /// S3 shard name is the sha256 of these bytes, so this is load-bearing).
+    ///
+    /// Why `self` can be reused: merge Pass 1 copies `local`'s unique blocks, in
+    /// order, re-deriving cumulative chunk offsets. When `local` is already
+    /// [canonical](Self::is_canonical) and has no internal duplicate block
+    /// hashes, that Pass-1 output is **bit-identical to `local` itself** — so we
+    /// keep `self` as-is and only append Pass 2 (the remote-only blocks). That
+    /// drops the merge high-water mark from `local + remote + output` (~3 shards
+    /// at the two-file steady state) to `output + remote` (~2 shards): roughly
+    /// one whole `store_*.lsi` off the read/union peak that dominates a big
+    /// `validate-version` / `downsync` / `upsync` against a month-end store.
+    ///
+    /// When `local` is non-canonical or carries internal duplicate block hashes
+    /// (rare — no writer here produces either), it falls back to the allocating
+    /// [`Self::merge`] so the result is still exact.
+    pub fn merge_consuming(mut self, other: &StoreIndex) -> Result<StoreIndex, FormatError> {
+        let local_block_count = self.block_hashes.len();
+        let remote_block_count = other.block_hashes.len();
+
+        // Hash-identifier + conflict rules — identical to `merge`.
+        let hash_identifier = if local_block_count == 0 {
+            if remote_block_count == 0 {
+                return Ok(StoreIndex::empty(0));
+            }
+            other.hash_identifier
+        } else {
+            let id = self.hash_identifier;
+            if remote_block_count != 0 && id != other.hash_identifier {
+                return Err(FormatError::ConflictingHashIdentifier {
+                    local: id,
+                    remote: other.hash_identifier,
+                });
+            }
+            id
+        };
+
+        // Pass 2 needs the local block-hash set regardless. If it comes up short,
+        // `local` has internal duplicate block hashes that Pass 1 would dedup
+        // away — so `self` would NOT equal Pass 1's output; likewise if `local`
+        // is not canonical. Either way, fall back to the allocating merge for an
+        // exact result.
+        let mut local_seen: HashSet<u64> = HashSet::with_capacity(local_block_count);
+        for i in 0..local_block_count {
+            local_seen.insert(self.block_hashes[i]);
+        }
+        if local_seen.len() != local_block_count || !self.is_canonical() {
+            return self.merge(other);
+        }
+
+        // Fast path: `self` already equals Pass 1's output. Set the identifier
+        // (a no-op when `local` is non-empty), reserve for the appended tail, and
+        // append Pass 2 in remote order — exactly `merge`'s Pass 2.
+        self.hash_identifier = hash_identifier;
+        self.reserve_capacity(remote_block_count, other.chunk_hashes.len());
+        let mut remote_seen: HashSet<u64> = HashSet::with_capacity(remote_block_count);
+        for i in 0..remote_block_count {
+            let bh = other.block_hashes[i];
+            if local_seen.contains(&bh) {
+                continue; // present in local — local wins the tie
+            }
+            if !remote_seen.insert(bh) {
+                continue; // internal duplicate — skip
+            }
+            Self::push_block(&mut self, other, i)?;
+        }
+        Ok(self)
+    }
+
     /// Concatenate a set of [`BlockIndex`] into a store index, matching
     /// `Longtail_CreateStoreIndexFromBlocks` (longtail.c:9064) **byte-for-byte**.
     ///

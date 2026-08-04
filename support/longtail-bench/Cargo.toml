@@ -91,3 +91,9 @@ required-features = ["differential"]
 name = "dedup"
 path = "src/bin/dedup.rs"
 required-features = ["fastcdc"]
+
+# Store-index union-merge peak measurement (`merge` vs `merge_consuming`).
+# Pure, network-free, no features required.
+[[bin]]
+name = "merge_mem"
+path = "src/bin/merge_mem.rs"
