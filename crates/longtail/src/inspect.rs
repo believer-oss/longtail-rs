@@ -221,7 +221,7 @@ pub async fn create_version_store_index(
     let s3: S3OptionsArg = ();
     fs_util::write_to_uri(
         &opts.version_local_store_index_path,
-        &retargetted.to_bytes(),
+        retargetted.to_bytes().into(),
         &s3,
     )
     .await

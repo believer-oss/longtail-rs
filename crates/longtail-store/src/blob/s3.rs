@@ -20,6 +20,8 @@ use aws_credential_types::provider::SharedCredentialsProvider;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::StalledStreamProtectionConfig;
 use aws_sdk_s3::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
+use aws_sdk_s3::primitives::ByteStream;
+use bytes::Bytes;
 
 use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
 use crate::error::StoreError;
@@ -387,15 +389,21 @@ impl BlobObject for S3BlobObject {
                     DisplayErrorContext(&e)
                 ))
             })?;
-        Ok(data.into_bytes().to_vec())
+        // `AggregatedBytes::to_vec` collects the segments in a single copy;
+        // `into_bytes().to_vec()` would concatenate to a `Bytes` first, then copy
+        // again — one buffer-sized allocation saved per shard/block read.
+        Ok(data.to_vec())
     }
 
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(&self.key)
-            .body(data.to_vec().into())
+            // `ByteStream::from(Bytes)` takes ownership with no copy (the old
+            // `&[u8]` signature forced a `to_vec()` of the whole body here — a
+            // full extra copy of the serialized store index on every flush).
+            .body(ByteStream::from(data))
             .send()
             .await
             .map_err(|e| map_sdk_err(format_args!("put_object {}", self.key), e))?;

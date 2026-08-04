@@ -13,6 +13,7 @@
 //!   lost its generation CAS (no error) — mirrors Go's `(ok, nil)`.
 
 use async_trait::async_trait;
+use bytes::Bytes;
 
 use crate::error::StoreError;
 
@@ -88,7 +89,12 @@ pub trait BlobObject: Send + Sync {
     /// Write bytes. Returns `true` on success, `false` if a generation-locked
     /// write was prevented by a concurrent change (no error). Unlocked handles
     /// always return `true` on success.
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError>;
+    ///
+    /// Takes owned [`Bytes`] so the payload moves into the backend body (the S3
+    /// `ByteStream`, the fs `spawn_blocking` closure) without a copy; a caller
+    /// that must write the same buffer more than once (the put-retry loop)
+    /// reclones it for O(1) rather than copying.
+    async fn write(&mut self, data: Bytes) -> Result<bool, StoreError>;
 
     /// Delete the object. A generation-locked delete errors on mismatch
     /// ([`StoreError::GenerationMismatch`]); an unlocked delete is unconditional.

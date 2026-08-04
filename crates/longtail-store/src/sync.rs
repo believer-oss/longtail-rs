@@ -222,14 +222,14 @@ async fn try_add_with_locking(
         let merged = remote.merge(add)?;
         drop(remote); // the pre-merge union is not needed once `merged` exists
         let bytes = merged.to_bytes();
-        let ok = obj.write(&bytes).await?;
+        let ok = obj.write(bytes.into()).await?;
         if !ok {
             return Ok((false, None));
         }
         Ok((true, Some(merged)))
     } else {
         let bytes = add.to_bytes();
-        let ok = obj.write(&bytes).await?;
+        let ok = obj.write(bytes.into()).await?;
         Ok((ok, None))
     }
 }
@@ -255,7 +255,7 @@ async fn try_write_shard(
     if obj.exists().await? {
         return Ok(false); // a concurrent writer produced the identical shard
     }
-    let ok = obj.write(&bytes).await?;
+    let ok = obj.write(bytes.into()).await?;
     if !ok {
         return Ok(false);
     }
@@ -337,7 +337,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     if client.supports_locking() {
         let mut obj = client.new_object("store.lsi").await?;
         obj.lock_write_version().await?;
-        return obj.write(&index.to_bytes()).await;
+        return obj.write(index.to_bytes().into()).await;
     }
     let items = get_store_store_indexes(client).await?;
     let bytes = index.to_bytes();
@@ -345,7 +345,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     if !items.iter().any(|i| i == &key) {
         let mut obj = client.new_object(&key).await?;
         if !obj.exists().await? {
-            let ok = obj.write(&bytes).await?;
+            let ok = obj.write(bytes.into()).await?;
             if !ok {
                 return Ok(false);
             }

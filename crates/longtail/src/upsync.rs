@@ -163,7 +163,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
     lap("write_content", &mut timer);
 
     // 6. Write the target `.lvi` (always, regardless of missing count).
-    fs_util::write_to_uri(&opts.target_path, &version_index.to_bytes(), &s3).await?;
+    fs_util::write_to_uri(&opts.target_path, version_index.to_bytes().into(), &s3).await?;
 
     // 7. Write the version-local `.lsi = merge(existing, missing)` if requested.
     if let Some(lsi_path) = opts
@@ -172,7 +172,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
         .filter(|s| !s.is_empty())
     {
         let version_local = existing.merge(&missing)?;
-        fs_util::write_to_uri(lsi_path, &version_local.to_bytes(), &s3).await?;
+        fs_util::write_to_uri(lsi_path, version_local.to_bytes().into(), &s3).await?;
     }
     lap("write_indexes", &mut timer);
 

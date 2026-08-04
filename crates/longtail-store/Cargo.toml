@@ -25,6 +25,10 @@ tokio = { version = "1.49", features = [
   "macros",
 ] }
 async-trait = "0.1"
+# Owned, cheaply-cloneable byte buffers for the blob write path: a `Bytes` moves
+# into the S3 `ByteStream` / fs `spawn_blocking` with no copy, and the put-retry
+# loop reclones it for O(1) instead of copying the payload each attempt.
+bytes = "1"
 futures-util = "0.3"
 fs4 = { version = "0.13.1", features = ["sync"] }
 sha2 = "0.10"

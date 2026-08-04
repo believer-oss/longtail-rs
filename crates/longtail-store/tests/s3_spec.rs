@@ -18,6 +18,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
+
 use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
 use aws_credential_types::provider::future::ProvideCredentials as ProvideCredentialsFuture;
@@ -165,7 +167,7 @@ async fn s3_blob_round_trip() {
 
     let mut obj = client.new_object("hello.txt").await.unwrap();
     assert!(!obj.exists().await.unwrap());
-    assert!(obj.write(b"hello s3").await.unwrap());
+    assert!(obj.write(Bytes::from_static(b"hello s3")).await.unwrap());
     assert!(obj.exists().await.unwrap());
     assert_eq!(obj.read().await.unwrap(), b"hello s3");
 

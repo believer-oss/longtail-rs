@@ -43,7 +43,7 @@ async fn seed_block(store: &MemBlobStore, block: &StoredBlock) {
     let client = store.new_client().await.unwrap();
     let key = block_path("chunks", block.block_index.block_hash);
     let mut obj = client.new_object(&key).await.unwrap();
-    obj.write(&block.to_bytes()).await.unwrap();
+    obj.write(block.to_bytes().into()).await.unwrap();
 }
 
 /// A ReadWrite store over `mem` with an explicit prefetch budget.
@@ -371,7 +371,7 @@ impl BlobObject for GatedObject {
         }
         self.inner.read().await
     }
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: bytes::Bytes) -> Result<bool, StoreError> {
         self.inner.write(data).await
     }
     async fn delete(&mut self) -> Result<(), StoreError> {

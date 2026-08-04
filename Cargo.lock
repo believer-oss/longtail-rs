@@ -2100,6 +2100,7 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 name = "longtail"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "libc",
  "longtail-core",
  "longtail-store",
@@ -2200,6 +2201,7 @@ dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "aws-types",
+ "bytes",
  "fs4",
  "futures-util",
  "http 1.5.0",

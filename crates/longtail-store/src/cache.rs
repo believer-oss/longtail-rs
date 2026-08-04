@@ -80,7 +80,7 @@ impl BlockStore for CacheBlockStore {
         let key = cache_block_path(block.block_index.block_hash);
         let mut obj = self.cache_client.new_object(&key).await?;
         if !obj.exists().await? {
-            let _ = obj.write(&block.to_bytes()).await; // best-effort cache fill
+            let _ = obj.write(block.to_bytes().into()).await; // best-effort cache fill
         }
         self.remote.put_stored_block(block).await
     }
@@ -117,7 +117,7 @@ impl BlockStore for CacheBlockStore {
         let block = self.remote.get_stored_block(block_hash).await?;
         let mut wb = self.cache_client.new_object(&key).await?;
         if !wb.exists().await.unwrap_or(false) {
-            let _ = wb.write(&block.to_bytes()).await; // best-effort write-back
+            let _ = wb.write(block.to_bytes().into()).await; // best-effort write-back
         }
         Ok(block)
     }

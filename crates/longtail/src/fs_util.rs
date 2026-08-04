@@ -7,6 +7,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use longtail_core::{FileEntry, Permissions};
 
 use crate::error::LongtailError;
@@ -356,14 +357,14 @@ async fn read_s3(uri: &str, options: &longtail_store::S3Options) -> Result<Vec<u
 /// store. Used by upsync/put/clone-store to write `.lvi`/`.lsi`/get-config.
 pub async fn write_to_uri(
     uri: &str,
-    bytes: &[u8],
+    bytes: Bytes,
     #[allow(unused)] s3_options: &S3OptionsArg,
 ) -> Result<(), LongtailError> {
     if let Some(rest) = uri.strip_prefix("file://") {
-        return write_local(Path::new(rest), bytes);
+        return write_local(Path::new(rest), &bytes);
     }
     if let Some(rest) = uri.strip_prefix("fsblob://") {
-        return write_local(Path::new(rest), bytes);
+        return write_local(Path::new(rest), &bytes);
     }
     if uri.starts_with("s3://") {
         #[cfg(feature = "s3")]
@@ -386,13 +387,13 @@ pub async fn write_to_uri(
             reason: format!("unsupported uri scheme `{scheme}`"),
         });
     }
-    write_local(Path::new(uri), bytes)
+    write_local(Path::new(uri), &bytes)
 }
 
 #[cfg(feature = "s3")]
 async fn write_s3(
     uri: &str,
-    bytes: &[u8],
+    bytes: Bytes,
     options: &longtail_store::S3Options,
 ) -> Result<(), LongtailError> {
     use longtail_store::{BlobStore, S3BlobStore};

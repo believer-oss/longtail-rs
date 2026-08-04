@@ -373,10 +373,12 @@ impl BlockStore for RemoteBlockStore {
         let mut obj = self.client.new_object(&key).await?;
         // Skip-if-exists (remotestore.go:145).
         if !obj.exists().await? {
-            let bytes = block.to_bytes();
+            // `Bytes` so each retry reclones for O(1) (a refcount bump) instead
+            // of copying the block payload every attempt.
+            let bytes: bytes::Bytes = block.to_bytes().into();
             // Unconditional write; the {100ms,500ms,2s} ladder only triggers on a
             // conditional-write conflict (ok == false, no error).
-            let mut ok = match obj.write(&bytes).await {
+            let mut ok = match obj.write(bytes.clone()).await {
                 Ok(ok) => ok,
                 Err(e) => {
                     self.stats.add(&self.stats.put_fail_count, 1);
@@ -387,7 +389,7 @@ impl BlockStore for RemoteBlockStore {
                 for delay in PUT_RETRY_DELAYS {
                     self.stats.add(&self.stats.put_retry_count, 1);
                     tokio::time::sleep(delay).await;
-                    ok = match obj.write(&bytes).await {
+                    ok = match obj.write(bytes.clone()).await {
                         Ok(ok) => ok,
                         Err(e) => {
                             self.stats.add(&self.stats.put_fail_count, 1);

@@ -24,6 +24,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
+
 use async_trait::async_trait;
 use fs4::fs_std::FileExt;
 
@@ -327,13 +329,15 @@ impl BlobObject for FsBlobObject {
         .map_err(|e| StoreError::Backend(format!("join error: {e}")))?
     }
 
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {
         let path = self.path.clone();
         let lock_path = self.lock_path();
         let gen_path = self.gen_path();
         let enable_locking = self.enable_locking;
         let metageneration = self.metageneration;
-        let data = data.to_vec();
+        // `data` is already owned (`Bytes`, `Send + 'static`); move it straight
+        // into the blocking closure — no `to_vec()` copy as the old `&[u8]`
+        // signature required.
         tokio::task::spawn_blocking(move || -> Result<bool, StoreError> {
             let _guard = if enable_locking {
                 Some(lock_file(&path, &lock_path)?)

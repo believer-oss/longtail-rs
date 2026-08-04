@@ -72,7 +72,7 @@ async fn store_block_raw(
         path = format!("{parent}/{path}");
     }
     let mut obj = client.new_object(&path).await.unwrap();
-    obj.write(&block.to_bytes()).await.unwrap();
+    obj.write(block.to_bytes().into()).await.unwrap();
     stored_hash
 }
 

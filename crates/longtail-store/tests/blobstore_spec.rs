@@ -8,6 +8,7 @@
 //!
 //! GCS and Azure backends are intentionally omitted (out of scope for this port).
 
+use bytes::Bytes;
 use longtail_store::blob::{BlobStore, MemBlobStore};
 use longtail_store::create_blob_store_for_uri;
 
@@ -44,7 +45,7 @@ async fn single_object_store() {
     let mut obj = client.new_object("my-fine-object.txt").await.unwrap();
     assert!(!obj.exists().await.unwrap());
     let content = b"the content of the object";
-    assert!(obj.write(content).await.unwrap());
+    assert!(obj.write(Bytes::from_static(content)).await.unwrap());
     let data = obj.read().await.unwrap();
     assert_eq!(data, content);
     obj.delete().await.unwrap();
@@ -57,7 +58,9 @@ async fn delete_object() {
     let store = MemBlobStore::new("the_path", true);
     let client = store.new_client().await.unwrap();
     let mut obj = client.new_object("my-fine-object.txt").await.unwrap();
-    obj.write(b"the content of the object").await.unwrap();
+    obj.write(Bytes::from_static(b"the content of the object"))
+        .await
+        .unwrap();
     obj.delete().await.unwrap();
     assert!(!obj.exists().await.unwrap());
 }
@@ -74,7 +77,9 @@ async fn list_objects() {
         "my-fine-object3.txt",
     ] {
         let mut obj = client.new_object(name).await.unwrap();
-        obj.write(name.as_bytes()).await.unwrap();
+        obj.write(Bytes::copy_from_slice(name.as_bytes()))
+            .await
+            .unwrap();
     }
     let objects = client.get_objects("").await.unwrap();
     assert_eq!(objects.len(), 3);
@@ -99,15 +104,15 @@ async fn generation_write() {
 
     // Lock while absent → exists=false; first write wins; second (no re-lock) loses.
     assert!(!obj.lock_write_version().await.unwrap());
-    assert!(obj.write(c1).await.unwrap());
-    assert!(!obj.write(c2).await.unwrap());
+    assert!(obj.write(Bytes::from_static(c1)).await.unwrap());
+    assert!(!obj.write(Bytes::from_static(c2)).await.unwrap());
 
     // Two handles lock the same key; only the first write wins.
     let mut obj2 = client.new_object("my-fine-object.txt").await.unwrap();
     assert!(obj.lock_write_version().await.unwrap());
     assert!(obj2.lock_write_version().await.unwrap());
-    assert!(obj.write(c2).await.unwrap());
-    assert!(!obj2.write(c3).await.unwrap());
+    assert!(obj.write(Bytes::from_static(c2)).await.unwrap());
+    assert!(!obj2.write(Bytes::from_static(c3)).await.unwrap());
 
     // Delete needs the current generation lock.
     assert!(obj.delete().await.is_err());
@@ -159,7 +164,7 @@ async fn fs_blob_store() {
     let store = longtail_store::FsBlobStore::new(dir.path(), true);
     let client = store.new_client().await.unwrap();
     let mut obj = client.new_object("test.txt").await.unwrap();
-    assert!(obj.write(b"apa").await.unwrap());
+    assert!(obj.write(Bytes::from_static(b"apa")).await.unwrap());
 }
 
 /// Source: fsstore_test.go::TestListObjectsInEmptyFSStore — empty fs store lists
@@ -188,10 +193,10 @@ async fn fs_blob_store_versioning() {
     let _ = obj.delete().await; // ignore (does not exist yet)
 
     assert!(!obj.lock_write_version().await.unwrap());
-    assert!(obj.write(b"apa").await.unwrap());
-    assert!(!obj.write(b"skapa").await.unwrap());
+    assert!(obj.write(Bytes::from_static(b"apa")).await.unwrap());
+    assert!(!obj.write(Bytes::from_static(b"skapa")).await.unwrap());
     assert!(obj.lock_write_version().await.unwrap());
-    assert!(obj.write(b"skapa").await.unwrap());
+    assert!(obj.write(Bytes::from_static(b"skapa")).await.unwrap());
     obj.read().await.unwrap();
     assert!(obj.delete().await.is_err());
     assert!(obj.lock_write_version().await.unwrap());
@@ -256,7 +261,10 @@ async fn write_a_number_with_retry(
         slice.push(format!("{number:05}"));
         slice.sort();
         let new_data = slice.join("\n");
-        if object.write(new_data.as_bytes()).await? {
+        if object
+            .write(Bytes::copy_from_slice(new_data.as_bytes()))
+            .await?
+        {
             return Ok(());
         }
     }
@@ -279,7 +287,9 @@ async fn fs_get_objects() {
     ];
     for name in files {
         let mut obj = client.new_object(name).await.unwrap();
-        obj.write(name.as_bytes()).await.unwrap();
+        obj.write(Bytes::copy_from_slice(name.as_bytes()))
+            .await
+            .unwrap();
     }
     let blobs = client.get_objects("").await.unwrap();
     assert_eq!(blobs.len(), files.len());

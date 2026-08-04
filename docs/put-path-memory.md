@@ -227,17 +227,21 @@ The plan in this doc was executed; measurements are in
 | 3 | Streaming/partitioned store-index merge | **cheap version landed** — consume `existing` into the merge, drop before serialize, pre-reserve output Vecs (`2cce0cd`). Full streaming serializer (P2b) *not needed by the numbers* — see below. |
 | 4 | Drop union after `GetExistingContent` | **landed** (`f2edb58`) — compute the covering subset against `base` directly, drop the retained union after a ReadWrite reply. |
 | 5 | If-None-Match on store-index PUT | deferred — doesn't affect the OOM scenario. |
-| 6 | Sized, rewindable S3 upload bodies | already solved |
+| 6 | Sized, rewindable S3 upload bodies | already solved; **improved** — `BlobObject::write` now takes owned `Bytes` (blob-write path no longer copies the body; the S3 GET drops a double-copy). |
 | — | Rust-only whole-file asset reads (scan + pack) | **landed** — ranged reads in `write_content` (P1c, `c703b32`) + streaming scan chunker (P2a, `c13a4d1`). Peak now independent of asset size. |
 
 **Measured outcome** (256 MiB flush scenario; full numbers in the bench doc):
-flush peak RSS **843 → 433 MiB (−49%)** and wall **1044 → 703 ms (−33%)**. The port
-went from **57% heavier** than golongtail on this path to **19% lighter**, and is now
-also faster (703 vs 964 ms). A full upsync of a 512 MiB single asset peaks at **50 MB**
-RSS (was ~512 MB), closing the multi-GB-pak OOM vector.
+flush peak RSS **843 → 305 MiB (−64%)** across P1/P2a + the owned-`Bytes` blob-I/O
+follow-up. The port went from **57% heavier** than golongtail on this path to **43%
+lighter** (305 vs 535 MiB), while staying faster (wall parity-or-better every step). A
+full upsync of a 512 MiB single asset peaks at **50 MB** RSS (was ~512 MB), closing the
+multi-GB-pak OOM vector.
 
 **The ~5.2 GB estimate above was pre-fix static analysis.** Measured baseline peak was
-~3.3× the index size (≈4.3 GB extrapolated to 1.29 GB); post-fix it is ~1.7× (≈2.2 GB) —
-comfortable on an 8 GB node with headroom. The full streaming `store.lsi` serializer
-(P2b) is deferred: after P1 the intermediate `to_bytes()` buffer no longer dominates the
-peak, so it buys little; revisit only if a future shard size erodes the margin.
+~3.3× the index size (≈4.3 GB extrapolated to 1.29 GB); post-fix it is ~1.2× (≈1.5 GB) —
+comfortable on an 8 GB node with headroom. This is the *fs* number; on S3 the owned-`Bytes`
+write removes two further copies the fs bench can't exercise. The full streaming
+`store.lsi` serializer (P2b) is deferred: the remaining peak is the live index plus one
+`to_bytes()` buffer, and a streaming serializer needs a two-pass hash-then-stream (the
+shard key is `sha256(to_bytes())`) for a partial win — revisit only if a future shard
+size erodes the margin.

@@ -154,6 +154,6 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
     }
     store.close().await?;
 
-    fs_util::write_to_uri(&opts.target_path, &out, &s3).await?;
+    fs_util::write_to_uri(&opts.target_path, out.into(), &s3).await?;
     Ok(())
 }
