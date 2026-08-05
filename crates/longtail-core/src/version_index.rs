@@ -200,6 +200,43 @@ impl VersionIndex {
         // name_data = everything remaining (by definition; may be empty).
         let name_data = r.remaining().to_vec();
 
+        // Validate the asset→chunk map here, once, rather than in each of the
+        // six consumers that walk it with plain `[]` indexing (`validate.rs`,
+        // `diff.rs`, and the facade's apply/upsync/cp/inspect paths). Both
+        // indices below are attacker-controlled u32s from the file, and on a
+        // 32-bit target `start + count` would *wrap* into a small in-bounds
+        // value rather than panic — a silently wrong answer, which is worse.
+        // C reads out of bounds here, so there is no defined behaviour to
+        // preserve. O(A + ACI) integer compares over a buffer already resident.
+        for (asset, (&start, &count)) in asset_chunk_index_starts
+            .iter()
+            .zip(asset_chunk_counts.iter())
+            .enumerate()
+        {
+            let end = (start as usize)
+                .checked_add(count as usize)
+                .ok_or(FormatError::SizeOverflow)?;
+            if end > aci {
+                return Err(FormatError::AssetChunkRangeOutOfBounds {
+                    asset,
+                    start,
+                    count,
+                    len: aci,
+                });
+            }
+        }
+        if let Some((position, &index)) = asset_chunk_indexes
+            .iter()
+            .enumerate()
+            .find(|(_, i)| **i as usize >= c)
+        {
+            return Err(FormatError::AssetChunkIndexOutOfBounds {
+                position,
+                index,
+                chunk_count: c,
+            });
+        }
+
         Ok(VersionIndex {
             hash_identifier,
             target_chunk_size,

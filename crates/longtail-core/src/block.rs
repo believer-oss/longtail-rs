@@ -132,6 +132,24 @@ impl StoredBlock {
     pub fn from_bytes(data: &[u8]) -> Result<StoredBlock, FormatError> {
         let (block_index, consumed) = BlockIndex::read_prefix(data)?;
         let payload = data[consumed..].to_vec();
+        // For an uncompressed block the payload *is* the concatenated chunks, so
+        // it must be long enough to cover them: the apply path builds
+        // `(offset, size)` pairs straight from `chunk_sizes` and slices the
+        // payload with them, which panics on a short block (format-spec §3,
+        // "m_Tag == 0 → payload length is Σ m_ChunkSizes").
+        //
+        // Deliberately `<`, not `!=`: C derives the payload size from the file
+        // length and ignores a longer tail, so rejecting an oversize payload
+        // would refuse blocks a real store may contain.
+        if block_index.tag == 0 {
+            let required: u64 = block_index.chunk_sizes.iter().map(|&s| u64::from(s)).sum();
+            if (payload.len() as u64) < required {
+                return Err(FormatError::Truncated {
+                    expected: consumed.saturating_add(required as usize),
+                    actual: data.len(),
+                });
+            }
+        }
         Ok(StoredBlock {
             block_index,
             payload,

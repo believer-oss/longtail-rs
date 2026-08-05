@@ -172,9 +172,12 @@ fn version_index_and_stored_block_absorb_tail() {
     assert!(parsed.name_data.is_empty());
 
     // StoredBlock with a payload round-trips; the payload is the tail.
+    // `sample_bi()` is tag 0 with chunk_sizes [4,5,6], so the payload must be at
+    // least 15 bytes or `from_bytes` rejects it as truncated (see
+    // `stored_block_rejects_payload_shorter_than_chunk_sizes`).
     let sb = StoredBlock {
         block_index: sample_bi(),
-        payload: vec![1, 2, 3, 4, 5],
+        payload: (0u8..15).collect(),
     };
     let bytes = sb.to_bytes();
     assert_eq!(StoredBlock::from_bytes(&bytes).unwrap(), sb);
@@ -316,7 +319,9 @@ proptest! {
 
     #[test]
     fn mutating_stored_block_never_panics(cut in 0usize..64, idx in any::<prop::sample::Index>(), byte in any::<u8>()) {
-        let sb = StoredBlock { block_index: sample_bi(), payload: vec![9, 9, 9] };
+        // 15 bytes = Σ sample_bi().chunk_sizes, so the unmutated block is valid
+        // and every rejection below comes from the mutation, not the fixture.
+        let sb = StoredBlock { block_index: sample_bi(), payload: vec![9; 15] };
         let mut bytes = sb.to_bytes();
         let i = idx.index(bytes.len());
         bytes[i] = byte;
@@ -324,4 +329,116 @@ proptest! {
         let _ = StoredBlock::from_bytes(&bytes[..cut]);
         let _ = StoredBlock::from_bytes(&bytes);
     }
+}
+
+// --- asset→chunk map validation (FMT-001) ----------------------------------
+//
+// Six consumers walk this map with plain `[]` indexing (`validate.rs:56-57`,
+// `diff.rs:132`, and the facade's apply/upsync/cp/inspect paths), so a wild map
+// is a panic on the production download path. `from_bytes` rejects it once for
+// all of them. On a 32-bit target the un-checked `start + count` would *wrap*
+// into a small in-bounds value instead of panicking, silently producing a wrong
+// answer — which is why the check uses `checked_add` on `usize`.
+
+/// Build a `.lvi` byte buffer with a hand-chosen asset→chunk map. `A = 1`,
+/// `C = 1`, `ACI = 1`, one chunk of size 4.
+fn vi_bytes_with_map(start: u32, count: u32, chunk_index: u32) -> Vec<u8> {
+    let vi = VersionIndex {
+        hash_identifier: 0x626c_6b33,
+        target_chunk_size: 32768,
+        path_hashes: vec![1],
+        content_hashes: vec![2],
+        asset_sizes: vec![4],
+        asset_chunk_counts: vec![count],
+        asset_chunk_index_starts: vec![start],
+        asset_chunk_indexes: vec![chunk_index],
+        chunk_hashes: vec![7],
+        chunk_sizes: vec![4],
+        chunk_tags: vec![0],
+        name_offsets: vec![0],
+        permissions: vec![Permissions(0o644)],
+        name_data: b"a\0".to_vec(),
+    };
+    vi.to_bytes()
+}
+
+#[test]
+fn version_index_accepts_a_consistent_map() {
+    // The control: without this, a check that rejected everything would look
+    // like a pass in the two tests below.
+    let vi = VersionIndex::from_bytes(&vi_bytes_with_map(0, 1, 0)).expect("consistent map");
+    assert_eq!(vi.asset_chunk_indexes, vec![0]);
+}
+
+#[test]
+fn version_index_rejects_asset_chunk_range_past_the_map() {
+    // start = u32::MAX: `validate.rs:56` would index asset_chunk_indexes[MAX].
+    let err = VersionIndex::from_bytes(&vi_bytes_with_map(u32::MAX, 1, 0))
+        .expect_err("a start past ACI must be rejected");
+    assert!(
+        matches!(err, FormatError::AssetChunkRangeOutOfBounds { .. }),
+        "wrong error: {err:?}"
+    );
+    // count overhanging the end is the same defect reached the other way.
+    let err = VersionIndex::from_bytes(&vi_bytes_with_map(0, 2, 0))
+        .expect_err("a count past ACI must be rejected");
+    assert!(
+        matches!(err, FormatError::AssetChunkRangeOutOfBounds { .. }),
+        "wrong error: {err:?}"
+    );
+}
+
+#[test]
+fn version_index_rejects_chunk_index_past_the_chunk_arrays() {
+    // `validate.rs:57` would index chunk_sizes[7] with C = 1.
+    let err = VersionIndex::from_bytes(&vi_bytes_with_map(0, 1, 7))
+        .expect_err("a chunk index past C must be rejected");
+    assert!(
+        matches!(err, FormatError::AssetChunkIndexOutOfBounds { .. }),
+        "wrong error: {err:?}"
+    );
+}
+
+// --- stored-block payload length (FMT-002) ---------------------------------
+
+#[test]
+fn stored_block_rejects_payload_shorter_than_chunk_sizes() {
+    // sample_bi(): tag 0, chunk_sizes [4,5,6] → Σ = 15.
+    let short = StoredBlock {
+        block_index: sample_bi(),
+        payload: vec![0; 14],
+    };
+    let err = StoredBlock::from_bytes(&short.to_bytes())
+        .expect_err("a payload one byte short of Σ chunk_sizes must be rejected");
+    assert!(
+        matches!(err, FormatError::Truncated { .. }),
+        "wrong error: {err:?}"
+    );
+}
+
+#[test]
+fn stored_block_accepts_a_longer_payload_deliberately() {
+    // Asymmetric on purpose: C derives the payload size from the file length and
+    // ignores a longer tail, so an `==` check could refuse a block a real store
+    // contains. Only *short* is an error.
+    let long = StoredBlock {
+        block_index: sample_bi(),
+        payload: vec![0; 16],
+    };
+    let parsed = StoredBlock::from_bytes(&long.to_bytes()).expect("a longer tail is accepted");
+    assert_eq!(parsed.payload.len(), 16);
+}
+
+#[test]
+fn stored_block_payload_rule_applies_only_to_uncompressed_blocks() {
+    // tag != 0 → the payload is an opaque compressed frame, and its length has
+    // no relationship to Σ chunk_sizes (which are *uncompressed* sizes).
+    let mut bi = sample_bi();
+    bi.tag = 0xdead_beef;
+    let compressed = StoredBlock {
+        block_index: bi,
+        payload: vec![0; 2],
+    };
+    StoredBlock::from_bytes(&compressed.to_bytes())
+        .expect("a compressed block is not bound by Σ chunk_sizes");
 }
