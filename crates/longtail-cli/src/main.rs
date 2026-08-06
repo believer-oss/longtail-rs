@@ -338,6 +338,10 @@ struct PruneStoreArgs {
     validate_versions: bool,
     #[arg(long, default_value_t = false)]
     skip_invalid_versions: bool,
+    /// Proceed even when the resolved keep-set is empty, which deletes every
+    /// block. Guards against an empty or blank `--source-paths` file.
+    #[arg(long, default_value_t = false)]
+    allow_empty_keep_set: bool,
 }
 
 #[derive(Args)]
@@ -358,6 +362,10 @@ struct PruneStoreIndexArgs {
     validate_versions: bool,
     #[arg(long, default_value_t = false)]
     skip_invalid_versions: bool,
+    /// Proceed even when the resolved keep-set is empty, which deletes every
+    /// block. Guards against an empty or blank `--source-paths` file.
+    #[arg(long, default_value_t = false)]
+    allow_empty_keep_set: bool,
 }
 
 #[derive(Args)]
@@ -823,6 +831,7 @@ async fn run_prune_store(cli: &Cli, a: &PruneStoreArgs) -> Result<(), longtail::
     opts.write_version_local_store_index = a.write_version_local_store_index;
     opts.validate_versions = a.validate_versions;
     opts.skip_invalid_versions = a.skip_invalid_versions;
+    opts.allow_empty_keep_set = a.allow_empty_keep_set;
     opts.remote_worker_count = cli.remote_worker_count;
     #[cfg(feature = "s3")]
     if let Some(u) = &a.s3_endpoint_resolver_uri {
@@ -847,6 +856,7 @@ async fn run_prune_store_index(a: &PruneStoreIndexArgs) -> Result<(), longtail::
     opts.write_version_local_store_index = a.write_version_local_store_index;
     opts.validate_versions = a.validate_versions;
     opts.skip_invalid_versions = a.skip_invalid_versions;
+    opts.allow_empty_keep_set = a.allow_empty_keep_set;
     #[cfg(feature = "s3")]
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());

@@ -1068,6 +1068,84 @@ fn prune_store() {
     assert!(!bad.status.success(), "v3 downsync should fail after prune");
 }
 
+/// A `--source-paths` file that resolves to nothing must not be read as "keep
+/// nothing, delete everything".
+///
+/// The realistic way to produce one is a listing command that fails or matches
+/// nothing and is redirected to a file, which yields an empty or all-blank file
+/// rather than an error. Deleting every block on that input is silent, total and
+/// irreversible, so the command refuses unless asked explicitly.
+#[test]
+fn prune_store_refuses_an_empty_keep_set() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, l1, _l2, _l3, _s1) = three_version_store(tmp.path());
+    let before = count_ext(&store, "lsb");
+    assert!(before > 0, "fixture store should contain blocks");
+
+    for (name, contents) in [("empty.txt", ""), ("blank.txt", "\n   \n\t\n")] {
+        let list = tmp.path().join(name);
+        std::fs::write(&list, contents).unwrap();
+
+        // Refused in dry-run too: a dry run is the safety surface, so it is the
+        // place the mistake should surface rather than the one place it passes.
+        for extra in [&["--dry-run"][..], &[][..]] {
+            let mut argv = vec![
+                "prune-store",
+                "--storage-uri",
+                store.to_str().unwrap(),
+                "--source-paths",
+                list.to_str().unwrap(),
+            ];
+            argv.extend_from_slice(extra);
+            let out = run(&argv, None);
+            assert!(
+                !out.status.success(),
+                "{name} {extra:?}: prune-store must refuse an empty keep-set"
+            );
+        }
+        assert_eq!(
+            count_ext(&store, "lsb"),
+            before,
+            "{name}: no block may be deleted by a refused prune"
+        );
+    }
+
+    // The escape hatch still works, and still prunes everything — which is why
+    // it has to be asked for.
+    let list = tmp.path().join("empty.txt");
+    run_ok(&[
+        "prune-store",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-paths",
+        list.to_str().unwrap(),
+        "--allow-empty-keep-set",
+    ]);
+    assert_eq!(
+        count_ext(&store, "lsb"),
+        0,
+        "--allow-empty-keep-set should delete every block"
+    );
+
+    // And the store really is gone: a version that downsynced before now fails.
+    let out = tmp.path().join("after");
+    let bad = run(
+        &[
+            "downsync",
+            "--storage-uri",
+            store.to_str().unwrap(),
+            "--source-path",
+            l1.to_str().unwrap(),
+            "--target-path",
+            out.to_str().unwrap(),
+            "--no-cache-target-index",
+        ],
+        None,
+    );
+    assert!(!bad.status.success(), "everything was pruned; v1 must fail");
+}
+
 /// cmd_prunestore_index_test.go::TestPruneIndex — only the index is rewritten;
 /// v3 downsync still fails (blocks remain but are unreachable via the index).
 #[test]

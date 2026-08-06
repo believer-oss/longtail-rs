@@ -121,6 +121,9 @@ pub struct PruneStoreOptions {
     pub skip_invalid_versions: bool,
     pub write_version_local_store_index: bool,
     pub remote_worker_count: usize,
+    /// Proceed even when the resolved keep-set is empty. See
+    /// [`guard_empty_keep_set`].
+    pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,
 }
@@ -136,6 +139,7 @@ impl PruneStoreOptions {
             skip_invalid_versions: false,
             write_version_local_store_index: false,
             remote_worker_count: 0,
+            allow_empty_keep_set: false,
             #[cfg(feature = "s3")]
             s3_options: default_s3(),
         }
@@ -150,6 +154,35 @@ pub struct PruneStoreResult {
     pub keep_blocks: usize,
     /// Blocks actually deleted (0 in dry-run).
     pub pruned_blocks: u32,
+}
+
+/// Refuse a prune whose keep-set resolved to nothing.
+///
+/// Every prune command deletes what the keep-set does not name, so an empty
+/// keep-set means "delete everything" — and the usual way to get one is an
+/// input mistake rather than an intent: a `--source-paths` file that is empty
+/// or all blank lines, which is what a failed listing command redirected to a
+/// file produces. Left unguarded the result is silent, total and irreversible.
+///
+/// Checked in dry-run too. A dry run is the safety surface here, so it is the
+/// place the mistake should surface, not the one place it is tolerated.
+///
+/// golongtail is equally unguarded, so this is a deliberate behaviour
+/// divergence on a destructive command; `allow_empty_keep_set` is the way to ask
+/// for the old behaviour.
+fn guard_empty_keep_set(
+    keep_len: usize,
+    source_count: usize,
+    allow: bool,
+) -> Result<(), LongtailError> {
+    if keep_len > 0 || allow {
+        return Ok(());
+    }
+    Err(LongtailError::InvalidArgument(format!(
+        "refusing to prune: the keep-set resolved to zero blocks from {source_count} source \
+         path(s), which would delete every block in the store. If that is intended, pass \
+         --allow-empty-keep-set"
+    )))
 }
 
 /// `prune-store`: gather the keep-set from the retained versions, then (unless
@@ -205,6 +238,11 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
         }
     }
     gather_store.close().await?;
+    guard_empty_keep_set(
+        keep.len(),
+        opts.source_version_index_paths.len(),
+        opts.allow_empty_keep_set,
+    )?;
 
     if opts.dry_run {
         return Ok(PruneStoreResult {
@@ -249,6 +287,9 @@ pub struct PruneStoreIndexOptions {
     pub validate_versions: bool,
     pub skip_invalid_versions: bool,
     pub write_version_local_store_index: bool,
+    /// Proceed even when the resolved keep-set is empty. See
+    /// [`guard_empty_keep_set`].
+    pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,
 }
@@ -266,6 +307,7 @@ impl PruneStoreIndexOptions {
             validate_versions: false,
             skip_invalid_versions: false,
             write_version_local_store_index: false,
+            allow_empty_keep_set: false,
             #[cfg(feature = "s3")]
             s3_options: default_s3(),
         }
@@ -323,6 +365,12 @@ pub async fn prune_store_index(
             keep.extend(bs);
         }
     }
+
+    guard_empty_keep_set(
+        keep.len(),
+        opts.source_version_index_paths.len(),
+        opts.allow_empty_keep_set,
+    )?;
 
     let keep_vec: Vec<u64> = keep.iter().copied().collect();
     let pruned = store_index.prune(&keep_vec);
