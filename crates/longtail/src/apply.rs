@@ -355,10 +355,9 @@ fn flatten_apply_task(
 ) -> Result<(), LongtailError> {
     match res {
         Ok(r) => r,
-        Err(e) => Err(LongtailError::io(
-            "apply block task",
-            std::io::Error::other(format!("task panicked: {e}")),
-        )),
+        Err(e) => Err(LongtailError::Internal(format!(
+            "apply block task panicked: {e}"
+        ))),
     }
 }
 

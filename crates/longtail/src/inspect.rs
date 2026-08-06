@@ -35,6 +35,7 @@ pub async fn read_version_index_from_uri(
 }
 
 /// Options for [`validate_version`].
+#[non_exhaustive]
 pub struct ValidateVersionOptions {
     pub storage_uri: String,
     pub version_index_path: String,
@@ -104,6 +105,7 @@ pub async fn read_store_index_from_uri(
 
 /// Summary numbers for `print-store` (cmd_printstore.go).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StoreIndexStats {
     pub version: u32,
     pub hash_identifier: u32,
@@ -135,6 +137,7 @@ pub fn store_index_stats(si: &StoreIndex) -> StoreIndexStats {
 }
 
 /// Options for [`init_remote_store`].
+#[non_exhaustive]
 pub struct InitRemoteStoreOptions {
     pub storage_uri: String,
     pub remote_worker_count: usize,
@@ -180,6 +183,7 @@ pub async fn init_remote_store(opts: InitRemoteStoreOptions) -> Result<u32, Long
 }
 
 /// Options for [`create_version_store_index`].
+#[non_exhaustive]
 pub struct CreateVersionStoreIndexOptions {
     /// A **version-index** URI (`--source-path`) — NOT a source folder.
     pub source_path: String,
@@ -240,6 +244,7 @@ pub async fn create_version_store_index(
 }
 
 /// Options for [`print_version_usage_stats`].
+#[non_exhaustive]
 pub struct PrintVersionUsageOptions {
     pub storage_uri: String,
     pub version_index_path: String,
@@ -264,6 +269,7 @@ impl PrintVersionUsageOptions {
 
 /// `print-version-usage` numbers (cmd_printVersionUsage.go:145-181).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VersionUsageStats {
     pub block_usage_percent: u32,
     pub asset_fragmentation_percent: u32,

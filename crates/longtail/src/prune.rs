@@ -112,6 +112,7 @@ where
 }
 
 /// Options for [`prune_store`].
+#[non_exhaustive]
 pub struct PruneStoreOptions {
     pub storage_uri: String,
     pub source_version_index_paths: Vec<String>,
@@ -148,6 +149,7 @@ impl PruneStoreOptions {
 
 /// The outcome of [`prune_store`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreResult {
     pub dry_run: bool,
     /// Blocks the retained versions need (the keep-set size).
@@ -279,6 +281,7 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
 }
 
 /// Options for [`prune_store_index`].
+#[non_exhaustive]
 pub struct PruneStoreIndexOptions {
     pub store_index_path: String,
     pub source_version_index_paths: Vec<String>,
@@ -316,6 +319,7 @@ impl PruneStoreIndexOptions {
 
 /// The outcome of [`prune_store_index`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreIndexResult {
     pub dry_run: bool,
     pub old_block_count: u32,
@@ -389,6 +393,7 @@ pub async fn prune_store_index(
 }
 
 /// Options for [`prune_store_blocks`].
+#[non_exhaustive]
 pub struct PruneStoreBlocksOptions {
     pub store_index_path: String,
     pub blocks_root_path: String,
@@ -413,6 +418,7 @@ impl PruneStoreBlocksOptions {
 
 /// The outcome of [`prune_store_blocks`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreBlocksResult {
     pub dry_run: bool,
     pub found_blocks: usize,

@@ -10,6 +10,7 @@ use crate::progress::ProgressSink;
 use crate::upsync::upsync;
 
 /// Options for [`crate::put`].
+#[non_exhaustive]
 pub struct PutOptions {
     /// The get-config JSON URI (`--target-path`). Defaults for storage/`.lvi`/
     /// `.lsi` are derived from its parent dir + basename-without-extension.

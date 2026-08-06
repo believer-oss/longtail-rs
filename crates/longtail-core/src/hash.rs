@@ -35,6 +35,7 @@ pub const MEOW_ID: u32 = 0x6d65_6f77;
 
 /// Errors from the hash registry ([`hasher`]).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum HashError {
     /// The ID names a hash the pure-Rust port recognizes but cannot compute.
     /// Currently only Meow (`0x6d656f77`): its digest needs x86 AES-NI

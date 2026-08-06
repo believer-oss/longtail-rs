@@ -90,6 +90,7 @@ pub const FAMILY_MASK: u32 = 0xffff_ff00;
 
 /// Errors from the compression layer (codec registry + payload framing).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum CompressError {
     /// The tag/ID does not name any known codec (and is not `0` = raw).
     #[error("unknown compression identifier {id:#010x}")]

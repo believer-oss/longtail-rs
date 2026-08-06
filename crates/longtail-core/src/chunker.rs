@@ -111,6 +111,7 @@ static GEAR: [u32; 256] = [
 
 /// Errors from constructing an [`HpcdcChunker`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum ChunkerError {
     /// `min` is below the 48-byte window floor (`params.min >= ChunkerWindowSize`,
     /// hpcdcchunker.c:139).

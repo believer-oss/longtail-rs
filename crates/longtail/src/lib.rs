@@ -53,7 +53,7 @@ pub use clonestore::{CloneStoreOptions, clone_store};
 pub use compression::compression_type_for_name;
 pub use cp::{CpOptions, cp};
 pub use downsync::downsync;
-pub use error::LongtailError;
+pub use error::{ErrorClass, LongtailError};
 pub use get::get;
 pub use hash_util::{SyncHasher, make_hasher};
 pub use inspect::{
@@ -82,6 +82,8 @@ pub use tokio_util::sync::CancellationToken;
 // Re-exported so a facade-only consumer can match on the store-error classes
 // (`StoreError::NotAuthorized` / `Network` / `NotFound`) reachable through
 // `LongtailError::Store(_)` without a direct `longtail-store` dependency.
+// Prefer `LongtailError::class()` for dispatch: it covers the whole error tree
+// and does not require matching variants across three crates.
 pub use longtail_store::StoreError;
 // The S3 configuration surface is re-exported so a crate that depends only on
 // `longtail` can name the type it must construct for `DownsyncOptions`/

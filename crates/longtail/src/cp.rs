@@ -22,6 +22,7 @@ fn default_s3() -> S3OptionsArg {
 fn default_s3() -> S3OptionsArg {}
 
 /// Options for [`cp`].
+#[non_exhaustive]
 pub struct CpOptions {
     pub storage_uri: String,
     pub version_index_path: String,

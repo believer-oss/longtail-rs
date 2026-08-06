@@ -623,11 +623,43 @@ async fn drain_prefetch(prefetch: &Mutex<PrefetchState>) {
 
 /// A best-effort clone of a `StoreError` behind an `Arc` (for the coalesced
 /// prefetch path, where the error is shared).
+/// Rebuild a `StoreError` that is only reachable behind an `Arc`.
+///
+/// Block gets are coalesced through a `Shared` future, which hands every waiter
+/// an `&Arc<StoreError>` rather than the error itself, so the result has to be
+/// reconstructed by hand for all of them.
+///
+/// The match is **exhaustive on purpose**: a catch-all silently downgrades every
+/// future variant to `Backend(String)`, which is how the classes a caller
+/// dispatches on — `NotAuthorized` versus `Network` in particular — were lost on
+/// every block get while the store-index path kept them. Adding a variant should
+/// fail this build, not quietly erase itself here.
 fn clone_store_error(e: &StoreError) -> StoreError {
     match e {
         StoreError::NotFound(s) => StoreError::NotFound(s.clone()),
         StoreError::BadFormat(s) => StoreError::BadFormat(s.clone()),
-        other => StoreError::Backend(format!("{other}")),
+        StoreError::LockingNotSupported(s) => StoreError::LockingNotSupported(s.clone()),
+        StoreError::GenerationMismatch(s) => StoreError::GenerationMismatch(s.clone()),
+        StoreError::AccessViolation => StoreError::AccessViolation,
+        StoreError::NotSupported(s) => StoreError::NotSupported(s.clone()),
+        StoreError::InvalidUri { uri, reason } => StoreError::InvalidUri {
+            uri: uri.clone(),
+            reason: reason.clone(),
+        },
+        StoreError::WorkerGone => StoreError::WorkerGone,
+        StoreError::NotAuthorized(s) => StoreError::NotAuthorized(s.clone()),
+        StoreError::Network(s) => StoreError::Network(s.clone()),
+        StoreError::Backend(s) => StoreError::Backend(s.clone()),
+        // `io::Error` and the two codec errors are not `Clone`. Keep the class
+        // by staying in the same variant where possible and carry the detail as
+        // text; `io::ErrorKind` is preserved because it is the part a caller can
+        // act on (permission denied, disk full).
+        StoreError::Io { context, source } => StoreError::Io {
+            context: context.clone(),
+            source: std::io::Error::new(source.kind(), source.to_string()),
+        },
+        StoreError::Format(inner) => StoreError::BadFormat(format!("format error: {inner}")),
+        StoreError::Compress(inner) => StoreError::BadFormat(format!("compression error: {inner}")),
     }
 }
 

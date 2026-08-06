@@ -13,6 +13,7 @@ use thiserror::Error;
 /// adds (rejecting `ACI < C` and trailing bytes, and returning
 /// `Err` where C would silently wrap 32-bit arithmetic).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum FormatError {
     /// The format's version field did not match the single supported constant.
     /// Readers reject any other value (longtail.c:2633 / :9004).

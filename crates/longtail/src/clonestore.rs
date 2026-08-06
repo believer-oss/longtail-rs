@@ -23,6 +23,7 @@ use crate::progress::{NullProgress, ProgressSink, RateLimited};
 use crate::upsync::write_content;
 
 /// Options for [`clone_store`].
+#[non_exhaustive]
 pub struct CloneStoreOptions {
     pub source_storage_uri: String,
     pub target_storage_uri: String,
