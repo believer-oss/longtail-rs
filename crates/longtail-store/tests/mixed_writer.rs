@@ -231,3 +231,73 @@ async fn absent_store_root_still_lists_empty() {
         .expect("an absent store root is an empty store");
     assert!(listed.is_empty());
 }
+
+// --- a store cannot choose this process's memory use -------------------------
+
+/// An object larger than the read ceiling is refused instead of being read into
+/// memory.
+///
+/// A blob's length is whatever the store says it is, and the backends read one
+/// in a single allocation. The prefetch byte budget does not bound it: that is
+/// computed from the store index's *declared* chunk sizes, which have no
+/// relationship to the object actually served.
+#[tokio::test]
+async fn an_oversized_object_is_refused_rather_than_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_path_buf();
+    std::fs::write(root.join("big"), vec![0u8; 4096]).unwrap();
+
+    let store = longtail_store::FsBlobStore::new(&root, false).with_max_read_bytes(1024);
+    let client = store.new_client().await.unwrap();
+    let obj = client.new_object("big").await.unwrap();
+
+    let err = obj
+        .read()
+        .await
+        .expect_err("4 KiB must exceed a 1 KiB ceiling");
+    assert!(
+        err.to_string().contains("ceiling"),
+        "expected the ceiling refusal, got: {err}"
+    );
+}
+
+/// The ceiling is a limit, not a fixed size: anything at or under it still
+/// reads. Without this, a ceiling of zero would satisfy the test above.
+#[tokio::test]
+async fn an_object_within_the_ceiling_still_reads() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_path_buf();
+    std::fs::write(root.join("ok"), vec![7u8; 1024]).unwrap();
+
+    let store = longtail_store::FsBlobStore::new(&root, false).with_max_read_bytes(1024);
+    let client = store.new_client().await.unwrap();
+    let data = client
+        .new_object("ok")
+        .await
+        .unwrap()
+        .read()
+        .await
+        .expect("exactly at the ceiling must be accepted");
+    assert_eq!(data.len(), 1024);
+}
+
+/// A deployment that genuinely writes larger blocks can raise the ceiling — the
+/// escape hatch has to work, or the cap becomes a compatibility break for stores
+/// built with a large `--target-block-size`.
+#[tokio::test]
+async fn the_ceiling_can_be_raised_for_stores_that_need_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_path_buf();
+    std::fs::write(root.join("big"), vec![0u8; 4096]).unwrap();
+
+    let store = longtail_store::FsBlobStore::new(&root, false).with_max_read_bytes(8192);
+    let client = store.new_client().await.unwrap();
+    let data = client
+        .new_object("big")
+        .await
+        .unwrap()
+        .read()
+        .await
+        .expect("a raised ceiling must admit the object");
+    assert_eq!(data.len(), 4096);
+}

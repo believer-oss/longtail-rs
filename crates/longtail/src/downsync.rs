@@ -149,6 +149,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         cache_dir: opts.cache_path.clone(),
         pool: pool.clone(),
         version_local_store_index: override_index,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };

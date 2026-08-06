@@ -210,6 +210,7 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
             cache_dir: None,
             pool: pool()?,
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: opts.s3_options.clone(),
         },
@@ -265,6 +266,7 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
             cache_dir: None,
             pool: pool()?,
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: opts.s3_options.clone(),
         },

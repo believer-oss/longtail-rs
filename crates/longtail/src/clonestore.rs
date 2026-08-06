@@ -157,6 +157,7 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
                 cache_dir: None,
                 pool: Arc::new(crate::version::build_pool(opts.worker_count)?),
                 version_local_store_index: None,
+                max_block_bytes: None,
                 #[cfg(feature = "s3")]
                 s3_options: opts.target_s3_options.clone(),
             },
@@ -237,6 +238,7 @@ async fn validate_target_covers(
             cache_dir: None,
             pool: Arc::new(crate::version::build_pool(1)?),
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: opts.target_s3_options.clone(),
         },

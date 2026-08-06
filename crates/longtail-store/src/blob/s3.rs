@@ -103,11 +103,16 @@ pub struct S3Options {
     /// fixed April 2024, well before our pinned `aws-smithy-runtime`); the escape
     /// hatch remains so a caller can turn it back off without a code change.
     pub stalled_stream_protection: bool,
+    /// Ceiling on a single object read; see [`super::DEFAULT_MAX_BLOB_BYTES`].
+    /// The object's own `Content-Length` decides nothing — it is supplied by the
+    /// same store the bytes come from.
+    pub max_read_bytes: u64,
 }
 
 impl Default for S3Options {
     fn default() -> S3Options {
         S3Options {
+            max_read_bytes: super::DEFAULT_MAX_BLOB_BYTES,
             client: None,
             sdk_config: None,
             credentials_provider: None,
@@ -249,6 +254,7 @@ impl BlobStore for S3BlobStore {
             client,
             bucket: self.bucket.clone(),
             prefix: self.prefix.clone(),
+            max_read_bytes: self.options.max_read_bytes,
         }))
     }
 
@@ -262,6 +268,7 @@ struct S3BlobClient {
     client: Client,
     bucket: String,
     prefix: String,
+    max_read_bytes: u64,
 }
 
 #[async_trait]
@@ -272,6 +279,7 @@ impl BlobClient for S3BlobClient {
             bucket: self.bucket.clone(),
             prefix: self.prefix.clone(),
             key: format!("{}{}", self.prefix, path),
+            max_read_bytes: self.max_read_bytes,
         }))
     }
 
@@ -339,6 +347,7 @@ struct S3BlobObject {
     bucket: String,
     prefix: String,
     key: String,
+    max_read_bytes: u64,
 }
 
 #[async_trait]
@@ -388,6 +397,19 @@ impl BlobObject for S3BlobObject {
                 return Err(map_sdk_err(format_args!("get_object {}", self.key), e));
             }
         };
+        // Refuse before collecting: `collect()` buffers the whole body in one
+        // allocation, so an oversized object has to be rejected on the declared
+        // length rather than after it is already resident. The length is only a
+        // hint — it comes from the same store — so the collected result is
+        // re-checked below.
+        if let Some(len) = resp.content_length()
+            && len as u64 > self.max_read_bytes
+        {
+            return Err(StoreError::Backend(format!(
+                "{} declares {len} bytes, over the {}-byte read ceiling",
+                self.key, self.max_read_bytes
+            )));
+        }
         let data = resp
             .body
             .collect()
@@ -405,7 +427,16 @@ impl BlobObject for S3BlobObject {
         // `AggregatedBytes::to_vec` collects the segments in a single copy;
         // `into_bytes().to_vec()` would concatenate to a `Bytes` first, then copy
         // again — one buffer-sized allocation saved per shard/block read.
-        Ok(data.to_vec())
+        let out = data.to_vec();
+        if out.len() as u64 > self.max_read_bytes {
+            return Err(StoreError::Backend(format!(
+                "{} delivered {} bytes, over the {}-byte read ceiling",
+                self.key,
+                out.len(),
+                self.max_read_bytes
+            )));
+        }
+        Ok(out)
     }
 
     async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {

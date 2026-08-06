@@ -122,6 +122,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
         cache_dir: None,
         pool: pool.clone(),
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };

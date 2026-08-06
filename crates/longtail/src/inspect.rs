@@ -68,6 +68,7 @@ pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), Longta
         cache_dir: None,
         pool,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options,
     };
@@ -161,6 +162,7 @@ pub async fn init_remote_store(opts: InitRemoteStoreOptions) -> Result<u32, Long
         cache_dir: None,
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options,
     };
@@ -225,6 +227,7 @@ pub async fn create_version_store_index(
         cache_dir: None,
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
@@ -294,6 +297,7 @@ pub async fn print_version_usage_stats(
         cache_dir: opts.cache_path.clone(),
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };

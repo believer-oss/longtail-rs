@@ -37,6 +37,7 @@ use crate::error::StoreError;
 pub struct FsBlobStore {
     prefix: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
 }
 
 impl FsBlobStore {
@@ -45,7 +46,14 @@ impl FsBlobStore {
         FsBlobStore {
             prefix: prefix.as_ref().to_path_buf(),
             enable_locking,
+            max_read_bytes: super::DEFAULT_MAX_BLOB_BYTES,
         }
+    }
+
+    /// Override the per-read ceiling (see [`super::DEFAULT_MAX_BLOB_BYTES`]).
+    pub fn with_max_read_bytes(mut self, max_read_bytes: u64) -> FsBlobStore {
+        self.max_read_bytes = max_read_bytes;
+        self
     }
 }
 
@@ -55,6 +63,7 @@ impl BlobStore for FsBlobStore {
         Ok(Box::new(FsBlobClient {
             prefix: self.prefix.clone(),
             enable_locking: self.enable_locking,
+            max_read_bytes: self.max_read_bytes,
         }))
     }
 
@@ -67,6 +76,7 @@ impl BlobStore for FsBlobStore {
 struct FsBlobClient {
     prefix: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
 }
 
 #[async_trait]
@@ -76,6 +86,7 @@ impl BlobClient for FsBlobClient {
         Ok(Box::new(FsBlobObject {
             path: full,
             enable_locking: self.enable_locking,
+            max_read_bytes: self.max_read_bytes,
             // Go: metageneration starts at -1 (never locked).
             metageneration: -1,
         }))
@@ -169,6 +180,7 @@ fn normalize(p: &str) -> String {
 struct FsBlobObject {
     path: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
     /// Go `metageneration`; `-1` = never locked.
     metageneration: i64,
 }
@@ -372,6 +384,7 @@ impl BlobObject for FsBlobObject {
         let path = self.path.clone();
         let lock_path = self.lock_path();
         let enable_locking = self.enable_locking;
+        let max_read_bytes = self.max_read_bytes;
         tokio::task::spawn_blocking(move || -> Result<Vec<u8>, StoreError> {
             let _guard = if enable_locking {
                 Some(lock_file(&path, &lock_path)?)
@@ -385,9 +398,19 @@ impl BlobObject for FsBlobObject {
                 }
                 Err(e) => return Err(StoreError::io(format!("open {}", path.display()), e)),
             };
+            // Read one byte past the ceiling so an oversized object is
+            // detectable rather than silently truncated.
             let mut buf = Vec::new();
-            f.read_to_end(&mut buf)
+            (&mut f)
+                .take(max_read_bytes.saturating_add(1))
+                .read_to_end(&mut buf)
                 .map_err(|e| StoreError::io(format!("read {}", path.display()), e))?;
+            if buf.len() as u64 > max_read_bytes {
+                return Err(StoreError::Backend(format!(
+                    "{} exceeds the {max_read_bytes}-byte read ceiling",
+                    path.display()
+                )));
+            }
             Ok(buf)
         })
         .await

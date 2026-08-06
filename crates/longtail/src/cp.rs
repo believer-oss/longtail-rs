@@ -118,6 +118,7 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
         cache_dir: opts.cache_path.clone(),
         pool: Arc::new(crate::version::build_pool(1)?),
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
