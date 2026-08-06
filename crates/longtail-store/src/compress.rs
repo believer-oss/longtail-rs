@@ -71,7 +71,14 @@ impl BlockStore for CompressBlockStore {
             payload,
         } = block;
         let tag = block_index.tag;
-        let raw = on_pool(&self.pool, move || decode_block_payload(tag, &payload)).await?;
+        let max_uncompressed = block_index
+            .uncompressed_len()
+            .try_into()
+            .unwrap_or(usize::MAX);
+        let raw = on_pool(&self.pool, move || {
+            decode_block_payload(tag, &payload, max_uncompressed)
+        })
+        .await?;
         // `decode_block_payload` checks the decoded length against the frame's
         // own declared `uncompressed_size` — both numbers come from the same
         // untrusted bytes, so they agree with each other and say nothing about

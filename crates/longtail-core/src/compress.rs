@@ -108,6 +108,12 @@ pub enum CompressError {
     #[error("frame compressed_size {declared} != payload body length {actual}")]
     CompressedSizeMismatch { declared: usize, actual: usize },
 
+    /// The frame's declared plaintext size exceeds what the caller knows the
+    /// block can hold. Rejected before any memory is committed, so a lie about
+    /// the size costs nothing to refuse.
+    #[error("declared uncompressed_size {declared} exceeds the block's {max} bytes")]
+    DeclaredSizeTooLarge { declared: usize, max: usize },
+
     /// The codec produced a different number of bytes than the frame's declared
     /// `uncompressed_size`. This is C's one integrity check (EBADF-equivalent,
     /// `compressblockstore.c:328`).
@@ -237,12 +243,42 @@ impl Compressor for Brotli {
         Ok(out)
     }
     fn decompress(&self, data: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, CompressError> {
-        let mut out = Vec::with_capacity(uncompressed_size);
-        let mut reader = Cursor::new(data);
-        brotli::BrotliDecompress(&mut reader, &mut out)
+        use std::io::Read;
+        // Decompress through a `Read` adapter with a hard ceiling rather than
+        // `BrotliDecompress` into a bare `Vec`. Brotli's window makes a ~1000:1
+        // expansion trivial, so a stream is free to decode to far more than the
+        // frame header claims; an unbounded `Vec` on a codec worker turns that
+        // into an OOM rather than an error. Reading one byte past the declared
+        // size is what makes the lie detectable instead of silently truncated.
+        let ceiling = uncompressed_size.saturating_add(1);
+        let mut out = Vec::with_capacity(initial_capacity(uncompressed_size));
+        brotli::Decompressor::new(Cursor::new(data), BROTLI_READ_BUFFER)
+            .take(ceiling as u64)
+            .read_to_end(&mut out)
             .map_err(|_| CompressError::Decompress { id: self.id })?;
+        if out.len() > uncompressed_size {
+            return Err(CompressError::DecodedLengthMismatch {
+                expected: uncompressed_size,
+                actual: out.len(),
+            });
+        }
         Ok(out)
     }
+}
+
+/// Read-buffer size for the brotli streaming decoder.
+const BROTLI_READ_BUFFER: usize = 8192;
+
+/// How much to reserve up front for a decode of `declared` bytes.
+///
+/// `declared` comes from the frame header, which is attacker-controlled, so
+/// reserving it outright hands over an allocation of any size — and in Rust an
+/// allocation failure aborts the process rather than returning an error. Reserve
+/// a bounded amount and let the buffer grow into the real output, which the
+/// caller's own ceiling already limits.
+fn initial_capacity(declared: usize) -> usize {
+    const MAX_RESERVE: usize = 1 << 20; // 1 MiB
+    declared.min(MAX_RESERVE)
 }
 
 // ---- Registry ------------------------------------------------------------
@@ -290,7 +326,11 @@ const FRAME_HEADER_SIZE: usize = 8;
 ///   check, `compressblockstore.c:328`).
 ///
 /// Never panics on malformed input — every failure is a typed [`CompressError`].
-pub fn decode_block_payload(tag: u32, payload: &[u8]) -> Result<Vec<u8>, CompressError> {
+pub fn decode_block_payload(
+    tag: u32,
+    payload: &[u8],
+    max_uncompressed: usize,
+) -> Result<Vec<u8>, CompressError> {
     if tag == 0 {
         return Ok(payload.to_vec());
     }
@@ -302,6 +342,17 @@ pub fn decode_block_payload(tag: u32, payload: &[u8]) -> Result<Vec<u8>, Compres
     }
     let uncompressed_size =
         u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
+    // Checked before the codec runs, so a lie costs nothing: `uncompressed_size`
+    // is attacker-controlled and is otherwise handed straight to a codec as an
+    // allocation size. The caller knows the real bound — a block's plaintext is
+    // exactly the chunks its index claims — so a frame declaring more than that
+    // is malformed regardless of what it would decode to.
+    if uncompressed_size > max_uncompressed {
+        return Err(CompressError::DeclaredSizeTooLarge {
+            declared: uncompressed_size,
+            max: max_uncompressed,
+        });
+    }
     let compressed_size =
         u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]) as usize;
     let body = &payload[FRAME_HEADER_SIZE..];
@@ -349,7 +400,12 @@ pub fn encode_block_payload(tag: u32, raw: &[u8]) -> Result<Vec<u8>, CompressErr
 /// length `Σ chunk_sizes` (verified by [`decode_block_payload`] against the
 /// frame's `uncompressed_size` for compressed blocks).
 pub fn decode_stored_block(block: &crate::StoredBlock) -> Result<Vec<u8>, CompressError> {
-    decode_block_payload(block.block_index.tag, &block.payload)
+    let max = block
+        .block_index
+        .uncompressed_len()
+        .try_into()
+        .unwrap_or(usize::MAX);
+    decode_block_payload(block.block_index.tag, &block.payload, max)
 }
 
 #[cfg(test)]
@@ -430,7 +486,7 @@ mod tests {
         let data = sample();
         for &tag in std::iter::once(&0u32).chain(test_ids().iter()) {
             let framed = encode_block_payload(tag, &data).unwrap();
-            let back = decode_block_payload(tag, &framed).unwrap();
+            let back = decode_block_payload(tag, &framed, data.len()).unwrap();
             assert_eq!(back, data, "framing round-trip tag {tag:#010x}");
         }
     }
