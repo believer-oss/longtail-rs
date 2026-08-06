@@ -1492,3 +1492,324 @@ fn s3_endpoint_flag_reaches_the_inspection_commands() {
         );
     }
 }
+
+/// `clone-store --create-version-local-store-index` derives the `.lsi` path from
+/// the target `.lvi` path by replacing every `.lvi` — which golongtail also does
+/// (`strings.Replace(targetFilePath, ".lvi", ".lsi", -1)`). A target carrying no
+/// `.lvi` therefore derives to *itself*, and the store index would be written over
+/// the version index written moments earlier through the same truncating write.
+///
+/// Refusing is a deliberate divergence: it is the one input where upstream's
+/// derivation destroys the artefact it just produced. The version index must
+/// survive, which is what makes the failure recoverable by re-running without the
+/// flag.
+#[test]
+fn clone_store_refuses_a_target_that_would_overwrite_its_version_index() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (src_store, l1, _l2, _l3, _s1) = three_version_store(tmp.path());
+    let tgt_store = tmp.path().join("tgt-store");
+    let materialize = tmp.path().join("materialize");
+    // No `.lvi` anywhere in the name — a plausible convention, not a hostile input.
+    let target = tmp.path().join("game-v7.index");
+    let sources = tmp.path().join("sources.txt");
+    let targets = tmp.path().join("targets.txt");
+    std::fs::write(&sources, format!("{}\n", l1.to_str().unwrap())).unwrap();
+    std::fs::write(&targets, format!("{}\n", target.to_str().unwrap())).unwrap();
+
+    let out = run(
+        &[
+            "clone-store",
+            "--source-storage-uri",
+            src_store.to_str().unwrap(),
+            "--target-storage-uri",
+            tgt_store.to_str().unwrap(),
+            "--target-path",
+            materialize.to_str().unwrap(),
+            "--source-paths",
+            sources.to_str().unwrap(),
+            "--target-paths",
+            targets.to_str().unwrap(),
+            "--create-version-local-store-index",
+        ],
+        None,
+    );
+    assert!(
+        !out.status.success(),
+        "a target that derives onto itself must fail, not report success"
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("overwrite") || err.contains("written over"),
+        "the error must say what it refused to do: {err}"
+    );
+
+    // The version index it already wrote must still be a version index.
+    let printed = run_ok(&[
+        "print-version",
+        "--version-index-path",
+        target.to_str().unwrap(),
+    ]);
+    let s = String::from_utf8_lossy(&printed.stdout);
+    assert!(
+        s.contains("Asset Count:") || s.contains("Hash Identifier:"),
+        "the version index must survive the refusal: {s}"
+    );
+}
+
+/// The same flag on a well-formed `.lvi` target writes both artefacts, to
+/// different paths. Guards the refusal above against being over-broad.
+#[test]
+fn clone_store_writes_a_version_local_store_index_beside_the_version_index() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (src_store, l1, _l2, _l3, _s1) = three_version_store(tmp.path());
+    let tgt_store = tmp.path().join("tgt-store");
+    let materialize = tmp.path().join("materialize");
+    let target = tmp.path().join("t1.lvi");
+    let sources = tmp.path().join("sources.txt");
+    let targets = tmp.path().join("targets.txt");
+    std::fs::write(&sources, format!("{}\n", l1.to_str().unwrap())).unwrap();
+    std::fs::write(&targets, format!("{}\n", target.to_str().unwrap())).unwrap();
+
+    run_ok(&[
+        "clone-store",
+        "--source-storage-uri",
+        src_store.to_str().unwrap(),
+        "--target-storage-uri",
+        tgt_store.to_str().unwrap(),
+        "--target-path",
+        materialize.to_str().unwrap(),
+        "--source-paths",
+        sources.to_str().unwrap(),
+        "--target-paths",
+        targets.to_str().unwrap(),
+        "--create-version-local-store-index",
+    ]);
+
+    let lsi = tmp.path().join("t1.lsi");
+    assert!(
+        lsi.is_file(),
+        "the version-local store index must be written"
+    );
+    assert!(target.is_file(), "the version index must still be there");
+    run_ok(&["print-store", "--store-index-path", lsi.to_str().unwrap()]);
+    run_ok(&[
+        "print-version",
+        "--version-index-path",
+        target.to_str().unwrap(),
+    ]);
+}
+
+/// golongtail publishes a second spelling for nine subcommands and a `version`
+/// subcommand (`--help`, v0.4.5). This CLI is described as a drop-in
+/// replacement, so a pipeline step spelled `longtail stats …` or
+/// `longtail validate …` has to run rather than die at clap parse with exit 2 —
+/// at the *first* invocation after a switchover, not gradually.
+#[test]
+fn golongtail_subcommand_aliases_are_accepted() {
+    for alias in [
+        "validate",
+        "printVersionIndex",
+        "printStoreIndex",
+        "stats",
+        "dump",
+        "init",
+        "createVersionStoreIndex",
+        "cloneStore",
+        "pruneStore",
+    ] {
+        let out = run(&[alias, "--help"], None);
+        assert!(
+            out.status.success(),
+            "alias `{alias}` must resolve: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let out = run_ok(&["version"]);
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.trim().starts_with(char::is_numeric),
+        "`version` must print a version number, got {s:?}"
+    );
+}
+
+/// The eight globals golongtail defines that this CLI did not. Each has to parse;
+/// what it then does varies by flag and is asserted separately below.
+#[test]
+fn golongtail_global_flags_are_accepted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+
+    for flag in [
+        "--show-store-stats",
+        "--mem-trace",
+        "--mem-trace-detailed",
+        "--log-coloring",
+        "--log-console-timestamp",
+        "--log-to-console",
+        "--no-log-to-console",
+    ] {
+        let out = run(
+            &[
+                flag,
+                "print-version",
+                "--version-index-path",
+                lvi.to_str().unwrap(),
+            ],
+            None,
+        );
+        assert!(
+            out.status.success(),
+            "global `{flag}` must parse: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let csv = tmp.path().join("trace.csv");
+    let out = run(
+        &[
+            "--mem-trace-csv",
+            csv.to_str().unwrap(),
+            "print-version",
+            "--version-index-path",
+            lvi.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(out.status.success(), "--mem-trace-csv must parse");
+}
+
+/// The accepted-and-ignored flags say so. Silently dropping them would leave a
+/// pipeline asking for memory traces that never arrive.
+#[test]
+fn ignored_compatibility_flags_warn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+
+    let out = run_ok(&[
+        "--mem-trace",
+        "print-version",
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+    ]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("mem-trace") && err.contains("do nothing"),
+        "--mem-trace must say it does nothing: {err}"
+    );
+}
+
+/// `--log-file-path` is golongtail's json log sink, and `--no-log-to-console`
+/// leaves it as the only one. A path that cannot be opened fails the run rather
+/// than proceeding without the record the operator asked for.
+#[test]
+fn log_file_path_writes_json_and_fails_loudly() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let log = tmp.path().join("log.json");
+
+    // `--mem-trace` is a guaranteed event on an otherwise quiet command.
+    let out = run_ok(&[
+        "--mem-trace",
+        "--no-log-to-console",
+        "--log-file-path",
+        log.to_str().unwrap(),
+        "print-version",
+        "--version-index-path",
+        lvi.to_str().unwrap(),
+    ]);
+    assert!(
+        out.stderr.is_empty(),
+        "--no-log-to-console must silence stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body = std::fs::read_to_string(&log).expect("log file");
+    assert!(
+        body.contains("\"level\":\"WARN\"") && body.contains("mem-trace"),
+        "the log file must hold json records: {body}"
+    );
+
+    let bad = run(
+        &[
+            "--log-file-path",
+            tmp.path()
+                .join("no-such-dir")
+                .join("x.json")
+                .to_str()
+                .unwrap(),
+            "print-version",
+            "--version-index-path",
+            lvi.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(
+        !bad.status.success(),
+        "an unopenable log file must fail the run"
+    );
+}
+
+/// `--show-store-stats` is golongtail's spelling of `--show-stats`; both must
+/// produce the stats report rather than one of them being silently inert.
+#[test]
+fn show_store_stats_is_an_alias_for_show_stats() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let out_a = tmp.path().join("a");
+    let out_b = tmp.path().join("b");
+
+    let a = run_ok(&[
+        "--show-stats",
+        "downsync",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-path",
+        lvi.to_str().unwrap(),
+        "--target-path",
+        out_a.to_str().unwrap(),
+    ]);
+    let b = run_ok(&[
+        "--show-store-stats",
+        "downsync",
+        "--storage-uri",
+        store.to_str().unwrap(),
+        "--source-path",
+        lvi.to_str().unwrap(),
+        "--target-path",
+        out_b.to_str().unwrap(),
+    ]);
+    // The report goes to stderr, alongside the progress bar it follows.
+    let (sa, sb) = (
+        String::from_utf8_lossy(&a.stderr),
+        String::from_utf8_lossy(&b.stderr),
+    );
+    assert!(
+        sa.contains("downsync complete:"),
+        "--show-stats printed no report: {sa}"
+    );
+    assert!(
+        sb.contains("downsync complete:"),
+        "--show-store-stats printed no report: {sb}"
+    );
+    assert_eq!(
+        sa.lines().count(),
+        sb.lines().count(),
+        "the two spellings must produce the same report shape:\n{sa}\n---\n{sb}"
+    );
+}

@@ -530,7 +530,12 @@ it.
   `CancellationToken` **nothing ever cancels**.
   **verified-by:** none; exit code 130 has zero coverage on either path (`OPS-16`).
 
-- [ ] **`OPS-06`** · P1 · `complexity` · — · S · R7 (cluster §1.4 of the runbook, see `DOCS-02`)
+- [x] **`OPS-06`** · P1 · `complexity` · — · S · R7 (cluster §1.4 of the runbook, see `DOCS-02`) — done
+  All nine aliases, the `version` subcommand, and all eight globals added.
+  Per-flag decisions: `--show-store-stats` aliases `--show-stats`; `--log-file-path`,
+  `--[no-]log-to-console` and `--log-coloring` implemented; `--log-console-timestamp` already the
+  default; the mem-trace trio accepted with a warning that it does nothing. Five tests, two
+  mutation-checked. `switchover-checklist.md`'s "globals are identical" claim corrected.
   `crates/longtail-cli/src/main.rs:27-44,46-82`; oracle `target/review-evidence/14-golongtail-help.txt:11-26,38-96`
   **Fails when:** any existing pipeline step spelled `longtail stats`, `validate`, or `init`, or one
   passing `--show-store-stats` or `--log-file-path`, dies at clap parse with exit 2 — at the *first*
@@ -569,7 +574,11 @@ it.
   lands mid-write. The target is neither v1 nor v2, the disk is full, and re-running reproduces it.
   **verified-by:** none. **Fix:** a free-space preflight before the deletes.
 
-- [ ] **`OPS-14`** · P1 · `correctness` · — · S · R7
+- [x] **`OPS-14`** · P1 · `correctness` · — · S · R7 — done
+  Guarded. golongtail derives the `.lsi` path the same way
+  (`strings.Replace(targetFilePath, ".lvi", ".lsi", -1)` in cmd_clonestore.go, checked against
+  upstream), so the all-occurrence form is kept for interop and only the self-overwriting case is
+  refused. Mutation-checked; the version index survives the refusal.
   `crates/longtail/src/clonestore.rs:191,195,197`
   **Fails when:** a `--target-paths` entry does not contain `.lvi` (e.g.
   `s3://backup/versions/game-v7.index`) — `str::replace` returns it unchanged, so

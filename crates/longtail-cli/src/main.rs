@@ -39,8 +39,51 @@ struct Cli {
     /// Print store/time stats after the operation.
     #[arg(long, global = true, default_value_t = false)]
     show_stats: bool,
+    /// Output detailed stats for block stores. golongtail's spelling for the
+    /// same report `--show-stats` produces here; both are accepted so a pipeline
+    /// written against either tool runs.
+    #[arg(long, global = true, default_value_t = false)]
+    show_store_stats: bool,
+    /// Write json-formatted logs to this file, in addition to the console.
+    #[arg(long, global = true)]
+    log_file_path: Option<String>,
+    /// Log to the console (the default).
+    #[arg(long, global = true, default_value_t = false)]
+    log_to_console: bool,
+    /// Silence console logging, leaving `--log-file-path` as the only sink.
+    #[arg(long, global = true, default_value_t = false)]
+    no_log_to_console: bool,
+    /// Force coloured console logging. Colour is otherwise on only when stderr
+    /// is a terminal.
+    #[arg(long, global = true, default_value_t = false)]
+    log_coloring: bool,
+    /// Timestamp console log lines. Already the default here, so this is
+    /// accepted and changes nothing.
+    #[arg(long, global = true, default_value_t = false)]
+    log_console_timestamp: bool,
+    /// Accepted for golongtail compatibility and ignored: these instrument the C
+    /// library's allocator, which this implementation does not have. Warned
+    /// about rather than silently dropped, so a pipeline relying on the output
+    /// learns it is gone instead of finding an empty file.
+    #[arg(long, global = true, default_value_t = false)]
+    mem_trace: bool,
+    /// See `--mem-trace`.
+    #[arg(long, global = true, default_value_t = false)]
+    mem_trace_detailed: bool,
+    /// See `--mem-trace`.
+    #[arg(long, global = true)]
+    mem_trace_csv: Option<String>,
     #[command(subcommand)]
     command: Command,
+}
+
+impl Cli {
+    /// `--show-stats` is this CLI's spelling, `--show-store-stats` golongtail's,
+    /// and they name the same report. Accepting both means a pipeline written
+    /// against either tool gets its stats rather than a usage error.
+    fn wants_stats(&self) -> bool {
+        self.show_stats || self.show_store_stats
+    }
 }
 
 #[derive(Subcommand)]
@@ -52,33 +95,44 @@ enum Command {
     /// List the contents of a path inside a version index.
     Ls(LsArgs),
     /// Confirm the store covers everything a version needs.
+    #[command(visible_alias = "validate")]
     ValidateVersion(ValidateArgs),
     /// Print a summary of a version index.
+    #[command(visible_alias = "printVersionIndex")]
     PrintVersion(PrintArgs),
     /// Upload a folder into a store, writing the version index.
     Upsync(UpsyncArgs),
     /// Upsync a folder and write a get-config JSON (path-defaulting).
     Put(PutArgs),
     /// Open/create a remote store and force-rebuild the store index.
+    #[command(visible_alias = "init")]
     InitRemoteStore(InitArgs),
     /// Create a store index optimized for a version index.
+    #[command(visible_alias = "createVersionStoreIndex")]
     CreateVersionStoreIndex(CreateVsiArgs),
     /// Prune the store index and delete orphan blocks for a version set.
+    #[command(visible_alias = "pruneStore")]
     PruneStore(PruneStoreArgs),
     /// Prune only the store index for a version set.
     PruneStoreIndex(PruneStoreIndexArgs),
     /// Delete block files not referenced by the store index.
     PruneStoreBlocks(PruneStoreBlocksArgs),
     /// Clone versions from one store to another (materialize + re-upload).
+    #[command(visible_alias = "cloneStore")]
     CloneStore(CloneStoreArgs),
     /// Print info about a store index.
+    #[command(visible_alias = "printStoreIndex")]
     PrintStore(PrintStoreArgs),
     /// Show block usage and asset fragmentation for a version.
+    #[command(visible_alias = "stats")]
     PrintVersionUsage(PrintVersionUsageArgs),
     /// List all asset paths inside a version index.
+    #[command(visible_alias = "dump")]
     DumpVersionAssets(DumpVersionAssetsArgs),
     /// Copy one asset out of a version into a local file.
     Cp(CpArgs),
+    /// Show version number.
+    Version,
 }
 
 #[derive(Args)]
@@ -480,31 +534,77 @@ struct CpArgs {
     target_path: String,
 }
 
-/// Install a stderr `tracing` subscriber so library logs (e.g. cache-eviction
-/// summaries, retries) surface. `RUST_LOG` wins when set; otherwise the
-/// `--log-level` default applies. `try_init` so tests/repeat calls don't panic.
+/// Install the `tracing` subscriber so library logs (cache-eviction summaries,
+/// store-index fallbacks, retries) surface. `RUST_LOG` wins when set; otherwise
+/// the `--log-level` default applies. `try_init` so tests/repeat calls don't
+/// panic.
 ///
-/// The writer is [`progress::BarAwareStderr`], not plain stderr: the progress bar
-/// draws to the same stream, and these events fire while it is live.
-fn init_tracing(default_level: &str) {
+/// Two optional sinks, both golongtail spellings: the console (stderr) and a
+/// json log file. The console writer is [`progress::BarAwareStderr`], not plain
+/// stderr, because the progress bar draws to the same stream and these events
+/// fire while it is live.
+fn init_tracing(cli: &Cli) -> Result<(), ExitCode> {
     use std::io::IsTerminal;
 
-    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{EnvFilter, fmt};
+
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        // `fmt` colours unconditionally; gate it on the same terminal check the
-        // progress renderer uses, so a captured CI log holds text and not escapes.
-        .with_ansi(std::io::stderr().is_terminal())
-        .with_writer(progress::BarAwareStderr)
-        .with_target(false)
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cli.log_level));
+
+    // `fmt` colours unconditionally; gate it on the same terminal check the
+    // progress renderer uses, so a captured CI log holds text and not escapes.
+    // `--log-coloring` forces it on for a consumer that renders the escapes.
+    let ansi = cli.log_coloring || std::io::stderr().is_terminal();
+    let console = (!cli.no_log_to_console).then(|| {
+        fmt::layer()
+            .with_ansi(ansi)
+            .with_writer(progress::BarAwareStderr)
+            .with_target(false)
+    });
+
+    // A file sink that cannot be opened is worth failing on rather than running
+    // without: the flag exists because someone wants the record.
+    let file = match cli.log_file_path.as_deref() {
+        Some(path) => match std::fs::File::create(path) {
+            Ok(f) => Some(fmt::layer().json().with_writer(f)),
+            Err(e) => {
+                eprintln!("longtail: cannot open --log-file-path `{path}`: {e}");
+                return Err(ExitCode::from(1));
+            }
+        },
+        None => None,
+    };
+
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(console)
+        .with(file)
         .try_init();
+    Ok(())
+}
+
+/// Say so when a flag was accepted only so the command would run.
+///
+/// The alternative to accepting these is a clap usage error at the first
+/// invocation after a switchover. The alternative to warning is a pipeline that
+/// keeps asking for memory traces and never notices they stopped arriving.
+fn warn_about_ignored_flags(cli: &Cli) {
+    if cli.mem_trace || cli.mem_trace_detailed || cli.mem_trace_csv.is_some() {
+        tracing::warn!(
+            "--mem-trace/--mem-trace-detailed/--mem-trace-csv are accepted for golongtail \
+             compatibility and do nothing: they instrument the C library's allocator, which this \
+             implementation does not use"
+        );
+    }
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    init_tracing(&cli.log_level);
+    if let Err(code) = init_tracing(&cli) {
+        return code;
+    }
+    warn_about_ignored_flags(&cli);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -560,6 +660,12 @@ fn install_cancel_handler() -> longtail::CancellationToken {
 
 async fn run(cli: &Cli) -> Result<(), longtail::LongtailError> {
     match &cli.command {
+        Command::Version => {
+            // golongtail publishes this alongside `--version`; a pipeline may use
+            // either spelling.
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Command::Downsync(a) => run_downsync(cli, a).await,
         Command::Get(a) => run_get(cli, a).await,
         Command::Ls(a) => run_ls(a).await,
@@ -663,7 +769,7 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     let result = downsync(opts).await;
     progress.finish(result.is_ok());
     let report = result?;
-    if cli.show_stats {
+    if cli.wants_stats() {
         print_stats(&report);
     }
     Ok(())
@@ -700,7 +806,7 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     let result = get(opts).await;
     progress.finish(result.is_ok());
     let report = result?;
-    if cli.show_stats {
+    if cli.wants_stats() {
         print_stats(&report);
     }
     Ok(())
@@ -782,7 +888,7 @@ async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailE
     let result = longtail::upsync(opts).await;
     progress.finish(result.is_ok());
     let report = result?;
-    if cli.show_stats {
+    if cli.wants_stats() {
         eprintln!(
             "upsync complete: {} blocks written, {} bytes, target {}",
             report.blocks_written, report.bytes_written, report.target_path
@@ -819,7 +925,7 @@ async fn run_put(cli: &Cli, a: &PutArgs) -> Result<(), longtail::LongtailError> 
     let result = longtail::put(opts).await;
     progress.finish(result.is_ok());
     let report = result?;
-    if cli.show_stats {
+    if cli.wants_stats() {
         eprintln!(
             "put complete: {} blocks written, get-config {}",
             report.blocks_written, a.target_path
@@ -873,7 +979,7 @@ async fn run_prune_store(cli: &Cli, a: &PruneStoreArgs) -> Result<(), longtail::
     let r = longtail::prune_store(opts).await?;
     if r.dry_run {
         println!("Prune would keep {} blocks", r.keep_blocks);
-    } else if cli.show_stats {
+    } else if cli.wants_stats() {
         eprintln!("Pruned {} blocks", r.pruned_blocks);
     }
     Ok(())
@@ -962,7 +1068,7 @@ async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::
     let result = longtail::clone_store(opts).await;
     progress.finish(result.is_ok());
     let cloned = result?;
-    if cli.show_stats {
+    if cli.wants_stats() {
         eprintln!("clone-store complete: {cloned} versions cloned");
     }
     Ok(())

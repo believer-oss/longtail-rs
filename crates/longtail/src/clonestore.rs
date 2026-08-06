@@ -199,7 +199,25 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
 
         // 4. Optional version-local .lsi (target .lvi path with .lvi→.lsi).
         if opts.create_version_local_store_index {
+            // All-occurrence replacement is what golongtail does
+            // (`strings.Replace(targetFilePath, ".lvi", ".lsi", -1)` in
+            // cmd_clonestore.go), so a target that derives to a different path
+            // derives to the *same* different path in both tools — including odd
+            // ones like `archive.lvi.d/v1.lvi`. Diverging there would put the two
+            // tools' outputs in different places for the same input.
             let lsi_path = target_lvi.replace(".lvi", ".lsi");
+            // What is not worth matching is the case with no `.lvi` to replace:
+            // the derivation returns the path unchanged, and the store index lands
+            // on top of the version index written moments earlier through the same
+            // truncating write, destroying it while reporting success. Refuse
+            // instead — the version index above is already on disk and intact.
+            if lsi_path == target_lvi {
+                return Err(LongtailError::InvalidArgument(format!(
+                    "target path `{target_lvi}` contains no `.lvi`, so the version-local store \
+                     index would be written over the version index; name the target with a `.lvi` \
+                     extension or drop --create-version-local-store-index"
+                )));
+            }
             let version_local = existing.merge(&missing)?;
             fs_util::write_to_uri(&lsi_path, version_local.to_bytes().into(), &tgt_s3).await?;
         }

@@ -18,6 +18,16 @@ GO=./target/golongtail/longtail-linux-x64   # pinned v0.4.5 (xtask fetch-golongt
 Global flags are identical in name/shape: `--worker-count`, `--remote-worker-count`,
 `--log-level`, `--show-stats`, and per-command `--s3-endpoint-resolver-uri`.
 
+golongtail's remaining globals are accepted too, so a pipeline written against it parses:
+`--show-store-stats` (a second spelling of `--show-stats`), `--log-file-path` (json log sink),
+`--[no-]log-to-console`, `--log-coloring`, `--log-console-timestamp`, and
+`--mem-trace`/`--mem-trace-detailed`/`--mem-trace-csv`. The mem-trace trio is accepted and does
+nothing — it instruments the C allocator this implementation does not use — and says so on stderr
+rather than producing an empty file. Nine subcommands also carry golongtail's second spelling
+(`validate`, `printVersionIndex`, `printStoreIndex`, `stats`, `dump`, `init`,
+`createVersionStoreIndex`, `cloneStore`, `pruneStore`), and `version` works as a subcommand as well
+as a flag. `pack`/`unpack` remain absent (see `docs/rust-port.md` §Dropped and deferred).
+
 ---
 
 ## Command mapping (flag-by-flag)
