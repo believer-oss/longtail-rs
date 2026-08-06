@@ -492,7 +492,15 @@ it.
   **verified-by:** `smoke.rs::cancel_mid_transfer_then_resume` — but with the default **off**, so
   invariant I1 has zero coverage. Highest-value single test in the review.
 
-- [ ] **`OPS-02`** · P1 · `hardening` · — · M · R7
+- [x] **`OPS-02`** · P1 · `hardening` · — · M · R7 — done
+  Fixed for files *and* for read-only parent directories, which the finding named
+  as the same class. The recommended shape ("let step 7 restore it") would have
+  been wrong: `diff.rs:75-82` tests content- and permission-modification
+  independently, so an asset whose mode did not change is in neither list step 7
+  walks, and relaxing it would have silently left it at `0644`. Apply restores
+  every mode it relaxed itself, before step 7 so the recorded mode still wins.
+  Verified by mutating each half out: without the unlock both tests fail with
+  EACCES on `create`; without the restore the mode is left `0o644`.
   `crates/longtail/src/apply.rs:155` → `crates/longtail/src/fs_util.rs:134-139`
   **Fails when:** v1 ships a `0444` asset (`retain_permissions` defaults **true**), v2 changes it, and
   downsync v2 fails `EACCES` at step 5b — no partial progress, no actionable message. A modified asset

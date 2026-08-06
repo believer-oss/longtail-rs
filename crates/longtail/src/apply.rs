@@ -128,14 +128,24 @@ pub(crate) async fn change_version2(
         }
     }
 
+    // Modes relaxed below so a write could land, to be put back before step 7.
+    // An asset whose content changed but whose permissions did not is in
+    // `target_content_modified_asset_indexes` and in neither list step 7 walks
+    // (diff.rs:75-82 tests the two independently), so step 7 will not restore it
+    // for us — and under `retain_permissions == false` step 7 does not run at all.
+    let mut relaxed = RelaxedModes::new(target_root);
+
     // 5a. Zero-size job: create dirs + empty files (longtail.c:8292).
     for z in &zero_assets {
         if cancel.is_cancelled() {
             return Err(LongtailError::Cancelled);
         }
         if z.is_dir {
+            relaxed.unlock_parents(&z.rel)?;
             fs_util::create_dir(target_root, &z.rel)?;
         } else {
+            relaxed.unlock_parents(&z.rel)?;
+            relaxed.unlock(&z.rel)?;
             let _ = fs_util::create_file_sized(target_root, &z.rel, 0)?;
             stats.assets_written += 1;
         }
@@ -152,6 +162,14 @@ pub(crate) async fn change_version2(
         let rel = asset_path(desired, idx)?;
         if created.insert(rel.clone()) {
             let size = desired.asset_sizes[ai];
+            // A read-only asset already on disk (a previous run chmod'd it to its
+            // recorded mode) cannot be truncate-opened: the open below checks the
+            // owner write bit and returns EACCES. C's legacy write path relaxes it
+            // the same way (longtail.c:5315-5345, restored at :5675); the
+            // ChangeVersion2 path it replaced never did, which is why a second
+            // downsync of a modified `0444` asset failed.
+            relaxed.unlock_parents(&rel)?;
+            relaxed.unlock(&rel)?;
             let _ = fs_util::create_file_sized(target_root, &rel, size)?;
             stats.assets_written += 1;
         }
@@ -258,12 +276,19 @@ pub(crate) async fn change_version2(
     if first_err.is_none() && cancel.is_cancelled() {
         first_err = Some(LongtailError::Cancelled);
     }
+    // Before step 7, and before the error check, so a failed or cancelled run
+    // does not leave an asset more permissive than it found it — the target
+    // survives both, and the next run resumes over it.
+    relaxed.restore();
+
     if let Some(e) = first_err {
         return Err(e);
     }
     stats.bytes_written = bytes_written.load(Ordering::Relaxed);
 
-    // 7. Permissions LAST (longtail.c:8900), only when retaining.
+    // 7. Permissions LAST (longtail.c:8900), only when retaining. Runs after the
+    // restore above, so an asset whose recorded mode did change still ends at the
+    // new one rather than the mode it happened to have on disk.
     if retain_permissions {
         for &idx in &diff.target_permissions_modified_asset_indexes {
             let rel = asset_path(desired, idx)?;
@@ -280,6 +305,89 @@ pub(crate) async fn change_version2(
     }
 
     Ok(stats)
+}
+
+/// Modes temporarily relaxed so an existing read-only asset could be rewritten,
+/// and the obligation to put them back.
+///
+/// [`restore`](Self::restore) is called explicitly before step 7 rather than left
+/// to the drop, because step 7 assigns the *recorded* mode and must be the last
+/// word; a drop running after it would undo that. The [`Drop`] impl only covers
+/// the early returns between step 5 and there, where nothing else would.
+/// Restoring is best-effort by nature — it is cleanup, and reporting a chmod
+/// failure in place of the error that caused the unwind would bury the cause.
+struct RelaxedModes<'a> {
+    root: &'a Path,
+    entries: Vec<(String, fs_util::PriorMode)>,
+    /// Directories already walked, so the per-file sweep in step 5b does not
+    /// re-stat the same ancestors once per asset.
+    walked: std::collections::HashSet<String>,
+}
+
+impl<'a> RelaxedModes<'a> {
+    fn new(root: &'a Path) -> Self {
+        RelaxedModes {
+            root,
+            entries: Vec::new(),
+            walked: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Make `rel` writable if it exists and is not, recording what to put back.
+    fn unlock(&mut self, rel: &str) -> Result<(), LongtailError> {
+        if let Some(prior) = fs_util::unlock_for_rewrite(self.root, rel)? {
+            self.entries.push((rel.to_string(), prior));
+        }
+        Ok(())
+    }
+
+    /// Relax the directories leading to `rel`, so an asset can be created inside
+    /// them. Creating a file needs write on the *parent*, so a directory left at
+    /// a mode without the owner write bit blocks a new asset beneath it just as a
+    /// read-only file blocks its own rewrite. Step 7 does chmod directories (its
+    /// first loop takes permissions-modified assets without a dir skip), so a
+    /// version can leave the target in exactly that state for the next one.
+    ///
+    /// Walks top-down, so an ancestor is relaxed before anything tries to create
+    /// the directory beneath it. `root` itself is the operator's and is left
+    /// alone. Missing directories yield nothing to record — `unlock` reports only
+    /// what it actually changed.
+    fn unlock_parents(&mut self, rel: &str) -> Result<(), LongtailError> {
+        let Some((dirs, _leaf)) = rel.rsplit_once('/') else {
+            return Ok(()); // directly under the root
+        };
+        let mut prefix = String::new();
+        for part in dirs.split('/') {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            if self.walked.insert(prefix.clone()) {
+                self.unlock(&prefix)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Put every recorded mode back. Draining leaves the drop with nothing to do,
+    /// so calling this and then unwinding cannot restore twice.
+    fn restore(&mut self) {
+        for (rel, prior) in self.entries.drain(..) {
+            if let Err(e) = fs_util::restore_mode(self.root, &rel, prior) {
+                tracing::warn!(
+                    asset = %rel,
+                    error = %e,
+                    "could not restore an asset's permissions; it is left writable"
+                );
+            }
+        }
+    }
+}
+
+impl Drop for RelaxedModes<'_> {
+    fn drop(&mut self) {
+        self.restore();
+    }
 }
 
 /// Write one fetched block's chunk occurrences into their pre-created target

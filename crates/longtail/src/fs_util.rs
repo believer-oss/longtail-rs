@@ -296,25 +296,72 @@ pub fn set_permissions(
     }
 }
 
-/// Add the user-write bit if missing (so a removal can proceed;
-/// CleanUpRemoveAssets, longtail.c:7845).
+/// The mode a path carried before [`ensure_user_writable`] relaxed it. Opaque
+/// and platform-shaped so callers can put a mode back without knowing whether
+/// that means a POSIX mode word or the Windows read-only attribute. Holds the
+/// raw mode rather than a [`Permissions`], so bits outside the low 9 (setuid and
+/// friends) survive the round trip that [`set_permissions`] would mask away.
 #[cfg(unix)]
-fn ensure_user_writable(path: &Path) {
+#[derive(Clone, Copy, Debug)]
+pub struct PriorMode(u32);
+
+#[cfg(not(unix))]
+#[derive(Clone, Copy, Debug)]
+pub struct PriorMode(bool);
+
+/// Add the user-write bit if missing (so a removal or an in-place rewrite can
+/// proceed; CleanUpRemoveAssets, longtail.c:7845). Returns the prior mode only
+/// when it actually changed one — `None` means the caller has nothing to put
+/// back, either because the path was already writable or because its mode could
+/// not be read.
+#[cfg(unix)]
+fn ensure_user_writable(path: &Path) -> Option<PriorMode> {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = fs::metadata(path) {
-        let mode = meta.permissions().mode();
-        if mode & 0o200 == 0 {
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o200));
-        }
+    let meta = fs::metadata(path).ok()?;
+    let mode = meta.permissions().mode();
+    if mode & 0o200 != 0 {
+        return None;
     }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o200)).ok()?;
+    Some(PriorMode(mode))
 }
 
 #[cfg(not(unix))]
-fn ensure_user_writable(path: &Path) {
-    if let Ok(meta) = fs::metadata(path) {
-        let mut p = meta.permissions();
-        p.set_readonly(false);
-        let _ = fs::set_permissions(path, p);
+fn ensure_user_writable(path: &Path) -> Option<PriorMode> {
+    let meta = fs::metadata(path).ok()?;
+    let mut p = meta.permissions();
+    if !p.readonly() {
+        return None;
+    }
+    p.set_readonly(false);
+    fs::set_permissions(path, p).ok()?;
+    Some(PriorMode(true))
+}
+
+/// Relax `root/rel_path` enough that an existing asset can be rewritten in
+/// place, returning what to put back. A missing path yields `None` — creating a
+/// new asset needs nothing relaxed.
+pub fn unlock_for_rewrite(root: &Path, rel_path: &str) -> Result<Option<PriorMode>, LongtailError> {
+    let path = safe_join(root, rel_path)?;
+    Ok(ensure_user_writable(&path))
+}
+
+/// Put back a mode captured by [`unlock_for_rewrite`].
+pub fn restore_mode(root: &Path, rel_path: &str, prior: PriorMode) -> Result<(), LongtailError> {
+    let path = safe_join(root, rel_path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(prior.0))
+            .map_err(|e| LongtailError::io(format!("chmod {path:?}"), e))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut p = fs::metadata(&path)
+            .map_err(|e| LongtailError::io(format!("stat {path:?}"), e))?
+            .permissions();
+        p.set_readonly(prior.0);
+        fs::set_permissions(&path, p).map_err(|e| LongtailError::io(format!("chmod {path:?}"), e))
     }
 }
 
@@ -332,7 +379,7 @@ pub fn remove_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<bool, L
             // Replaced by a non-dir since the source scan; not our job.
             return Ok(true);
         }
-        ensure_user_writable(&path);
+        let _ = ensure_user_writable(&path);
         match fs::remove_dir(&path) {
             Ok(()) => Ok(true),
             Err(_) if !path.exists() => Ok(true),
@@ -345,7 +392,7 @@ pub fn remove_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<bool, L
         if !path.is_file() {
             return Ok(true);
         }
-        ensure_user_writable(&path);
+        let _ = ensure_user_writable(&path);
         match fs::remove_file(&path) {
             Ok(()) => Ok(true),
             Err(_) if !path.exists() => Ok(true),
