@@ -105,8 +105,9 @@ codec output drift across zstd/brotli/lz4 versions is harmless to a store — on
 Cold and warm downsync are at golongtail parity (≈1.00× at 8 remote workers after the
 download-path fixes below); a 1 GiB cold downsync completes and tree-verifies; the
 micro-benchmarks (chunk/hash/compress and the index codecs) are within target of the C library.
-Incremental downloads are currently scan-bound (see the roadmap). Full methodology and numbers
-are in [`docs/bench-2026-07-05.md`](bench-2026-07-05.md).
+Incremental downloads are scan-bound *when the target scan runs* — the benchmark forces it, while
+the default cached target index skips it (see the Roadmap). Full methodology and numbers are in
+[`docs/bench-2026-07-05.md`](bench-2026-07-05.md).
 
 ## Deliberate divergences from C/Go
 
@@ -191,13 +192,49 @@ fs and GCS cannot be tested here, so `gs://` returns a clear "not supported"; `A
 port its 1.6k-line virtual filesystem, `ls` is a pure index walk and `cp` is a targeted block
 fetch.
 
+## Resume invariants
+
+"Pause = cancel and keep the target folder; resume = re-run the same command" holds because of two
+properties. Both are easy to break by a change that looks like an improvement, so they are written
+here rather than left to be inferred from the code.
+
+- **I1 — the cached target index is deleted before the target is mutated, and rewritten only after a
+  successful apply** (`crates/longtail/src/downsync.rs`). That file short-circuits the target scan
+  entirely, so one that outlived an interrupted run would tell the next run the target is already
+  the desired version: it would write nothing and exit 0 over a torn tree. Writing it earlier — for
+  "crash resilience", say — inverts the guarantee. Pinned by
+  `smoke.rs::resume_with_the_target_index_cache_enabled`, which is the only test that runs with the
+  cache at its default; the rest disable it, and all of them pass with the ordering reversed.
+- **I2 — the target scan's completeness test is a content hash**, not a cheaper proxy
+  (`crates/longtail/src/version.rs`). It is what lets a re-run distinguish a finished asset from a
+  half-written one of the same length. See the Roadmap note below for why the obvious cheaper proxy
+  is not available.
+
+The limitation the pair does not cover: damage done to the tree *behind* a cache index written by a
+completed run is invisible to a cached re-run, which diffs the cache and finds nothing to do. The
+recovery is a run without the cache (a full scan), which sees the truth. Pinned by
+`smoke.rs::a_stale_cache_index_hides_damage_a_full_scan_finds`.
+
 ## Roadmap
 
-- **Incremental-scan redesign (the biggest win).** Incremental downloads are dominated by the
-  target scan: at 1 GiB, building the target index takes ≈ 1434 ms versus ≈ 37 ms to apply — the
-  scan is ~97% of the wall. It is worth ≈ 330 ms (~70%) of the 384 MiB incremental cell (≈ 1.4 s
-  at 1 GiB) and ≈ 250 MiB of peak RSS. The fix is a streaming and/or mtime/size-short-circuiting
-  target scan (as golongtail does).
+- **Incremental-scan cost, and why the obvious fix is not available.** When the target scan runs, it
+  dominates an incremental download: at 1 GiB, building the target index takes ≈ 1434 ms against
+  ≈ 37 ms to apply. Two things bound how much that is worth. It is measured with
+  `--no-cache-target-index` (`support/longtail-bench/src/bin/e2e.rs:396,439`), while the default is
+  the cache *on* — and a cached target index skips the scan outright, so the number describes the
+  cold case rather than the common one. The per-asset streaming half is already done
+  (`crates/longtail/src/version.rs`, one `max_hash_size` part in memory at a time); what remains is
+  the per-asset chunk lists, sized by worker count.
+
+  A short-circuit keyed on size or mtime is **not** a safe way to close the rest, and cannot be
+  written as stated. `VersionIndex` carries no timestamp field, and the C implementation records
+  none either, so there is nothing to compare an mtime against without changing the format — which
+  compatibility forbids. Size alone is worse than useless here: step 5b pre-allocates every
+  write-plan file to its final size before any block arrives, so a torn file matches its recorded
+  size **by construction**, and a scan that trusts size skips exactly the assets that need
+  rewriting. That turns a resumable interruption into silent, permanent corruption, since the
+  following run short-circuits too. Any future short-circuit must key on state written before the
+  mutation and cleared after success — never on a property a half-written file already satisfies.
 - **Re-test the cold-S3 latency hypothesis.** With the prefetch-budget deadlock fixed, the "async
   plane wins on cold, S3-like latency" hypothesis is now measurable — run the minio recipe
   against the fixed path.

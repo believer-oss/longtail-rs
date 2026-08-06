@@ -483,7 +483,11 @@ it.
   `longtail-store/src/compress.rs:73-74` (which already holds `block_index`) *and* give brotli a
   bounded sink. lz4 also needs the declared-size cap; zstd is already bounded.
 
-- [ ] **`OPS-01`** · P1 · `hardening` · — · S · R7
+- [x] **`OPS-01`** · P1 · `hardening` · — · S · R7 — done
+  Both invariants now recorded in `docs/rust-port.md` (§Resume invariants) and pinned:
+  `smoke.rs::resume_with_the_target_index_cache_enabled` is the first test to run with
+  `cache_target_index` at its default. Mutation-checked — writing the cache index before the
+  apply fails that test alone; the other eight pass, which is exactly the gap the finding named.
   `crates/longtail/src/downsync.rs:174-176,218-220`; `crates/longtail/tests/smoke.rs:42`
   **Fails when:** someone moves the cache-index write earlier for "crash resilience" — `smoke.rs`
   still passes because it *disables* `cache_target_index` (the library and CLI default), and every
@@ -602,7 +606,12 @@ it.
   **verified-by:** none — the advertised contract has no API and no test.
   **Fix:** `#[non_exhaustive] enum ErrorClass` + `LongtailError::class()`, landed with `STORE-04`.
 
-- [ ] **`PERF-01`** · P1 · `hardening` · `COMPAT-RISK` · S (to *withdraw* it) · R4 / R9 `DOCS-21`
+- [x] **`PERF-01`** · P1 · `hardening` · `COMPAT-RISK` · S (to *withdraw* it) · R4 / R9 `DOCS-21` — done
+  Roadmap bullet rewritten. The mtime half is unimplementable (no timestamp field in
+  `VersionIndex`; zero mtime references in `longtail.c`) and the size half is unsafe by
+  construction (step 5b pre-allocates torn files to their recorded size). Recorded the
+  `--no-cache-target-index` measurement caveat and that the streaming half is already done.
+  Withdrew the "as golongtail does" claim, which the C source does not support.
   `docs/rust-port.md:196-200`; premises at `crates/longtail/src/downsync.rs:70-78,113-126,174-176`
   **Fails when:** an engineer implements the roadmap item — a cancelled downsync's torn files have
   *exactly* the desired size (step 5b preallocated them) and a fresh mtime, so a size+mtime
@@ -672,7 +681,8 @@ they also appear in §6.
 - [ ] **`DOCS-04`** · P1 · `hardening` · — · S · R9 — `.github/workflows/` (absence).
   Nothing runs `cargo doc`; 7 live rustdoc defects (the evidence pack's 4 under-reports), three of
   them in the facade/store API a Tauri consumer reads. Defect count only goes up.
-- [ ] **`DOCS-21`** · P1 · `complexity` · — · S · R9 / R4 `PERF-01` — `docs/rust-port.md:196-200`.
+- [x] **`DOCS-21`** · P1 · `complexity` · — · S · R9 / R4 `PERF-01` — `docs/rust-port.md:196-200`. — done
+  Folded into the PERF-01/OPS-01 doc rewrite above.
   The flagship roadmap item in the document `readme.md` and `CLAUDE.md` both name as the starting
   point is half-shipped, measured in a non-shipping config, and unimplementable as written.
 

@@ -404,3 +404,149 @@ fn a_fallback_to_the_whole_store_index_says_so() {
         "the fallback must re-phase so a stalled bar names it; phases: {seen:?}"
     );
 }
+
+fn chain_opts(target: &Path, lvi: &str) -> DownsyncOptions {
+    let mut o = DownsyncOptions::new(
+        vec![
+            fixtures_dir()
+                .join("stores/default")
+                .join(lvi)
+                .to_string_lossy()
+                .into_owned(),
+        ],
+        store().to_string_lossy().into_owned(),
+        target.to_string_lossy().into_owned(),
+    );
+    o.cache_target_index = true;
+    o
+}
+
+fn chain_manifest(name: &str) -> TreeManifest {
+    let p = fixtures_dir().join("manifests").join(name);
+    TreeManifest::from_json(&std::fs::read_to_string(p).unwrap()).unwrap()
+}
+
+/// Cancels the run when a named phase begins.
+struct CancelOnPhase {
+    phase: &'static str,
+    token: CancellationToken,
+}
+impl ProgressSink for CancelOnPhase {
+    fn on_progress(&self, _p: Progress) {}
+    fn on_phase(&self, phase: &str) {
+        if phase == self.phase {
+            self.token.cancel();
+        }
+    }
+}
+
+/// Resume with the target-index cache on — the library and CLI default.
+///
+/// Every other test in this file sets `cache_target_index = false`, so the
+/// invariant the default rests on has no coverage: a cached target index
+/// short-circuits the target scan entirely (`downsync.rs:84`), so a cache file
+/// surviving a cancelled run would make the next run believe the target is
+/// already the desired version, write nothing, and exit 0 over a torn tree.
+///
+/// What prevents that is ordering — the cache index is deleted before anything
+/// mutates the target (`downsync.rs:202`) and rewritten only after a successful
+/// apply (`downsync.rs:248`). Moving the write earlier, or making the delete
+/// non-fatal, passes every other test here and fails this one.
+///
+/// Cancellation is keyed on the apply phase rather than a block count: the
+/// v1 → v2 diff is small, and "after the first block" may be after the last one.
+#[test]
+fn resume_with_the_target_index_cache_enabled() {
+    pin_umask();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let cache_index = target.join(".longtail.index.cache.lvi");
+
+    rt.block_on(downsync(chain_opts(&target, "chain-v1.lvi")))
+        .expect("v1 downsync");
+    assert!(
+        cache_index.exists(),
+        "a completed run must leave the cache index, or the rest proves nothing"
+    );
+
+    let token = CancellationToken::new();
+    let mut opts = chain_opts(&target, "chain-v2.lvi");
+    opts.progress = Some(Arc::new(CancelOnPhase {
+        phase: "Updating version",
+        token: token.clone(),
+    }));
+    opts.cancel = Some(token.clone());
+    let result = rt.block_on(downsync(opts));
+    assert!(
+        matches!(result, Err(LongtailError::Cancelled)),
+        "expected Cancelled, got {result:?}"
+    );
+    assert!(
+        !cache_index.exists(),
+        "a cancelled run must not leave a cache index claiming the target is current"
+    );
+
+    rt.block_on(downsync(chain_opts(&target, "chain-v2.lvi")))
+        .expect("resume downsync");
+    // The cache index lives inside the target, so it is an extra tree entry the
+    // manifest does not carry.
+    std::fs::remove_file(&cache_index).unwrap();
+    TreeManifest::capture(&target)
+        .unwrap()
+        .compare(&chain_manifest("chain-v2.json"), cfg!(windows))
+        .expect("resumed tree matches manifest");
+}
+
+/// The one thing a resume cannot heal, recorded as a limitation rather than a bug.
+///
+/// The cached index is trusted as the target's state, so damage done to the tree
+/// *behind* it is invisible: the next run diffs the cache against the source,
+/// finds nothing to do, and exits 0. This is why the cache is deleted before
+/// mutation rather than after — the window it leaves is the one below. Re-running
+/// without the cache (a full scan) is the documented recovery, and it works.
+#[test]
+fn a_stale_cache_index_hides_damage_a_full_scan_finds() {
+    pin_umask();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let cache_index = target.join(".longtail.index.cache.lvi");
+
+    rt.block_on(downsync(chain_opts(&target, "chain-v2.lvi")))
+        .expect("v2 downsync");
+    assert!(cache_index.exists());
+
+    // Damage an asset without touching the cache index — the shape a crash after
+    // the cache was written would leave.
+    let victim = target.join("abitoftext.txt");
+    let good = std::fs::read(&victim).expect("fixture asset");
+    std::fs::write(&victim, b"torn").unwrap();
+
+    rt.block_on(downsync(chain_opts(&target, "chain-v2.lvi")))
+        .expect("downsync over a stale cache");
+    assert_ne!(
+        std::fs::read(&victim).unwrap(),
+        good,
+        "if a cached run now heals a damaged target, the scan is no longer \
+         short-circuited — re-read this test rather than deleting it"
+    );
+
+    // The documented recovery: without the cache the scan sees the truth.
+    let mut healing = chain_opts(&target, "chain-v2.lvi");
+    healing.cache_target_index = false;
+    rt.block_on(downsync(healing)).expect("full-scan downsync");
+    assert_eq!(
+        std::fs::read(&victim).unwrap(),
+        good,
+        "a full scan must heal what the cache hid"
+    );
+}
