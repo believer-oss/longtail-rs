@@ -11,8 +11,6 @@
 //! These need no S3 endpoint; the minio tests cover the happy path of mixed
 //! writers, and these cover the unhappy ones.
 
-#![cfg(unix)]
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -187,6 +185,7 @@ async fn permanently_corrupt_store_index_still_fails() {
 /// invisible shard referenced. Go's `filepath.Walk` swallows these errors; that
 /// is Go's bug rather than a compatibility requirement, because a listing is not
 /// a byte format.
+#[cfg(unix)]
 #[tokio::test]
 async fn unreadable_directory_fails_the_listing_instead_of_shortening_it() {
     use std::os::unix::fs::PermissionsExt;

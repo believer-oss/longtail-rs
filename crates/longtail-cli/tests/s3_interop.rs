@@ -11,6 +11,8 @@
 //! resolves virtual-host names to the minio address (e.g.
 //! `http://127.0.0.1.nip.io:PORT`).
 
+// Unix-only: this drives a spawned golongtail binary, and the pinned build
+// xtask fetches is Linux-only. The lane that runs these is Linux anyway.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};

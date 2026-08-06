@@ -1,8 +1,6 @@
 //! Pure-Rust facade downsync end-to-end against committed fixture stores,
 //! compared to the committed tree manifests. Linux-only; skipped under miri.
 
-#![cfg(unix)]
-
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -10,11 +8,19 @@ use longtail::{DownsyncOptions, Progress, ProgressSink, downsync};
 use longtail_testkit::paths::fixtures_dir;
 use longtail_testkit::tree_manifest::TreeManifest;
 
+#[cfg(unix)]
 fn pin_umask() {
+    // SAFETY: `umask` is a simple libc call with no memory-safety concerns; one
+    // test binary is one process, so this cannot race another thread's view.
     unsafe {
         libc::umask(0o022);
     }
 }
+
+/// No umask to pin: permissions are synthesized rather than read from the
+/// filesystem (format-spec §7), so nothing here depends on the process umask.
+#[cfg(not(unix))]
+fn pin_umask() {}
 
 fn manifest(name: &str) -> TreeManifest {
     let p = fixtures_dir().join("manifests").join(name);
@@ -44,7 +50,7 @@ async fn fresh_downsync_zoo_matches_manifest() {
     )
     .await;
     let got = TreeManifest::capture(&target).unwrap();
-    got.compare(&manifest("zoo.json"), false)
+    got.compare(&manifest("zoo.json"), cfg!(windows))
         .expect("zoo tree matches manifest");
 }
 
@@ -63,7 +69,7 @@ async fn resume_v1_then_v2() {
     .await;
     TreeManifest::capture(&target)
         .unwrap()
-        .compare(&manifest("chain-v1.json"), false)
+        .compare(&manifest("chain-v1.json"), cfg!(windows))
         .expect("v1 tree");
     run_downsync(
         fx.join("stores/default/chain-v2.lvi"),
@@ -73,7 +79,7 @@ async fn resume_v1_then_v2() {
     .await;
     TreeManifest::capture(&target)
         .unwrap()
-        .compare(&manifest("chain-v2.json"), false)
+        .compare(&manifest("chain-v2.json"), cfg!(windows))
         .expect("v2 tree after resume");
 }
 
@@ -180,6 +186,6 @@ async fn sharded_store_merge_on_read() {
     .await;
     TreeManifest::capture(&target)
         .unwrap()
-        .compare(&manifest("sharded-union.json"), false)
+        .compare(&manifest("sharded-union.json"), cfg!(windows))
         .expect("sharded union tree");
 }

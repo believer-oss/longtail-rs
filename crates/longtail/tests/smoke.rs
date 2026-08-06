@@ -2,8 +2,6 @@
 //! mid-transfer cancellation → resumable, and the three runtime-discipline
 //! assertions. Linux-only; skipped under miri.
 
-#![cfg(unix)]
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -16,11 +14,19 @@ use longtail_testkit::paths::fixtures_dir;
 use longtail_testkit::tree_manifest::TreeManifest;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(unix)]
 fn pin_umask() {
+    // SAFETY: `umask` is a simple libc call with no memory-safety concerns; one
+    // test binary is one process, so this cannot race another thread's view.
     unsafe {
         libc::umask(0o022);
     }
 }
+
+/// No umask to pin: permissions are synthesized rather than read from the
+/// filesystem (format-spec §7), so nothing here depends on the process umask.
+#[cfg(not(unix))]
+fn pin_umask() {}
 
 fn store() -> PathBuf {
     fixtures_dir().join("stores/default/store")
@@ -87,11 +93,11 @@ fn two_concurrent_downsyncs() {
     let m = zoo_manifest();
     TreeManifest::capture(&t1)
         .unwrap()
-        .compare(&m, false)
+        .compare(&m, cfg!(windows))
         .unwrap();
     TreeManifest::capture(&t2)
         .unwrap()
-        .compare(&m, false)
+        .compare(&m, cfg!(windows))
         .unwrap();
 }
 
@@ -110,7 +116,7 @@ fn blocking_from_plain_thread_with_runtime_elsewhere() {
     handle.join().unwrap().expect("blocking downsync");
     TreeManifest::capture(&target)
         .unwrap()
-        .compare(&zoo_manifest(), false)
+        .compare(&zoo_manifest(), cfg!(windows))
         .unwrap();
 }
 
@@ -128,7 +134,7 @@ fn downsync_inside_tokio_spawn() {
         handle.await.unwrap().expect("spawned downsync");
         TreeManifest::capture(&target)
             .unwrap()
-            .compare(&zoo_manifest(), false)
+            .compare(&zoo_manifest(), cfg!(windows))
             .unwrap();
     });
 }
@@ -205,6 +211,6 @@ fn cancel_mid_transfer_then_resume() {
         .expect("resume downsync");
     TreeManifest::capture(&target)
         .unwrap()
-        .compare(&zoo_manifest(), false)
+        .compare(&zoo_manifest(), cfg!(windows))
         .expect("resumed tree matches manifest");
 }

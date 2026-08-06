@@ -8,8 +8,6 @@
 //!
 //! Linux-only (fixture manifests carry POSIX permissions); skipped under miri.
 
-#![cfg(unix)]
-
 use std::path::Path;
 use std::time::Duration;
 
@@ -17,11 +15,19 @@ use longtail::{DownsyncOptions, downsync};
 use longtail_testkit::paths::fixtures_dir;
 use longtail_testkit::tree_manifest::TreeManifest;
 
+#[cfg(unix)]
 fn pin_umask() {
+    // SAFETY: `umask` is a simple libc call with no memory-safety concerns; one
+    // test binary is one process, so this cannot race another thread's view.
     unsafe {
         libc::umask(0o022);
     }
 }
+
+/// No umask to pin: permissions are synthesized rather than read from the
+/// filesystem (format-spec §7), so nothing here depends on the process umask.
+#[cfg(not(unix))]
+fn pin_umask() {}
 
 fn zoo_manifest() -> TreeManifest {
     let p = fixtures_dir().join("manifests/zoo.json");
@@ -58,7 +64,7 @@ async fn downsync_zoo_with_budget(target: &Path, budget: usize) {
 
     TreeManifest::capture(target)
         .unwrap()
-        .compare(&zoo_manifest(), false)
+        .compare(&zoo_manifest(), cfg!(windows))
         .expect("tree matches the committed zoo manifest");
 }
 

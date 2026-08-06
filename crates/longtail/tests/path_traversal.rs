@@ -14,18 +14,24 @@
 //! contents — apply materialises zero-size assets without fetching a block, so
 //! the write attempt happens before any store I/O.
 
-#![cfg(unix)]
-
 use std::path::Path;
 
 use longtail::{DownsyncOptions, LongtailError, downsync_blocking};
 use longtail_core::{Permissions, VersionIndex};
 
+#[cfg(unix)]
 fn pin_umask() {
+    // SAFETY: `umask` is a simple libc call with no memory-safety concerns; one
+    // test binary is one process, so this cannot race another thread's view.
     unsafe {
         libc::umask(0o022);
     }
 }
+
+/// No umask to pin: permissions are synthesized rather than read from the
+/// filesystem (format-spec §7), so nothing here depends on the process umask.
+#[cfg(not(unix))]
+fn pin_umask() {}
 
 /// FNV-1a over the name. The diff keys assets by *path hash*, so two indexes
 /// naming different files must hash differently — give them the same hash and
@@ -209,6 +215,7 @@ fn ordinary_nested_asset_still_materialises() {
 /// whose asset directory is symlinked to another drive is a legitimate setup,
 /// and canonicalise-and-contain would refuse it. An attacker able to plant a
 /// symlink there already has write access and does not need longtail to escape.
+#[cfg(unix)]
 #[test]
 fn symlink_inside_target_is_followed_by_design() {
     pin_umask();

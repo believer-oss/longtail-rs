@@ -7,8 +7,6 @@
 //! synthesized at test time). The upload/maintenance path is exercised too;
 //! only the `archive` feature (pack/unpack) remains `#[ignore]`d.
 
-#![cfg(unix)]
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -19,6 +17,7 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_longtail")
 }
 
+#[cfg(unix)]
 fn pin_umask() {
     // SAFETY: single libc call; children inherit the umask so subprocess dir
     // creation matches the umask-022 fixture-generation environment.
@@ -26,6 +25,11 @@ fn pin_umask() {
         libc::umask(0o022);
     }
 }
+
+/// No umask to pin: permissions are synthesized rather than read from the
+/// filesystem (format-spec §7), so nothing here depends on the process umask.
+#[cfg(not(unix))]
+fn pin_umask() {}
 
 fn run(args: &[&str], cwd: Option<&Path>) -> Output {
     let mut cmd = Command::new(bin());
@@ -100,7 +104,7 @@ fn downsync() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("zoo.json"), false)
+        .compare(&manifest("zoo.json"), cfg!(windows))
         .expect("zoo tree matches manifest");
 }
 
@@ -154,7 +158,7 @@ fn downsync_with_version_lsi() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v1.json"), false)
+        .compare(&manifest("chain-v1.json"), cfg!(windows))
         .expect("v1 tree via version-local store index");
 }
 
@@ -178,7 +182,7 @@ fn downsync_with_cache() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v2.json"), false)
+        .compare(&manifest("chain-v2.json"), cfg!(windows))
         .expect("v2 tree with cache");
     // Cache populated with .lrb blocks.
     let lrb = count_ext(&cache, "lrb");
@@ -207,7 +211,7 @@ fn downsync_with_lsi_and_cache() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v3.json"), false)
+        .compare(&manifest("chain-v3.json"), cfg!(windows))
         .expect("v3 tree with lsi + cache");
     assert!(count_ext(&cache, "lrb") > 0);
 }
@@ -230,7 +234,7 @@ fn downsync_with_validate() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("zoo.json"), false)
+        .compare(&manifest("zoo.json"), cfg!(windows))
         .unwrap();
 }
 
@@ -254,7 +258,7 @@ fn downsync_with_version_lsi_with_validate() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v2.json"), false)
+        .compare(&manifest("chain-v2.json"), cfg!(windows))
         .unwrap();
 }
 
@@ -279,7 +283,7 @@ fn downsync_with_cache_with_validate() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v1.json"), false)
+        .compare(&manifest("chain-v1.json"), cfg!(windows))
         .unwrap();
 }
 
@@ -306,7 +310,7 @@ fn downsync_with_lsi_and_cache_with_validate() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v3.json"), false)
+        .compare(&manifest("chain-v3.json"), cfg!(windows))
         .unwrap();
 }
 
@@ -478,7 +482,7 @@ fn get() {
         String::from_utf8_lossy(&out.stderr)
     );
     capture(&target)
-        .compare(&capture(&reference), false)
+        .compare(&capture(&reference), cfg!(windows))
         .expect("get tree == direct downsync tree");
 }
 
@@ -506,7 +510,7 @@ fn get_with_version_lsi() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v1.json"), false)
+        .compare(&manifest("chain-v1.json"), cfg!(windows))
         .unwrap();
 }
 
@@ -533,7 +537,7 @@ fn get_with_cache() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v2.json"), false)
+        .compare(&manifest("chain-v2.json"), cfg!(windows))
         .unwrap();
     assert!(count_ext(&cache, "lrb") > 0);
 }
@@ -565,7 +569,7 @@ fn get_with_lsi_and_cache() {
         "--no-cache-target-index",
     ]);
     capture(&target)
-        .compare(&manifest("chain-v3.json"), false)
+        .compare(&manifest("chain-v3.json"), cfg!(windows))
         .unwrap();
     assert!(count_ext(&cache, "lrb") > 0);
 }
@@ -867,7 +871,7 @@ fn upsync() {
     let out = tmp.path().join("out");
     run_downsync_ok(&store, &lvi, &out, &[]);
     capture(&out)
-        .compare(&capture(&src), false)
+        .compare(&capture(&src), cfg!(windows))
         .expect("upsync→downsync tree");
 }
 
@@ -895,7 +899,9 @@ fn upsync_with_lsi() {
         &out,
         &["--version-local-store-index-path", lsi.to_str().unwrap()],
     );
-    capture(&out).compare(&capture(&src), false).unwrap();
+    capture(&out)
+        .compare(&capture(&src), cfg!(windows))
+        .unwrap();
 }
 
 /// cmd_upsync_test.go::TestUpsyncWithBrokenLSI — a corrupt version-local .lsi is
@@ -924,7 +930,9 @@ fn upsync_with_broken_lsi() {
         &out,
         &["--version-local-store-index-path", lsi.to_str().unwrap()],
     );
-    capture(&out).compare(&capture(&src), false).unwrap();
+    capture(&out)
+        .compare(&capture(&src), cfg!(windows))
+        .unwrap();
 }
 
 /// cmd_put — `put` derives storage/.lvi/.lsi from the get-config path, upsyncs,
@@ -957,7 +965,9 @@ fn put() {
         out.to_str().unwrap(),
         "--no-cache-target-index",
     ]);
-    capture(&out).compare(&capture(&src), false).unwrap();
+    capture(&out)
+        .compare(&capture(&src), cfg!(windows))
+        .unwrap();
 }
 
 /// cmd_initremotestore_test.go::TestInitRemoteStore — deleting store.lsi then
@@ -978,7 +988,7 @@ fn init_remote_store() {
     // After rebuild, v1 downsyncs correctly again.
     let out = tmp.path().join("out");
     run_downsync_ok(&store, &l1, &out, &[]);
-    capture(&out).compare(&capture(&s1), false).unwrap();
+    capture(&out).compare(&capture(&s1), cfg!(windows)).unwrap();
 }
 
 /// cmd_createversionstoreindex_test.go::TestCreateVersionStoreIndex.
@@ -1009,7 +1019,9 @@ fn create_version_store_index() {
         &out,
         &["--version-local-store-index-path", lsi.to_str().unwrap()],
     );
-    capture(&out).compare(&capture(&src), false).unwrap();
+    capture(&out)
+        .compare(&capture(&src), cfg!(windows))
+        .unwrap();
 }
 
 /// cmd_prunestore_test.go::TestPrune — keep v1+v2; v3's unique block is deleted,
@@ -1049,7 +1061,9 @@ fn prune_store() {
     // v1 still good.
     let out1 = tmp.path().join("out1");
     run_downsync_ok(&store, &l1, &out1, &[]);
-    capture(&out1).compare(&capture(&s1), false).unwrap();
+    capture(&out1)
+        .compare(&capture(&s1), cfg!(windows))
+        .unwrap();
     // v3 now fails (its block was pruned).
     let out3 = tmp.path().join("out3");
     let bad = run(
@@ -1287,7 +1301,7 @@ fn clone_store() {
     // v1 downsyncs from the TARGET store.
     let out = tmp.path().join("out");
     run_downsync_ok(&tgt_store, &t1, &out, &[]);
-    capture(&out).compare(&capture(&s1), false).unwrap();
+    capture(&out).compare(&capture(&s1), cfg!(windows)).unwrap();
 }
 
 /// cmd_printstore_test.go::TestPrintStoreIndex.

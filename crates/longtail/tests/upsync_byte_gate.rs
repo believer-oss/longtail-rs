@@ -18,6 +18,11 @@
 //! not a theorem for multi-worker-accumulated production stores; a chain-only
 //! failure here still means "check accumulation order first".
 
+// Unix-only for the same reason as `lvi_byte_gate`: gate 1 asserts a
+// byte-identical `.lvi`, and a `.lvi` embeds the POSIX permission bits read
+// off the filesystem. Elsewhere those bits are synthesized rather than stored
+// (format-spec §7), so the bytes cannot match fixtures generated under a
+// umask. The upsync path itself is portable; only this byte equality is not.
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
