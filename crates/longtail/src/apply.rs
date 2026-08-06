@@ -422,7 +422,21 @@ fn write_block_chunks(
                 w.chunk_hash
             )))
         })?;
-        debug_assert_eq!(bsz, w.chunk_size);
+        // The block's own index and the version index disagreeing about a chunk's
+        // size is a corrupt or hostile store, not a bug in this process, so it has
+        // to be checked in the profile that ships. As a `debug_assert` it was
+        // compiled out of release, where an oversized `bsz` writes past the chunk's
+        // range into the neighbouring one — silent corruption of an asset that
+        // every later verification step then agrees on.
+        if bsz != w.chunk_size {
+            return Err(LongtailError::Store(longtail_store::StoreError::BadFormat(
+                format!(
+                    "block {block_hash:#018x} sizes chunk {:#018x} at {bsz} bytes, the version \
+                     index at {}",
+                    w.chunk_hash, w.chunk_size
+                ),
+            )));
+        }
         by_file
             .entry(w.rel.as_str())
             .or_default()
@@ -1036,6 +1050,56 @@ mod tests {
         assert!(
             matches!(&err, crate::LongtailError::Store(StoreError::NotFound(_))),
             "expected the missing block's NotFound, got {err:?}"
+        );
+    }
+
+    /// A block whose own index sizes a chunk differently from the version index
+    /// must be refused, in every profile.
+    ///
+    /// This was a `debug_assert_eq!`, so release — the profile that ships — used
+    /// the block's size unchecked. An oversized value writes past the chunk's
+    /// range into the next chunk's bytes of the same asset, which no later step
+    /// detects: the asset ends up the length the index expects, and every hash the
+    /// download verifies is the store's own.
+    #[test]
+    fn a_block_disagreeing_about_a_chunk_size_is_refused() {
+        use longtail_core::{BlockIndex, StoredBlock};
+
+        use super::{BlockWrite, write_block_chunks};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("asset.bin"), vec![0u8; 64]).unwrap();
+
+        // The block sizes the chunk at 32 bytes...
+        let block = StoredBlock {
+            block_index: BlockIndex {
+                block_hash: 0xABCD,
+                hash_identifier: 0,
+                tag: 0,
+                chunk_hashes: vec![0x1111],
+                chunk_sizes: vec![32],
+            },
+            payload: vec![7u8; 32],
+        };
+        // ...the write plan, taken from the version index, at 64.
+        let writes = vec![BlockWrite {
+            rel: "asset.bin".to_string(),
+            asset_offset: 0,
+            chunk_hash: 0x1111,
+            chunk_size: 64,
+        }];
+
+        let err = write_block_chunks(root, 0xABCD, &block, &writes)
+            .expect_err("a size disagreement must not be written through");
+        assert!(
+            format!("{err:?}").contains("sizes chunk"),
+            "the error should name the disagreement: {err:?}"
+        );
+        assert_eq!(
+            std::fs::read(root.join("asset.bin")).unwrap(),
+            vec![0u8; 64],
+            "the asset must be left untouched"
         );
     }
 }

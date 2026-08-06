@@ -1,0 +1,75 @@
+name: "Release readiness"
+
+# The profile that ships, built and tested by CI rather than by hand.
+#
+# Everything in `rust.yaml` runs dev-profile, where `debug_assertions` are on and
+# the optimizer is off. The binary that goes into the desktop app is
+# release-profile. Without this lane the shipped configuration is exercised only
+# on whichever machine ran the build, once, with no provenance — and a
+# release-only misbehaviour reaches users through the one artefact nobody tested.
+#
+# Kept out of the per-PR gate because release-mode test compilation is slow and
+# the profile changes rarely. Dispatch it before a switchover or a release build;
+# the weekly run is a tripwire for drift, not a gate.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+  schedule:
+    # Mondays 04:30 UTC, ahead of the working week.
+    - cron: "30 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: release profile - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      # `--locked` so the lane fails on an out-of-date lockfile rather than
+      # quietly resolving something other than what ships.
+      - name: Build the shipped binary
+        run: cargo build --release --locked -p longtail-cli
+
+      # The reason this lane exists. Invariants guarded by `debug_assert` vanish
+      # here, and optimizer-sensitive paths behave differently, so the byte gates
+      # and the download-path suites have to run in this profile too.
+      - name: Test in the release profile
+        run: cargo test --release --locked
+
+      - name: Verify fixtures with the release build
+        run: cargo run --release --locked -p xtask -- verify-fixtures
+
+      # A release build that cannot answer `--version` is not a shipping
+      # candidate, and it catches a profile that broke the binary without
+      # breaking the tests.
+      - name: Smoke the binary
+        shell: bash
+        run: |
+          BIN=target/release/longtail
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --version
+          "$BIN" version
+          "$BIN" --help > /dev/null
+
+      - name: Report binary size
+        shell: bash
+        run: |
+          BIN=target/release/longtail
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          bytes=$(wc -c < "$BIN")
+          echo "::notice::release binary ${{ matrix.os }}: $((bytes / 1048576)) MiB ($bytes bytes)"

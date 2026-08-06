@@ -10,10 +10,15 @@ The pure-Rust CLI is a drop-in for the golongtail v0.4.5 commands the pipeline
 uses. Build once:
 
 ```sh
-cargo build --release -p longtail-cli
+cargo build --release --locked -p longtail-cli
 RUST=./target/release/longtail
 GO=./target/golongtail/longtail-linux-x64   # pinned v0.4.5 (xtask fetch-golongtail)
 ```
+
+The release profile is declared in the root `Cargo.toml`, and the
+`Release readiness` workflow builds and tests it on Linux and Windows — dispatch that before
+relying on a binary built here, so the shipped profile has CI provenance rather than only this
+command's word.
 
 Global flags are identical in name/shape: `--worker-count`, `--remote-worker-count`,
 `--log-level`, `--show-stats`, and per-command `--s3-endpoint-resolver-uri`.

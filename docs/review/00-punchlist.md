@@ -662,7 +662,13 @@ it.
   **verified-by:** the skip itself records PASS — that *is* the finding.
   **Fix:** `LONGTAIL_TEST_S3_REQUIRED` → panic instead of return, set by the workflow.
 
-- [ ] **`CI-06`** · P1 · `hardening` · — · M · R8
+- [x] **`CI-06`** · P1 · `hardening` · — · M · R8 — done
+  `[profile.release]` declared in the root `Cargo.toml` and a `Release readiness`
+  workflow added (dispatch + weekly + main), building and testing the shipped profile on Linux
+  and Windows. Binary 27.0 -> 17.9 MiB from `lto`/`codegen-units`/`strip`. `panic = "unwind"`
+  is declared explicitly, not inherited: the rayon panic handler and the tokio catch depend on
+  it, so `abort` would silently undo the fix that keeps a malformed block from killing the
+  process. All 48 suites pass under `--release` — the first time that profile has been run.
   no `--release` in any workflow (grep: 0 hits); no `[profile.release]` in the root `Cargo.toml`; `docs/switchover-checklist.md:13`
   **Fails when:** a release-only misbehaviour ships — concretely `OPS-12`'s `debug_assert_eq!`, which
   is compiled out in release and lets a block-index/payload mismatch corrupt adjacent ranges instead
@@ -790,7 +796,7 @@ co-owned.
 | ✔ | ID | Dim | One line | Anchor |
 |---|---|---|---|---|
 | [ ] | `OPS-11` | hardening | `.longtail.index.cache.lvi` is written non-atomically and never fsynced; a torn cache is a hard error next run | `downsync.rs:219` |
-| [ ] | `OPS-12` | hardening | the chunk-size `debug_assert_eq!` is compiled out; a mismatch corrupts adjacent ranges or panics on the slice — **see `CI-06`** | `apply.rs:317,342` |
+| [x] | `OPS-12` | hardening | the chunk-size `debug_assert_eq!` is compiled out; a mismatch corrupts adjacent ranges or panics on the slice — **see `CI-06`** | `apply.rs:317,342` |
 | [ ] | `OPS-13` | hardening | the stated disjointness invariant omits its own premise (unique asset paths) and nothing validates it | `apply.rs:8` |
 | [ ] | `OPS-15` | hardening | `prune-store-blocks` swallows every delete error and still reports success; the three prune commands disagree on gating | `prune.rs:427`, `main.rs:832` |
 | [ ] | `OPS-16` | idiom | every non-cancel error collapses to exit 1; commands with no cancel handler die by signal, so `code()` is `None`, not 130 | `main.rs:512` |
