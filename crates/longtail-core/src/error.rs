@@ -62,8 +62,8 @@ pub enum FormatError {
     NameOffsetOutOfBounds { offset: usize, len: usize },
 
     /// A VersionIndex asset's chunk range `[start, start+count)` falls outside
-    /// `m_AssetChunkIndexes`. Checked at parse time because six consumers index
-    /// that map with plain `[]`; C reads out of bounds here instead.
+    /// `m_AssetChunkIndexes`. Checked at parse time because consumers index that
+    /// map directly; C reads out of bounds here instead.
     #[error(
         "asset {asset} chunk range [{start}, {start}+{count}) exceeds \
          asset_chunk_index_count {len}"

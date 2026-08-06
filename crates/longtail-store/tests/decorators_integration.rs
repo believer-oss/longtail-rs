@@ -256,11 +256,10 @@ async fn downsync_read_path_compress_cache_remote() {
 /// A compressed block whose decoded payload is shorter than the chunks its own
 /// index claims must be rejected by the decompression decorator.
 ///
-/// `decode_block_payload` only compares the decoded length against the frame's
-/// *self-declared* `uncompressed_size` — both numbers come from the same
-/// attacker-controlled bytes, so they agree happily. Nothing tied either to the
-/// block index until this check, and the apply path slices the decoded buffer
-/// using `chunk_sizes`. Review finding FMT-002, compressed arm.
+/// `decode_block_payload` compares the decoded length against the frame's
+/// *self-declared* `uncompressed_size`; both numbers come from the same
+/// untrusted bytes, so they agree with each other while saying nothing about the
+/// block index — which is what the apply path slices the buffer with.
 #[tokio::test]
 async fn compressed_block_shorter_than_its_chunk_sizes_is_rejected() {
     use longtail_core::compress::{LZ4_ID, encode_block_payload};

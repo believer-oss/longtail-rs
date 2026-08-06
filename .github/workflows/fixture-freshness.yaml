@@ -5,10 +5,9 @@ name: "Fixture Freshness"
 # are compared semantically (equal sorted block-hash set) because golongtail
 # emits their block order non-deterministically; everything else is byte-exact.
 #
-# Cadence: this checks for *upstream* drift, and upstream (both the C library and
-# golongtail) is pinned and has not changed significantly in over a year, so a
-# weekly run mostly proved upstream still equals itself. Monthly is enough as a
-# canary that regeneration still works; run it on demand when a pin moves.
+# Cadence: this checks for *upstream* drift, and upstream is pinned, so a
+# frequent run mostly re-proves it has not moved. Monthly is enough as a check
+# that regeneration still works; run it on demand when a pin changes.
 on:
   schedule:
     # Monthly — the 1st at 06:00 UTC.

@@ -73,13 +73,12 @@ fn safe_join(root: &Path, rel_path: &str) -> Result<PathBuf, LongtailError> {
     Ok(root.join(rel))
 }
 
-/// Windows-only restrictions on one path component, factored out so it can be
-/// unit-tested on any host (Windows is the primary target but is rarely the
-/// development machine).
+/// Windows-only restrictions on one path component, kept as a separate function
+/// so it can be unit-tested from any host.
 ///
-/// [`safe_join`] applies this **only** when compiling for Windows: `aux`,
-/// `a:b`, and `x ` are all legal POSIX filenames, so rejecting them on unix
-/// would refuse legitimate assets and break stores that already contain them.
+/// [`safe_join`] applies it **only** when compiling for Windows: `aux`, `a:b`
+/// and `x ` are all legal POSIX filenames, so rejecting them on unix would
+/// refuse legitimate assets and break stores that already contain them.
 fn windows_unsafe_component(part: &OsStr) -> Option<&'static str> {
     /// `CON`/`PRN`/`AUX`/`NUL` plus the numbered device families. Reserved with
     /// or without an extension: `NUL.txt` still names the device.
@@ -651,13 +650,12 @@ mod tests {
         }
     }
 
-    /// `Path::join` discarding the root is the actual mechanism being defended
+    /// `Path::join` discarding the root is the mechanism [`safe_join`] defends
     /// against; pin it so the guard is never mistaken for redundant.
     ///
-    /// The `join_absolute_paths` lint exists for exactly this footgun, and
-    /// demonstrating it is the point of the test. Note the lint could never have
-    /// caught the real defect: it only fires on a literal, and the production
-    /// sites joined a runtime `&str` from the version index.
+    /// `clippy::join_absolute_paths` covers this footgun but cannot help here:
+    /// it only fires on a literal, and the guarded call sites join a runtime
+    /// `&str` from the version index.
     #[test]
     #[allow(clippy::join_absolute_paths)]
     fn documents_why_the_guard_exists() {

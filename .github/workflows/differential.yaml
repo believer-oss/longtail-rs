@@ -3,19 +3,13 @@ name: "Differential (vs the C implementation)"
 # Regression against the retained C implementation via longtail-sys: proves the
 # pure-Rust port still produces byte-identical output to the library it replaced.
 #
-# WHY THESE TRIGGERS. This lane used to run on a weekly cron, which encoded two
-# premises that are both false: that upstream is a moving target (the C library
-# has not changed significantly in over a year, and both it and golongtail are
-# pinned), and that this repo churns (it does not — it is a finished port going
-# into maintenance). A weekly run mostly proved upstream still equals itself.
-#
-# What the lane is actually for is surviving *maintenance*: a Rust dependency
-# bump is the realistic way byte-compatibility breaks from here, because the
-# codecs and hashes we produce bytes with are third-party crates (lz4_flex,
-# brotli, zstd, blake3, blake2). So it runs whenever the dependency graph moves —
-# which means every Renovate PR proves interop before it merges — plus on
-# demand before a switchover. The monthly cron is a liveness canary for the lane
-# itself (submodule fetch, prebuilt download, C toolchain), not a drift check.
+# Triggered by dependency changes rather than by a clock. Upstream is pinned, so
+# a periodic run mostly re-proves that it has not moved; what does move is our
+# dependency graph, and the bytes we produce come out of third-party codecs and
+# hashes (lz4_flex, brotli, zstd, blake3, blake2). Running here means a
+# dependency bump proves byte-compatibility before it merges. The monthly cron is
+# a liveness check on this workflow itself — submodule fetch, prebuilt download,
+# C toolchain — not a drift check.
 on:
   pull_request:
     paths:
@@ -71,9 +65,8 @@ jobs:
       - run: cargo test --workspace
       - run: cargo test -p longtail-testkit --features differential
 
-      # The legacy C crates are excluded from the per-PR clippy gate (CI-02), so
-      # they are linted here — the one lane that already pays for the native
-      # build.
+      # The legacy C crates are excluded from the per-PR clippy gate, so they
+      # are linted here, where the native build is already being paid for.
       - name: Clippy (including the legacy C crates)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -95,9 +88,8 @@ jobs:
           pushd test-data
           ./mkdata.ps1
 
-      # No `fetch-golongtail` here: xtask's channel is Linux-only by
-      # construction (`xtask/src/main.rs:38-41` pins `longtail-linux-x64` for the
-      # URL, filename and sha256), so the three-way e2e self-skips its third way
-      # on Windows. Review finding CI-13.
+      # No `fetch-golongtail` here: xtask pins the Linux binary for its URL,
+      # filename and sha256, so the three-way e2e self-skips its third way on
+      # Windows.
       - run: cargo test --workspace
       - run: cargo test -p longtail-testkit --features differential

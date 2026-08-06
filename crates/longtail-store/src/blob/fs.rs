@@ -101,14 +101,14 @@ impl BlobClient for FsBlobClient {
 /// Recursively list files under `root`, returning store-relative names that
 /// start with `prefix`. Filters `._lck` lock files (fsstore.go:82).
 ///
-/// A missing root lists as empty — that is the "store does not exist yet" case
-/// and Go's `filepath.Walk` swallow (callback returns nil on err) is right for
-/// it. Every *other* error is returned. Go swallowing them is a bug rather than
-/// a compatibility requirement: a listing is not a byte format, and this
-/// listing feeds `get_store_store_indexes`, where a silently short list of
-/// `store_*.lsi` shards is a silently narrowed store index. Blocks that exist
-/// become invisible, which surfaces later as "chunk not in the store index" on
-/// a download, or as deleted blocks via prune.
+/// A missing root lists as empty — the "store does not exist yet" case, where
+/// Go's `filepath.Walk` swallow (callback returns nil on err) is right. Every
+/// *other* error is returned. Go swallowing those is a bug rather than a
+/// compatibility requirement: a listing is not a byte format, and this one feeds
+/// `get_store_store_indexes`, where a short list of `store_*.lsi` shards is a
+/// narrowed store index. Blocks that exist become invisible, surfacing later as
+/// "chunk not in the store index" on a download, or as blocks deleted by
+/// prune.
 fn get_objects_sync(root: &Path, prefix: &str) -> Result<Vec<BlobProperties>, StoreError> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];

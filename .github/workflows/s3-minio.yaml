@@ -1,21 +1,18 @@
 name: "S3 (minio) integration"
 
-# The S3-backed blob/sync tests and the mixed-writer gate ⑧ (concurrent Rust +
-# golongtail writers against one store). They need a live S3-compatible endpoint,
-# so they are not part of the per-PR pure lane.
+# The S3-backed blob/sync tests and the mixed-writer test (concurrent Rust +
+# golongtail writers against one store). These need a live S3-compatible
+# endpoint, so they are not part of the per-PR suite.
 #
-# WHY THESE TRIGGERS. S3 is the production store and both implementations will
-# read and write it concurrently for a long time, so "weekly" was the wrong
-# cadence for the only lane that proves that works. The realistic way it breaks
-# is a dependency bump — `aws-sdk-s3` and the rustls/hyper stack underneath it
-# move often — so the lane runs whenever the dependency graph moves, plus on
-# demand before a switchover. The monthly cron is a liveness canary for the lane
-# itself, not a drift check.
+# Triggered by dependency changes rather than by a clock: S3 is the production
+# store and both implementations write it concurrently, and the realistic way
+# that breaks is a dependency bump — `aws-sdk-s3` and the stack under it move
+# often. The monthly cron is a liveness check on this workflow itself.
 #
-# LONGTAIL_TEST_S3_REQUIRED makes the lane unable to pass by *not running*: the
-# tests skip cleanly when LONGTAIL_TEST_S3_ENDPOINT is absent (so they stay inert
-# everywhere else), but here a missing endpoint is a hard failure instead of a
-# silent green. Review finding CI-03.
+# LONGTAIL_TEST_S3_REQUIRED makes these unable to pass by *not running*: they
+# skip cleanly when LONGTAIL_TEST_S3_ENDPOINT is absent, so they stay inert
+# elsewhere, but here a missing endpoint is a failure rather than a silent
+# green.
 on:
   pull_request:
     paths:

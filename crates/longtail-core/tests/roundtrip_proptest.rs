@@ -60,13 +60,11 @@ fn vi_strategy() -> impl Strategy<Value = VersionIndex> {
                     (asset_chunk_indexes, chunk_hashes, chunk_sizes, chunk_tags),
                     (name_offsets, permissions_raw, name_data),
                 )| {
-                    // Constrain the asset→chunk map to be structurally valid.
-                    // `from_bytes` now rejects an out-of-range map (every
-                    // consumer indexes it with plain `[]`, so a wild map is a
-                    // panic waiting to happen and no code path handles it), so
-                    // the fixpoint is stated over indexes a real writer could
-                    // emit. Everything else here stays arbitrary — the codec is
-                    // still verbatim about values it does not constrain.
+                    // Constrain the asset→chunk map to be structurally valid:
+                    // `from_bytes` rejects an out-of-range map, so the fixpoint
+                    // is stated over indexes a real writer could emit.
+                    // Everything else stays arbitrary — the codec is verbatim
+                    // about values it does not constrain.
                     let c = chunk_hashes.len();
                     let asset_chunk_indexes: Vec<u32> = if c == 0 {
                         // With no chunks the only valid map is the empty one.
@@ -184,11 +182,11 @@ fn bi_strategy() -> impl Strategy<Value = BlockIndex> {
 
 fn sb_strategy() -> impl Strategy<Value = StoredBlock> {
     (bi_strategy(), vec(any::<u8>(), 0usize..40)).prop_map(|(mut block_index, payload)| {
-        // An uncompressed block's payload *is* its chunks, and `from_bytes` now
+        // An uncompressed block's payload *is* its chunks, and `from_bytes`
         // rejects one too short to cover them, so distribute the payload across
-        // the chunk sizes instead of leaving them arbitrary (arbitrary `u32`s
-        // would also claim gigabytes for a 40-byte payload). Compressed blocks
-        // keep arbitrary sizes: there the payload is an opaque frame.
+        // the chunk sizes rather than leaving them arbitrary (arbitrary `u32`s
+        // would claim gigabytes for a 40-byte payload). Compressed blocks keep
+        // arbitrary sizes: there the payload is an opaque frame.
         if block_index.tag == 0 {
             let n = block_index.chunk_sizes.len();
             if let (Some(each), Some(remainder)) =

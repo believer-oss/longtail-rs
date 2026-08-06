@@ -331,14 +331,12 @@ proptest! {
     }
 }
 
-// --- asset→chunk map validation (FMT-001) ----------------------------------
+// --- asset→chunk map validation -------------------------------------------
 //
-// Six consumers walk this map with plain `[]` indexing (`validate.rs:56-57`,
-// `diff.rs:132`, and the facade's apply/upsync/cp/inspect paths), so a wild map
-// is a panic on the production download path. `from_bytes` rejects it once for
-// all of them. On a 32-bit target the un-checked `start + count` would *wrap*
-// into a small in-bounds value instead of panicking, silently producing a wrong
-// answer — which is why the check uses `checked_add` on `usize`.
+// Consumers index this map directly, so a wild map is a panic on the download
+// path; `from_bytes` rejects it once for all of them. On a 32-bit target an
+// unchecked `start + count` would wrap into a small in-bounds value instead of
+// panicking — a silently wrong answer rather than a loud failure.
 
 /// Build a `.lvi` byte buffer with a hand-chosen asset→chunk map. `A = 1`,
 /// `C = 1`, `ACI = 1`, one chunk of size 4.
@@ -399,7 +397,7 @@ fn version_index_rejects_chunk_index_past_the_chunk_arrays() {
     );
 }
 
-// --- stored-block payload length (FMT-002) ---------------------------------
+// --- stored-block payload length -------------------------------------------
 
 #[test]
 fn stored_block_rejects_payload_shorter_than_chunk_sizes() {

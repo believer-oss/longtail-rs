@@ -200,14 +200,14 @@ impl VersionIndex {
         // name_data = everything remaining (by definition; may be empty).
         let name_data = r.remaining().to_vec();
 
-        // Validate the asset→chunk map here, once, rather than in each of the
-        // six consumers that walk it with plain `[]` indexing (`validate.rs`,
-        // `diff.rs`, and the facade's apply/upsync/cp/inspect paths). Both
-        // indices below are attacker-controlled u32s from the file, and on a
-        // 32-bit target `start + count` would *wrap* into a small in-bounds
-        // value rather than panic — a silently wrong answer, which is worse.
-        // C reads out of bounds here, so there is no defined behaviour to
-        // preserve. O(A + ACI) integer compares over a buffer already resident.
+        // Validate the asset→chunk map here, once, rather than in every consumer
+        // that walks it — they index it directly, and an out-of-range entry has
+        // no handler anywhere, only a panic. Both indices are u32s straight from
+        // the file, and on a 32-bit target `start + count` would *wrap* into a
+        // small in-bounds value rather than panic, which is worse: a silently
+        // wrong answer. C reads out of bounds here, so there is no defined
+        // behaviour to preserve. O(A + ACI) integer compares over a buffer that
+        // is already resident.
         for (asset, (&start, &count)) in asset_chunk_index_starts
             .iter()
             .zip(asset_chunk_counts.iter())

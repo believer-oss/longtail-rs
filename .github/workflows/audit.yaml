@@ -1,7 +1,7 @@
 name: "Audit Dependencies"
 on:
-  # Gate pull requests, not just pushes: a dependency added in a PR was
-  # previously unaudited until after it merged.
+  # Gate pull requests, not just pushes, so a dependency added in a PR is
+  # audited before it merges.
   pull_request:
     paths:
       - ".github/workflows/audit.yaml"
@@ -11,8 +11,7 @@ on:
       - "deny.toml"
   push:
     paths:
-      # Run if workflow changes. (This said `audit.yml` while the file is
-      # `audit.yaml`, so edits to this workflow never re-triggered it.)
+      # Run if workflow changes
       - ".github/workflows/audit.yaml"
       # Run on changed dependencies
       - "**/Cargo.toml"

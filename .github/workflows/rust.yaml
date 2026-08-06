@@ -3,10 +3,8 @@ name: "Test Suite"
 # The per-PR gate. Everything here is pure Rust: no native library, no service
 # container, no network beyond the toolchain.
 #
-# The heavier lanes live in their own workflows so they can carry their own
-# triggers: `differential.yaml`, `s3-minio.yaml`, `fixture-freshness.yaml`. See
-# `differential.yaml` for why those are driven by dependency changes rather than
-# by a clock.
+# The heavier suites are separate workflows so they can carry their own triggers:
+# `differential.yaml`, `s3-minio.yaml`, `fixture-freshness.yaml`.
 on:
   push:
     branches:
@@ -42,17 +40,13 @@ jobs:
       - run: cargo bench --no-run -p longtail-bench
       - run: cargo bench --no-run -p longtail-bench --features fastcdc
 
-  # Windows is a shipped target (the launcher's primary one) and is rarely a
-  # development machine, so CI is the only signal it gets.
+  # Windows is a shipped target, so CI is the only signal it gets.
   #
-  # KNOWN GAP (review findings ALG-01 / CI-01): six of the highest-value
-  # integration test files are `#![cfg(unix)]` —
-  # crates/longtail/tests/{lvi_byte_gate,upsync_byte_gate,downsync_e2e,smoke,
-  # deadlock_regression}.rs and crates/longtail-cli/tests/commands_spec.rs — so
-  # `cargo test` here exercises far less of the download path than on Linux.
-  # Removing those `cfg`s is the real fix and is tracked in the punchlist; the
-  # steps below close the part CI can close on its own (lint + bench parity) and
-  # the smoke assertion makes a silently-empty run impossible.
+  # Several integration tests are `#![cfg(unix)]` and so do not build here, which
+  # means `cargo test` exercises less of the download path than it does on Linux.
+  # Closing that needs those `cfg`s removed; what this job can do on its own is
+  # lint the Windows-only code, match Linux on what does build, and refuse to
+  # pass when almost nothing compiled.
   pure-windows:
     name: pure lane - windows
     runs-on: windows-latest
@@ -70,31 +64,25 @@ jobs:
       - run: cargo test --locked
       - run: cargo run -p xtask -- verify-fixtures
 
-      # Windows-specific lints and codegen: `cfg(windows)` code (fs_util's
-      # permission mapping and `seek_write`, blob/fs's LockFileEx path) is never
-      # compiled on Linux, so without this it is linted by nobody.
+      # `cfg(windows)` code — fs_util's permission mapping and `seek_write`,
+      # blob/fs's LockFileEx path — is never compiled on Linux, so without this
+      # it is linted by nobody.
       - name: Clippy (windows targets)
         run: cargo clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli --all-targets -- -D warnings
 
       - run: cargo bench --no-run -p longtail-bench
 
-      # A lane that runs almost nothing must not report success. This does not
-      # close the cfg gap above — it stops the gap widening silently.
-      #
-      # Calibration: Linux compiles 242 tests, of which 62 live in the six
-      # `#![cfg(unix)]` files listed above (plus this branch's two new ones), so
-      # Windows should compile roughly 180. The floor is deliberately slack at
-      # 100 because the exact Windows number has not been observed yet — it
-      # catches a crate or target that stops building, not a single lost test.
-      # Tighten it to ~170 once a green run reports the real figure.
-      - name: Assert the lane actually ran tests
+      # A run that compiles almost no tests must not report success. The floor
+      # is deliberately far below the real count: it catches a crate or target
+      # that stopped building, not the loss of an individual test.
+      - name: Assert tests were actually compiled
         shell: bash
         run: |
           count=$(cargo test --locked -- --list 2>/dev/null | grep -c ': test$' || true)
-          echo "windows test count: $count (linux: 242, of which 62 are cfg(unix)-only)"
+          echo "compiled tests: $count"
           if [ "$count" -lt 100 ]; then
-            echo "::error::only $count tests compiled on windows; expected ~180, floor 100." \
-                 "Either a target stopped building or more tests became cfg(unix)-only."
+            echo "::error::only $count tests compiled; a target stopped building" \
+                 "or more tests became unix-only."
             exit 1
           fi
 
@@ -119,12 +107,10 @@ jobs:
         run: cargo +nightly fmt --all --check
 
       # Packages are listed explicitly rather than using `--workspace`, which
-      # would pull in `longtail-sys` and make this gate compile the vendored C
-      # library — a git submodule fetch, ~700 C objects and bindgen, on every PR
-      # (measured: 19s cold, and it needs network + a C toolchain + libclang).
-      # The cost is small; the *dependency* is not, and `readme.md` promises no C
-      # library is built in a normal build. The legacy crates are linted in
-      # `differential.yaml`. Review finding CI-02.
+      # would pull in `longtail-sys` and compile the vendored C library here — a
+      # submodule fetch, bindgen, and a C toolchain. The build cost is small; the
+      # dependency is not, and `readme.md` promises no C library is built in a
+      # normal build. The legacy crates are linted in `differential.yaml`.
       #
       # `-D warnings`: warnings fail the build, so lint regressions can't merge.
       - name: Clippy
@@ -149,8 +135,7 @@ jobs:
   miri:
     name: miri (longtail-core)
     runs-on: ubuntu-latest
-    # Miri is the slowest PR gate (~2 min) and an interpreter hang would
-    # otherwise sit on the 6-hour default.
+    # Bounded because an interpreter hang would otherwise sit on the default.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

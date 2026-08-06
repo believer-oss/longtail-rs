@@ -140,13 +140,13 @@ async fn get_store_store_indexes(client: &dyn BlobClient) -> Result<Vec<String>,
 /// `readStoreStoreIndexFromPath` (remotestore.go:1637): read + parse one shard.
 ///
 /// The parse is **inside** the retry ladder, unlike [`read_blob_with_retry`]'s
-/// callers elsewhere. golongtail replaces `store.lsi` in place (`ioutil.WriteFile`,
-/// fsstore.go:266 — no temp+rename), and a Rust `ReadOnly` reader has locking
-/// disabled (`uri.rs:166-168`), so a half-written index is observable and is
-/// valid again a millisecond later. Treating that `FormatError` as terminal
-/// turns a routine mixed-writer race into a failed download that succeeds on
-/// the next invocation — indistinguishable from a flake. A genuinely corrupt
-/// index still fails, after the same ladder, with the same error.
+/// callers elsewhere. golongtail replaces `store.lsi` in place
+/// (`ioutil.WriteFile`, fsstore.go:266 — no temp+rename) and a `ReadOnly` reader
+/// has locking disabled, so a half-written index is observable and is valid
+/// again a moment later. Treating that `FormatError` as terminal turns a routine
+/// mixed-writer race into a failed download that succeeds on the next
+/// invocation. A genuinely corrupt index still fails, after the same ladder,
+/// with the same error.
 async fn read_store_index_from_path(
     client: &dyn BlobClient,
     key: &str,

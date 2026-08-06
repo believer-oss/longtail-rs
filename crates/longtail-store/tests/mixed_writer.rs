@@ -1,15 +1,15 @@
-//! Interop hazards from sharing a store with a concurrent golongtail writer,
-//! and from a backend that can under-report what it holds.
+//! A store shared with a concurrent golongtail writer, and a backend that can
+//! under-report what it holds.
 //!
-//! Both are review findings whose common shape is *a partial observation that
-//! looks like a complete one*. Neither is a byte-format question, so neither is
-//! covered by the byte gates, and both are invisible until they cause a
-//! confusing failure much later — a download reporting "chunk not in the store
-//! index" for content that is present, or a format error naming a file that is
-//! valid a millisecond later.
+//! Both have the same shape: a partial observation that looks like a complete
+//! one. Neither is a byte-format question, so the byte-compatibility tests say
+//! nothing about them, and both stay invisible until they surface much later as
+//! a confusing failure — a download reporting "chunk not in the store index" for
+//! content that is present, or a format error naming a file that is valid a
+//! moment later.
 //!
-//! No minio required: these run in the per-PR lane. The minio gate ⑧ covers the
-//! happy path of mixed writers; these cover the unhappy ones.
+//! These need no S3 endpoint; the minio tests cover the happy path of mixed
+//! writers, and these cover the unhappy ones.
 
 #![cfg(unix)]
 
@@ -32,12 +32,12 @@ fn sample_index() -> StoreIndex {
     .unwrap()
 }
 
-// --- STORE-06: a torn `store.lsi` from a golongtail writer -------------------
+// --- a torn `store.lsi` from a concurrent writer ----------------------------
 
-/// Truncates the first `tears_remaining` reads of any `.lsi` object to half
-/// their length, simulating golongtail's in-place `ioutil.WriteFile`
-/// (`fsstore.go:266` — no temp+rename) being observed mid-write by a reader that
-/// holds no lock, which is exactly what a Rust `ReadOnly` downsync does.
+/// Truncates the first `tears_remaining` reads of any `.lsi` object to half its
+/// length, standing in for golongtail's in-place `ioutil.WriteFile`
+/// (`fsstore.go:266` — no temp+rename) observed mid-write by a reader holding no
+/// lock, which is what a `ReadOnly` downsync does.
 #[derive(Debug)]
 struct TearingStore {
     inner: MemBlobStore,
@@ -128,10 +128,10 @@ impl BlobObject for TearingObject {
     }
 }
 
-/// A half-written store index must be retried, not treated as terminal. Before
-/// the fix the parse sat *outside* the read retry ladder, so this failed the
-/// whole operation with a format error — and succeeded on the next invocation,
-/// which is what makes it read as a flake rather than a race.
+/// A half-written store index must be retried, not treated as terminal. Parsing
+/// outside the read retry ladder fails the whole operation with a format error
+/// and then succeeds on the next invocation, which presents as a flake rather
+/// than as the race it is.
 #[tokio::test]
 async fn torn_store_index_read_is_retried_not_fatal() {
     let mem = MemBlobStore::new("", false);
@@ -153,7 +153,7 @@ async fn torn_store_index_read_is_retried_not_fatal() {
 
 /// The ladder is finite: a genuinely corrupt index still fails, with the format
 /// error rather than a timeout. Without this, "retry on parse failure" could
-/// silently become "hang on corruption".
+/// become "hang on corruption" unnoticed.
 #[tokio::test]
 async fn permanently_corrupt_store_index_still_fails() {
     let mem = MemBlobStore::new("", false);
@@ -176,18 +176,17 @@ async fn permanently_corrupt_store_index_still_fails() {
     );
 }
 
-// --- STORE-05: a listing must not silently under-report -----------------------
+// --- a listing must not silently under-report -------------------------------
 
 /// An unreadable directory inside the store must fail the listing rather than
 /// yield a short one.
 ///
-/// The fs walker previously `continue`d past a failed `read_dir`, a failed entry
-/// and a failed `metadata`, returning `Ok(short_list)`. That listing feeds
-/// `get_store_store_indexes`, so an invisible `store_*.lsi` shard silently
-/// narrows the merged store index: on the `add` path it self-heals, but on
-/// `try_overwrite` it does not, and prune then deletes the blocks the invisible
-/// shard referenced. Go's `filepath.Walk` swallows these too — that is Go's bug,
-/// not a compatibility requirement, because a listing is not a byte format.
+/// The listing feeds `get_store_store_indexes`, so an invisible `store_*.lsi`
+/// shard narrows the merged store index. On the `add` path that self-heals, but
+/// on `try_overwrite` it does not, and prune then deletes the blocks the
+/// invisible shard referenced. Go's `filepath.Walk` swallows these errors; that
+/// is Go's bug rather than a compatibility requirement, because a listing is not
+/// a byte format.
 #[tokio::test]
 async fn unreadable_directory_fails_the_listing_instead_of_shortening_it() {
     use std::os::unix::fs::PermissionsExt;
@@ -220,9 +219,8 @@ async fn unreadable_directory_fails_the_listing_instead_of_shortening_it() {
     std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// The counterpart: an absent store root is still an empty store, not an error.
-/// Without this, the fix above would break every "create the store on first
-/// write" path.
+/// The counterpart: an absent store root is an empty store, not an error —
+/// otherwise every "create the store on first write" path breaks.
 #[tokio::test]
 async fn absent_store_root_still_lists_empty() {
     let tmp = tempfile::tempdir().unwrap();

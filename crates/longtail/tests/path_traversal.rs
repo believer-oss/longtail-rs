@@ -1,20 +1,18 @@
-//! Regression gate for the `fs_util::safe_join` containment guard (review
-//! findings SEC-01 / SEC-02, `docs/review/06-security.md`).
+//! A version index cannot write, or delete, outside `--target-path`.
 //!
-//! A `.lvi` names its assets, and the launcher downloads indexes it did not
-//! write. `Path::join` *discards* the root when handed an absolute path, so
-//! before the guard a version index could make `downsync` create, truncate,
-//! write, chmod, and — via the deletes-first phase — unlink files anywhere the
-//! process could reach.
+//! A `.lvi` names its assets and is read from a store this process did not
+//! write, so its names are untrusted. `Path::join` *discards* the root when
+//! handed an absolute path, which makes an unguarded join a write primitive —
+//! and, because apply deletes before it writes, a delete primitive too.
 //!
-//! These tests drive the public `downsync` entry point rather than `safe_join`
-//! directly (that has unit coverage in `fs_util`), because the property under
-//! test is that the guard is *on the path* and cannot be bypassed. The unit
-//! tests prove the predicate; these prove the plumbing.
+//! These drive the public `downsync` entry point rather than `fs_util::safe_join`
+//! directly (which has its own unit tests): the property under test is that the
+//! guard is reached on every path into the filesystem, not that the predicate is
+//! correct.
 //!
-//! Every asset here is zero-length, which keeps the test independent of any
-//! store contents: apply materialises zero-size assets without fetching a
-//! block, so the write attempt happens before any store I/O.
+//! Every asset here is zero-length, which keeps these independent of any store
+//! contents — apply materialises zero-size assets without fetching a block, so
+//! the write attempt happens before any store I/O.
 
 #![cfg(unix)]
 
@@ -30,10 +28,10 @@ fn pin_umask() {
 }
 
 /// FNV-1a over the name. The diff keys assets by *path hash*, so two indexes
-/// naming different files must hash differently or `diff_and_retarget` treats
-/// them as the same asset and produces neither an add nor a delete. (The first
-/// draft of this test used a constant here and passed vacuously: nothing was
-/// deleted, so the victim survived for the wrong reason.)
+/// naming different files must hash differently — give them the same hash and
+/// `diff_and_retarget` treats them as one asset, producing neither an add nor a
+/// delete, and a test asserting "the victim survived" passes without the
+/// operation ever being attempted.
 fn path_hash(name: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in name.as_bytes() {
@@ -51,8 +49,6 @@ fn one_asset_index(name: &str) -> VersionIndex {
     let mut name_data = name.as_bytes().to_vec();
     name_data.push(0);
     VersionIndex {
-        // Not re-exported at the crate root, unlike the `Blake3` type itself
-        // (a small instance of review finding API-01's surface inconsistency).
         hash_identifier: longtail_core::hash::BLAKE3_ID,
         target_chunk_size: 32768,
         path_hashes: vec![path_hash(name)],
@@ -91,7 +87,7 @@ fn assert_unsafe_path(err: LongtailError, ctx: &str) {
     );
 }
 
-/// SEC-01, write arm: a `..` asset name must not escape `--target-path`.
+/// A `..` asset name must not escape `--target-path`.
 #[test]
 fn relative_escape_is_refused_and_writes_nothing_outside() {
     pin_umask();
@@ -113,8 +109,8 @@ fn relative_escape_is_refused_and_writes_nothing_outside() {
     );
 }
 
-/// SEC-01, absolute arm: this is the form `Path::join` silently honours by
-/// discarding the root entirely, so it escapes without any `..` at all.
+/// An absolute asset name is the form `Path::join` silently honours by
+/// discarding the root, so it escapes without any `..` at all.
 #[test]
 fn absolute_asset_path_is_refused() {
     pin_umask();
@@ -136,13 +132,12 @@ fn absolute_asset_path_is_refused() {
     );
 }
 
-/// SEC-02, delete arm. `--target-index-path` supplies the *current* index
-/// directly, so a hostile entry there reaches the deletes-first phase without
-/// needing a prior run to have written anything — the precondition-free variant
-/// of the cached-index chain.
+/// The delete arm. `--target-index-path` supplies the *current* index directly,
+/// so a hostile entry reaches the deletes-first phase without a prior run having
+/// written anything.
 ///
-/// The victim file must survive: an unlink outside the target root is the worst
-/// outcome in this class, because it destroys data the tool never owned.
+/// An unlink outside the target root is the worst outcome in this class: it
+/// destroys data the tool never owned and cannot undo.
 #[test]
 fn hostile_current_index_cannot_delete_outside_the_target() {
     pin_umask();
@@ -177,8 +172,8 @@ fn hostile_current_index_cannot_delete_outside_the_target() {
         b"must survive",
         "victim file was modified"
     );
-    // Required, not optional: if this ever succeeds, the delete phase silently
-    // skipped the hostile entry and the test proves nothing about the guard.
+    // Required, not optional: if this succeeds, the delete phase skipped the
+    // hostile entry and the survival assertion above proves nothing.
     let err = result.expect_err("a hostile current index must be refused, not ignored");
     assert_unsafe_path(err, "hostile current index");
 }
@@ -205,24 +200,15 @@ fn ordinary_nested_asset_still_materialises() {
 }
 
 /// `safe_join` is deliberately **lexical**, so a pre-existing symlink inside the
-/// target tree is followed even when it points outside. This test pins that as
-/// intended behaviour, not an oversight.
+/// target tree is followed even when it points outside. That is intended.
 ///
-/// The reasoning, which belongs with the trust boundary in `docs/rust-port.md`:
-/// longtail never creates symlinks (`scan_folder` skips non-file/non-dir
-/// entries and the format has no symlink asset type), so any symlink in the
-/// target tree was placed there by whoever controls the target directory — the
-/// same operator who supplied `--target-path`. Following it is what they asked
-/// for; a game install whose asset directory is symlinked to another drive is a
-/// legitimate and common setup. An attacker who can plant a symlink there
-/// already has write access to the target and does not need longtail to escape.
-///
-/// The cost of the alternative is real: canonicalise-and-contain would refuse
-/// that drive-spanning install. If this is ever revisited, note the delete arm
-/// is the sharper edge (unlinking through a symlink into a user's other drive),
-/// and that a canonicalising check needs `dunce` on Windows, where
-/// `fs::canonicalize` returns a `\\?\` verbatim path that will not compare
-/// equal to a normal root.
+/// longtail never creates symlinks — `scan_folder` skips non-file/non-dir
+/// entries and the format has no symlink asset type — so any symlink in the
+/// target was placed by whoever controls the target directory, the same operator
+/// who supplied `--target-path`. Following it is what they asked for: an install
+/// whose asset directory is symlinked to another drive is a legitimate setup,
+/// and canonicalise-and-contain would refuse it. An attacker able to plant a
+/// symlink there already has write access and does not need longtail to escape.
 #[test]
 fn symlink_inside_target_is_followed_by_design() {
     pin_umask();

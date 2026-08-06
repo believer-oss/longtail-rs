@@ -73,12 +73,12 @@ impl BlockStore for CompressBlockStore {
         let tag = block_index.tag;
         let raw = on_pool(&self.pool, move || decode_block_payload(tag, &payload)).await?;
         // `decode_block_payload` checks the decoded length against the frame's
-        // own declared `uncompressed_size`, which is attacker-controlled and
-        // says nothing about the block index. Cross-check it against the chunks
-        // the block actually claims, because the apply path slices this buffer
-        // using `chunk_sizes` and would otherwise panic on a short block.
-        // (`StoredBlock::from_bytes` covers the same invariant for `tag == 0`,
-        // where the payload is not decoded at all.)
+        // own declared `uncompressed_size` — both numbers come from the same
+        // untrusted bytes, so they agree with each other and say nothing about
+        // the block index. Cross-check against the chunks the block claims,
+        // because the apply path slices this buffer using `chunk_sizes` and
+        // panics on a short one. `StoredBlock::from_bytes` covers the same
+        // invariant for `tag == 0`, where the payload is not decoded at all.
         let required = block_index.uncompressed_len();
         if (raw.len() as u64) < required {
             return Err(StoreError::BadFormat(format!(

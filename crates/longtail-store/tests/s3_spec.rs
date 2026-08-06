@@ -127,16 +127,15 @@ async fn fake_expiry_credentials_refresh() {
 
 // --- env-gated minio tests ------------------------------------------------
 
-/// Skipping is the default so these are inert outside the S3 lane — but a lane
-/// that *intends* to run them must not pass by silently skipping. When
-/// `LONGTAIL_TEST_S3_REQUIRED` is set (the S3 workflow sets it), a missing
-/// endpoint is a hard failure instead: otherwise one mis-set variable turns the
-/// whole lane green without executing a single S3 assertion.
+/// Skipping is the default, so these stay inert wherever no endpoint is
+/// configured. Where they are *meant* to run, `LONGTAIL_TEST_S3_REQUIRED` makes
+/// a missing endpoint a hard failure instead — without it, one mis-set variable
+/// reports success without executing a single S3 assertion.
 fn require_s3_if_demanded() {
     assert!(
         std::env::var_os("LONGTAIL_TEST_S3_REQUIRED").is_none(),
         "LONGTAIL_TEST_S3_REQUIRED is set but LONGTAIL_TEST_S3_ENDPOINT is not — \
-         the S3 lane would have skipped every test and reported success"
+         every S3 test would have skipped and reported success"
     );
 }
 
@@ -248,18 +247,14 @@ async fn s3_store_index_sync() {
 }
 
 /// A truncated listing with no continuation token must be a hard error, never a
-/// short list. Review finding STORE-05, S3 arm.
+/// short list.
 ///
 /// The S3 contract says `IsTruncated=true` always carries a
 /// `NextContinuationToken`, so this needs a non-conformant S3-compatible
-/// endpoint — and custom endpoints are explicitly supported (`--s3-endpoint-resolver-uri`),
-/// which is what makes it reachable. It matters because this listing feeds
-/// `get_store_store_indexes`: a short list of `store_*.lsi` shards is a silently
-/// *narrowed* store index. Blocks that exist become invisible, surfacing much
-/// later as "chunk not in the store index" on a download, or as deleted blocks
-/// via prune.
-///
-/// No minio required — this runs in the per-PR lane.
+/// endpoint — which `--s3-endpoint-resolver-uri` makes reachable. It matters
+/// because the listing feeds `get_store_store_indexes`: a short list of
+/// `store_*.lsi` shards is a narrowed store index, and blocks that exist become
+/// invisible. Uses a replay client, so it needs no live endpoint.
 #[tokio::test]
 async fn truncated_listing_without_a_continuation_token_is_an_error() {
     let body = r#"<?xml version="1.0" encoding="UTF-8"?>
