@@ -171,6 +171,14 @@ struct DownsyncArgs {
     /// the run repairs nothing.
     #[arg(long, default_value_t = false)]
     no_delete_removed: bool,
+    /// Re-hash every chunk written against the hash the version index records.
+    /// Off by default. The block hash covers only a block's chunk-hash array, so
+    /// a store serving substituted bytes under intact chunk hashes is otherwise
+    /// accepted; this binds the payload to the index. It authenticates blocks
+    /// against the `.lvi`, which is itself unsigned, so it defends against a
+    /// tampered or corrupted block, not against a rewritten version index.
+    #[arg(long, default_value_t = false)]
+    verify_chunks: bool,
     #[arg(long, default_value_t = false)]
     validate: bool,
     #[arg(long)]
@@ -229,6 +237,14 @@ struct GetArgs {
     /// the run repairs nothing.
     #[arg(long, default_value_t = false)]
     no_delete_removed: bool,
+    /// Re-hash every chunk written against the hash the version index records.
+    /// Off by default. The block hash covers only a block's chunk-hash array, so
+    /// a store serving substituted bytes under intact chunk hashes is otherwise
+    /// accepted; this binds the payload to the index. It authenticates blocks
+    /// against the `.lvi`, which is itself unsigned, so it defends against a
+    /// tampered or corrupted block, not against a rewritten version index.
+    #[arg(long, default_value_t = false)]
+    verify_chunks: bool,
     #[arg(long, default_value_t = false)]
     validate: bool,
     /// Accepted-but-ignored (parity with golongtail; lsi comes from the config).
@@ -759,6 +775,7 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.delete_removed = !a.no_delete_removed;
+    opts.verify_chunks = a.verify_chunks;
     opts.validate = a.validate;
     opts.version_local_store_index_paths = merge_paths(
         &a.version_local_store_index_path,
@@ -801,6 +818,7 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.delete_removed = !a.no_delete_removed;
+    opts.verify_chunks = a.verify_chunks;
     opts.validate = a.validate;
     opts.include_filter_regex = a.include_filter_regex.clone();
     opts.exclude_filter_regex = a.exclude_filter_regex.clone();

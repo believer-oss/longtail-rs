@@ -431,7 +431,16 @@ it.
   **verified-by:** none. The fs leg is the realistic one and is documented Go parity; the S3 leg needs
   a non-conformant endpoint (§10 EXP-10).
 
-- [ ] **`SEC-03`** · P1 · `security` · — · S doc / M opt-in flag · R6
+- [x] **`SEC-03`** · P1 · `security` · — · S doc / M opt-in flag · R6 — done (partial by nature)
+  Both deliverables landed. `docs/rust-port.md` §Trust boundary states it: hashes here are
+  deduplication keys, not authentication tags, and the read-side check compares a block's
+  *self-declared* hash field rather than re-deriving anything — verified independently, and
+  matching the refuter's "understated" note. Opt-in `verify_chunks` on `DownsyncOptions`/
+  `GetOptions` and `--verify-chunks` on downsync/get re-hashes each chunk before any write,
+  raising `ValidationMismatch` (`ErrorClass::Corrupt`). Off by default, so no bytes and no
+  throughput change. The residual gap is written down rather than papered over: it
+  authenticates blocks against an unsigned `.lvi`, so closing the chain still needs a pinned
+  or signed version index, which is a detached artefact and costs no compatibility.
   `crates/longtail-core/src/pack.rs:24-30`, `crates/longtail-store/src/remote.rs:362`, `crates/longtail/src/apply.rs:215-232`
   **Fails when:** an attacker with write access to one `.lsb` replaces a game asset or executable,
   keeping the chunk-hash bytes intact — every layer reports success, and `--validate` compares the
@@ -878,7 +887,7 @@ blockers (§3.3); five more are P1 and listed first here.
 
 | ✔ | ID | Src | One line | Anchor |
 |---|---|---|---|---|
-| [ ] | `SEC-DOC-02` | R6 | **no keeper doc states the trust boundary** — the premise that makes `SEC-01` a P0 rather than a curiosity, and the correction to the intuition `readme.md`'s "content-addressed" framing creates | (absent) |
+| [x] | `SEC-DOC-02` | R6 | **no keeper doc states the trust boundary** — the premise that makes `SEC-01` a P0 rather than a curiosity, and the correction to the intuition `readme.md`'s "content-addressed" framing creates | (absent) |
 | [ ] | `STORE-DOC-01` | R3 | the Windows mixed-writer divergence (`STORE-07`) is missing from §Deliberate divergences | `docs/rust-port.md:111-155` |
 | [ ] | `STORE-DOC-02` | R3 | `remote.rs:560-562` claims prune can *never* leave dangling index entries — `STORE-01` is exactly that case | `remote.rs:560-562` |
 | [ ] | `STORE-DOC-03` | R3 | `lib.rs:82-85` promises error classes the block path destroys (`STORE-04`/`API-11`) | `longtail/src/lib.rs:82-85` |

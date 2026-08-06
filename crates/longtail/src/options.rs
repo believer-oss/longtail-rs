@@ -60,6 +60,24 @@ pub struct DownsyncOptions {
     /// `delete_removed = false` *and* `cache_target_index = false`; the
     /// combination without the second is warned about at runtime.
     pub delete_removed: bool,
+    /// Re-hash every chunk written against the chunk hash the version index
+    /// records for it (default **false**).
+    ///
+    /// The block hash covers only a block's chunk-hash array, and nothing on the
+    /// read path re-hashes a fetched payload, so a store that serves substituted
+    /// bytes under intact chunk hashes is accepted silently. Turning this on binds
+    /// payload bytes to the index and turns that into an
+    /// [`LongtailError::ValidationMismatch`] before anything is written.
+    ///
+    /// It authenticates the blocks against the **version index**, which is itself
+    /// unsigned — so it defends against a tampered or corrupted `.lsb`, not
+    /// against someone who rewrites the `.lvi` too. It is worth the cost when the
+    /// `.lvi` reaches you through a channel the block store cannot influence. See
+    /// `docs/rust-port.md` §Trust boundary.
+    ///
+    /// Off by default: it changes no bytes and costs one hash pass over data
+    /// already in memory.
+    pub verify_chunks: bool,
     /// Re-scan the target after writing and compare to the source index.
     pub validate: bool,
     /// Scan the target folder to build its current index (default true). Skipped
@@ -115,6 +133,7 @@ impl DownsyncOptions {
             exclude_filter_regex: None,
             retain_permissions: true,
             delete_removed: true,
+            verify_chunks: false,
             validate: false,
             scan_target: true,
             cache_target_index: true,
@@ -213,6 +232,8 @@ pub struct GetOptions {
     pub retain_permissions: bool,
     /// See [`DownsyncOptions::delete_removed`].
     pub delete_removed: bool,
+    /// See [`DownsyncOptions::verify_chunks`].
+    pub verify_chunks: bool,
     pub validate: bool,
     pub scan_target: bool,
     pub cache_target_index: bool,
@@ -329,6 +350,7 @@ impl GetOptions {
             cache_size_limit: None,
             retain_permissions: true,
             delete_removed: true,
+            verify_chunks: false,
             validate: false,
             scan_target: true,
             cache_target_index: true,

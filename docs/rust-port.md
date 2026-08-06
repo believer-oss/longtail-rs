@@ -192,6 +192,46 @@ fs and GCS cannot be tested here, so `gs://` returns a clear "not supported"; `A
 port its 1.6k-line virtual filesystem, `ls` is a pure index walk and `cp` is a targeted block
 fetch.
 
+## Trust boundary
+
+**A longtail store is trusted for content integrity.** Hashes in these formats are
+deduplication keys, not authentication tags, and nothing in the format carries a publisher
+signature. This is inherited from the C implementation, not a property of this port, and it is not
+fixable within the on-disk format.
+
+Concretely, on the download path:
+
+- A block's `block_hash` is computed over its **chunk-hash array only** (`longtail-core/src/pack.rs`)
+  — not the payload, not `chunk_sizes`, not the compression tag.
+- The read-side check compares a fetched block's *self-declared* `block_hash` field against the one
+  requested. It proves the object claims to be the block asked for; it does not re-derive anything
+  from the bytes.
+- Nothing on the read path re-hashes decoded chunk bytes unless
+  [`DownsyncOptions::verify_chunks`] is set.
+
+So a party who can write one `.lsb` object can replace an asset's contents — keeping `chunk_hashes`
+and `chunk_sizes` intact, which the apply path requires — and every layer reports success.
+`validate` does not close this: it re-scans the target and compares against the **source version
+index's** own `content_hashes`, so it proves the download matches the index it was given, not that
+the index is authentic.
+
+`verify_chunks` (off by default) re-hashes each chunk against the version index before writing,
+turning a substituted payload into a `Corrupt`-class error. Read what it does and does not cover:
+it authenticates blocks **against the `.lvi`**, which is itself an unsigned object usually in the
+same bucket. It defends against a tampered or corrupted block — the realistic cases being storage
+corruption, a compromised CDN, or a leaked credential scoped to block objects — and not against
+someone who rewrites the version index too, since they would simply recompute the chunk hashes.
+
+Closing it end to end needs an authenticity root **outside** these formats: a publisher signature
+over the `.lvi`, or its hash delivered over a channel the block store cannot influence. That is a
+detached artifact rather than a format change, so it costs no compatibility. With such a pin in
+place the chain completes — pinned `.lvi` → chunk hashes → payload bytes — and `verify_chunks`
+becomes the link that carries it to disk rather than a partial measure.
+
+Verification strength follows the version's hash algorithm: blake3 (the default) and blake2s are
+cryptographic; meow is parse-only here (`longtail-core/src/hash.rs`), so a meow-hashed version
+cannot be verified by this implementation at all.
+
 ## Resume invariants
 
 "Pause = cancel and keep the target folder; resume = re-run the same command" holds because of two

@@ -196,6 +196,15 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     .await?;
     phases.push(phase.lap("open_store"));
 
+    // A second hasher instance for the opt-in chunk verification: the apply tasks
+    // are spawned, so it has to be shared rather than borrowed. Constructing one is
+    // trivial (a unit struct), so this is cheaper than reshaping the scan's hasher.
+    let verify_hasher: Option<Arc<dyn longtail_core::Hash + Send + Sync>> = if opts.verify_chunks {
+        Some(Arc::from(make_hasher(hash_id)?))
+    } else {
+        None
+    };
+
     // Everything that can fail between opening the store and closing it runs
     // inside this block, so the flush + close below happen on a cancel or a
     // failure too — the store's write-backs and the cache-budget sweep both hang
@@ -224,6 +233,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
             &store_index,
             opts.retain_permissions,
             opts.delete_removed,
+            verify_hasher,
             apply_concurrency,
             &progress,
             &cancel,
