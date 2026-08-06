@@ -1813,3 +1813,92 @@ fn show_store_stats_is_an_alias_for_show_stats() {
         "the two spellings must produce the same report shape:\n{sa}\n---\n{sb}"
     );
 }
+
+/// `downsync --no-delete-removed` is the repair shape from the CLI, and the
+/// progression below is the one a repair button actually walks.
+///
+/// The flag stops deletions; it does not force the target to be looked at. At the
+/// CLI's defaults a cached target index short-circuits the scan, so the run diffs
+/// the cache rather than the disk, finds nothing, and exits 0 having repaired
+/// nothing. Pinned because that is exactly how a repair button gets wired by
+/// accident, and the failure is silent.
+#[test]
+fn downsync_no_delete_removed_repairs_without_touching_user_files() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    make_v2(&src);
+    let store = tmp.path().join("store");
+    let lvi = tmp.path().join("v.lvi");
+    run_upsync(&store, &src, &lvi, &[]);
+    let target = tmp.path().join("out");
+
+    let plain = |extra: &[&str]| {
+        let mut args = vec![
+            "downsync",
+            "--storage-uri",
+            store.to_str().unwrap(),
+            "--source-path",
+            lvi.to_str().unwrap(),
+            "--target-path",
+            target.to_str().unwrap(),
+        ];
+        args.extend_from_slice(extra);
+        run_ok(&args)
+    };
+
+    // A default run leaves the cache index behind — the state a repair meets.
+    plain(&[]);
+    assert!(target.join(".longtail.index.cache.lvi").exists());
+
+    let saved = target.join("Saved");
+    std::fs::create_dir_all(&saved).unwrap();
+    std::fs::write(saved.join("player.sav"), b"hours of progress").unwrap();
+    let owned = capture(&target)
+        .entries
+        .iter()
+        // Directories carry an empty hash. The cache index also lives in the
+        // target and is not an asset — corrupting it would test the wrong thing.
+        .find(|e| {
+            !e.blake3_hex.is_empty()
+                && !e.path.starts_with("Saved")
+                && !e.path.ends_with(".longtail.index.cache.lvi")
+        })
+        .map(|e| target.join(&e.path))
+        .expect("an asset the version owns");
+    let good = std::fs::read(&owned).unwrap();
+    std::fs::write(&owned, b"corrupted").unwrap();
+
+    // The flag on its own: user data survives, but so does the damage.
+    let out = plain(&["--no-delete-removed"]);
+    assert_eq!(
+        std::fs::read(&owned).unwrap(),
+        b"corrupted",
+        "a cached target index hides the damage from a repair run"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("will not be detected"),
+        "and the run must say so: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // Both together: the repair does its job and leaves user data alone.
+    plain(&["--no-delete-removed", "--no-cache-target-index"]);
+    assert_eq!(
+        std::fs::read(&owned).unwrap(),
+        good,
+        "the damaged asset must be repaired"
+    );
+    assert_eq!(
+        std::fs::read(saved.join("player.sav")).unwrap(),
+        b"hours of progress",
+        "--no-delete-removed must leave user files alone"
+    );
+
+    // Without the flag the delete phase still claims them.
+    plain(&["--no-cache-target-index"]);
+    assert!(
+        !saved.join("player.sav").exists(),
+        "the default must still remove what the version does not contain"
+    );
+}

@@ -87,6 +87,18 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         None
     };
 
+    // A repair that reads a cached target index cannot repair anything: the cache
+    // is trusted as the target's state, so the diff is empty and the run exits 0
+    // having written nothing. The two options are orthogonal and the combination
+    // is legal — a no-delete upgrade wants exactly this — but it is also the shape
+    // a "repair" button gets wired as by accident, and the failure is silent.
+    if !opts.delete_removed && effective_target_index.is_some() {
+        tracing::warn!(
+            "delete_removed is off while a cached or explicit target index is in use; damage on \
+             disk will not be detected — set cache_target_index = false to scan the target"
+        );
+    }
+
     let progress: Arc<dyn ProgressSink> = opts
         .progress
         .clone()
@@ -211,6 +223,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
             &diff,
             &store_index,
             opts.retain_permissions,
+            opts.delete_removed,
             apply_concurrency,
             &progress,
             &cancel,

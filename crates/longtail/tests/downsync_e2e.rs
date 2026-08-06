@@ -426,3 +426,67 @@ async fn an_exclude_filter_keeps_user_files_out_of_the_delete_set() {
         "and must be left byte-identical"
     );
 }
+
+/// `delete_removed = false` — the repair shape.
+///
+/// Everything the version names is still checked against its content hash and
+/// rewritten when wrong; everything else in the target is left alone. This is the
+/// alternative to naming user directories in an exclude regex, which has to be
+/// kept correct and deletes user data silently when it is not.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_repair_run_fixes_the_version_without_deleting_anything_else() {
+    pin_umask();
+    let fx = fixtures_dir();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let store = fx.join("stores/default/store");
+    let lvi = fx.join("stores/default/chain-v2.lvi");
+
+    run_downsync(lvi.clone(), store.clone(), target.clone()).await;
+
+    // User data the version knows nothing about, in two shapes: a nested file
+    // and one directly in the target root.
+    let saved = target.join("Saved");
+    std::fs::create_dir_all(&saved).unwrap();
+    std::fs::write(saved.join("player.sav"), b"hours of progress").unwrap();
+    std::fs::write(target.join("settings.ini"), b"volume=11").unwrap();
+
+    // Damage an asset the version *does* own, so the run has real repair work.
+    let owned = target.join("abitoftext.txt");
+    let good = std::fs::read(&owned).unwrap();
+    std::fs::write(&owned, b"corrupted").unwrap();
+
+    let mut opts = DownsyncOptions::new(
+        vec![lvi.to_string_lossy().into_owned()],
+        store.to_string_lossy().into_owned(),
+        target.to_string_lossy().into_owned(),
+    );
+    opts.cache_target_index = false; // force the content-hash scan
+    opts.delete_removed = false;
+    downsync(opts).await.expect("repair downsync");
+
+    assert_eq!(
+        std::fs::read(&owned).unwrap(),
+        good,
+        "the damaged asset must be repaired"
+    );
+    assert_eq!(
+        std::fs::read(saved.join("player.sav")).unwrap(),
+        b"hours of progress",
+        "user data must survive a repair"
+    );
+    assert_eq!(
+        std::fs::read(target.join("settings.ini")).unwrap(),
+        b"volume=11",
+        "user data in the target root must survive too"
+    );
+
+    // And the default still deletes, so the flag is doing the work rather than
+    // the delete phase having quietly stopped firing.
+    run_downsync(lvi, store, target.clone()).await;
+    assert!(
+        !saved.join("player.sav").exists() && !target.join("settings.ini").exists(),
+        "the default must still remove what the version does not contain"
+    );
+}

@@ -163,6 +163,14 @@ struct DownsyncArgs {
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
     no_retain_permissions: bool,
+    /// Leave assets the version does not contain in place (a repair run).
+    /// Everything the version names is still checked and rewritten if wrong;
+    /// nothing else in the target folder is touched. Use over an install folder
+    /// holding save games or user config. Pass `--no-cache-target-index` with it:
+    /// a cached target index skips the scan, so damage on disk goes unseen and
+    /// the run repairs nothing.
+    #[arg(long, default_value_t = false)]
+    no_delete_removed: bool,
     #[arg(long, default_value_t = false)]
     validate: bool,
     #[arg(long)]
@@ -213,6 +221,14 @@ struct GetArgs {
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
     no_retain_permissions: bool,
+    /// Leave assets the version does not contain in place (a repair run).
+    /// Everything the version names is still checked and rewritten if wrong;
+    /// nothing else in the target folder is touched. Use over an install folder
+    /// holding save games or user config. Pass `--no-cache-target-index` with it:
+    /// a cached target index skips the scan, so damage on disk goes unseen and
+    /// the run repairs nothing.
+    #[arg(long, default_value_t = false)]
+    no_delete_removed: bool,
     #[arg(long, default_value_t = false)]
     validate: bool,
     /// Accepted-but-ignored (parity with golongtail; lsi comes from the config).
@@ -742,6 +758,7 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     opts.cache_path = a.cache_path.clone().map(Into::into);
     opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
+    opts.delete_removed = !a.no_delete_removed;
     opts.validate = a.validate;
     opts.version_local_store_index_paths = merge_paths(
         &a.version_local_store_index_path,
@@ -783,6 +800,7 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     opts.cache_path = a.cache_path.clone().map(Into::into);
     opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
+    opts.delete_removed = !a.no_delete_removed;
     opts.validate = a.validate;
     opts.include_filter_regex = a.include_filter_regex.clone();
     opts.exclude_filter_regex = a.exclude_filter_regex.clone();

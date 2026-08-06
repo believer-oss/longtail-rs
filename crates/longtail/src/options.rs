@@ -42,6 +42,24 @@ pub struct DownsyncOptions {
     /// Apply the source version's POSIX permissions to written files (default
     /// true).
     pub retain_permissions: bool,
+    /// Delete assets the target has and the source version does not (default
+    /// **true**, matching golongtail).
+    ///
+    /// Set false for a repair: every asset in the version is still checked and
+    /// rewritten if wrong, but nothing else in the target folder is touched. That
+    /// is what makes it safe to run over an install folder holding save games,
+    /// logs, or user config — those live in the target but in no version, so the
+    /// delete phase would otherwise claim them. Excluding them by regex does the
+    /// same job but has to be kept correct; getting the pattern wrong deletes
+    /// user data silently, whereas this cannot.
+    ///
+    /// **Pair it with `cache_target_index = false`.** On its own this only stops
+    /// deletions. A cached target index short-circuits the target scan entirely,
+    /// so the run diffs the cache rather than the disk, finds nothing to do, and
+    /// reports success without repairing anything. A repair is
+    /// `delete_removed = false` *and* `cache_target_index = false`; the
+    /// combination without the second is warned about at runtime.
+    pub delete_removed: bool,
     /// Re-scan the target after writing and compare to the source index.
     pub validate: bool,
     /// Scan the target folder to build its current index (default true). Skipped
@@ -96,6 +114,7 @@ impl DownsyncOptions {
             include_filter_regex: None,
             exclude_filter_regex: None,
             retain_permissions: true,
+            delete_removed: true,
             validate: false,
             scan_target: true,
             cache_target_index: true,
@@ -192,6 +211,8 @@ pub struct GetOptions {
     /// unbounded. See [`DownsyncOptions::cache_size_limit`].
     pub cache_size_limit: Option<u64>,
     pub retain_permissions: bool,
+    /// See [`DownsyncOptions::delete_removed`].
+    pub delete_removed: bool,
     pub validate: bool,
     pub scan_target: bool,
     pub cache_target_index: bool,
@@ -307,6 +328,7 @@ impl GetOptions {
             cache_path: None,
             cache_size_limit: None,
             retain_permissions: true,
+            delete_removed: true,
             validate: false,
             scan_target: true,
             cache_target_index: true,
