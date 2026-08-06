@@ -1,14 +1,25 @@
 name: "Audit Dependencies"
 on:
+  # Gate pull requests, not just pushes: a dependency added in a PR was
+  # previously unaudited until after it merged.
+  pull_request:
+    paths:
+      - ".github/workflows/audit.yaml"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/audit.toml"
+      - "deny.toml"
   push:
     paths:
-      # Run if workflow changes
-      - ".github/workflows/audit.yml"
+      # Run if workflow changes. (This said `audit.yml` while the file is
+      # `audit.yaml`, so edits to this workflow never re-triggered it.)
+      - ".github/workflows/audit.yaml"
       # Run on changed dependencies
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       # Run if the configuration file changes
       - "**/audit.toml"
+      - "deny.toml"
   # Rerun periodicly to pick up new advisories
   schedule:
     - cron: "0 0 * * *"
@@ -18,6 +29,7 @@ on:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       # `issues: write` for the scheduled-run issue reports; `checks: write` so

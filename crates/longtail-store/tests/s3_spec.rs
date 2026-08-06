@@ -127,8 +127,24 @@ async fn fake_expiry_credentials_refresh() {
 
 // --- env-gated minio tests ------------------------------------------------
 
+/// Skipping is the default so these are inert outside the S3 lane — but a lane
+/// that *intends* to run them must not pass by silently skipping. When
+/// `LONGTAIL_TEST_S3_REQUIRED` is set (the S3 workflow sets it), a missing
+/// endpoint is a hard failure instead: otherwise one mis-set variable turns the
+/// whole lane green without executing a single S3 assertion.
+fn require_s3_if_demanded() {
+    assert!(
+        std::env::var_os("LONGTAIL_TEST_S3_REQUIRED").is_none(),
+        "LONGTAIL_TEST_S3_REQUIRED is set but LONGTAIL_TEST_S3_ENDPOINT is not — \
+         the S3 lane would have skipped every test and reported success"
+    );
+}
+
 fn minio_options() -> Option<(String, S3Options)> {
-    let endpoint = std::env::var("LONGTAIL_TEST_S3_ENDPOINT").ok()?;
+    let Ok(endpoint) = std::env::var("LONGTAIL_TEST_S3_ENDPOINT") else {
+        require_s3_if_demanded();
+        return None;
+    };
     let bucket =
         std::env::var("LONGTAIL_TEST_S3_BUCKET").unwrap_or_else(|_| "longtail-test".into());
     let access =

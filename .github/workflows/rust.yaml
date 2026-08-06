@@ -1,15 +1,17 @@
 name: "Test Suite"
+
+# The per-PR gate. Everything here is pure Rust: no native library, no service
+# container, no network beyond the toolchain.
+#
+# The heavier lanes live in their own workflows so they can carry their own
+# triggers: `differential.yaml`, `s3-minio.yaml`, `fixture-freshness.yaml`. See
+# `differential.yaml` for why those are driven by dependency changes rather than
+# by a clock.
 on:
   push:
     branches:
       - "main"
   pull_request:
-  # The differential lanes (regression against the retained C implementation)
-  # run weekly and on manual dispatch, not per-PR: the C library no longer
-  # changes per-PR and each differential run costs a native-lib build. The pure
-  # lane, clippy/fmt, and miri still gate every PR.
-  schedule:
-    - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch:
 
 concurrency:
@@ -17,11 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Pure lane: no native lib, no network beyond the toolchain. Builds and tests
-  # the default members and checks the committed fixtures against manifest.json.
+  # Builds and tests the default members and checks the committed fixtures
+  # against manifest.json.
   pure-linux:
     name: pure lane - linux
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,8 +32,8 @@ jobs:
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
 
-      - run: cargo build
-      - run: cargo test
+      - run: cargo build --locked
+      - run: cargo test --locked
       - run: cargo run -p xtask -- verify-fixtures
 
       # Bench-crate compile-check (pure lane = plain + fastcdc
@@ -39,73 +42,61 @@ jobs:
       - run: cargo bench --no-run -p longtail-bench
       - run: cargo bench --no-run -p longtail-bench --features fastcdc
 
+  # Windows is a shipped target (the launcher's primary one) and is rarely a
+  # development machine, so CI is the only signal it gets.
+  #
+  # KNOWN GAP (review findings ALG-01 / CI-01): six of the highest-value
+  # integration test files are `#![cfg(unix)]` —
+  # crates/longtail/tests/{lvi_byte_gate,upsync_byte_gate,downsync_e2e,smoke,
+  # deadlock_regression}.rs and crates/longtail-cli/tests/commands_spec.rs — so
+  # `cargo test` here exercises far less of the download path than on Linux.
+  # Removing those `cfg`s is the real fix and is tracked in the punchlist; the
+  # steps below close the part CI can close on its own (lint + bench parity) and
+  # the smoke assertion makes a silently-empty run impossible.
   pure-windows:
     name: pure lane - windows
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+        with:
+          components: clippy
 
-      - run: cargo build
-      - run: cargo test
+      - run: cargo build --locked
+      - run: cargo test --locked
       - run: cargo run -p xtask -- verify-fixtures
 
-  # Differential lane (scheduled + manual only): regression against the retained
-  # C implementation via longtail-sys. Runs the whole workspace plus the
-  # self-validation suite that proves the C library reproduces every committed
-  # golden, and the codec/chunker/hash differentials.
-  #
-  # The `differential` feature also compiles a small C shim
-  # (support/longtail-testkit/shim/hpcdc_discriminator_shim.c) via `cc` in
-  # longtail-testkit's build.rs, so this lane requires a **host C compiler**
-  # (present on the GitHub ubuntu/windows runners); the golden `d` table +
-  # boundary-table equality fallback covers environments without a C compiler.
-  differential-linux:
-    name: differential lane - linux
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
+      # Windows-specific lints and codegen: `cfg(windows)` code (fs_util's
+      # permission mapping and `seek_write`, blob/fs's LockFileEx path) is never
+      # compiled on Linux, so without this it is linted by nobody.
+      - name: Clippy (windows targets)
+        run: cargo clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli --all-targets -- -D warnings
 
-      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+      - run: cargo bench --no-run -p longtail-bench
 
-      - run: |
-          pushd test-data
-          ./mkdata.sh
-
-      # Fetch the pinned golongtail binary so the three-way e2e
-      # differential runs its spawned third way (Rust vs ffi vs golongtail). The
-      # test skips this third way cleanly if the fetch is unavailable.
-      - run: cargo run -p xtask -- fetch-golongtail
-
-      - run: cargo test --workspace
-      - run: cargo test -p longtail-testkit --features differential
-
-      # Differential-lane bench-crate compile-check. The `differential`
-      # feature pulls longtail-ffi (cannot compile in the pure lane) and builds
-      # the e2e + ffi-driver bins. Never RUN in CI.
-      - run: cargo bench --no-run -p longtail-bench --features differential
-
-  differential-windows:
-    name: differential lane - windows
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: windows-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
-
-      - run: |
-          pushd test-data
-          ./mkdata.ps1
-
-      - run: cargo test --workspace
-      - run: cargo test -p longtail-testkit --features differential
+      # A lane that runs almost nothing must not report success. This does not
+      # close the cfg gap above — it stops the gap widening silently.
+      #
+      # Calibration: Linux compiles 242 tests, of which 62 live in the six
+      # `#![cfg(unix)]` files listed above (plus this branch's two new ones), so
+      # Windows should compile roughly 180. The floor is deliberately slack at
+      # 100 because the exact Windows number has not been observed yet — it
+      # catches a crate or target that stops building, not a single lost test.
+      # Tighten it to ~170 once a green run reports the real figure.
+      - name: Assert the lane actually ran tests
+        shell: bash
+        run: |
+          count=$(cargo test --locked -- --list 2>/dev/null | grep -c ': test$' || true)
+          echo "windows test count: $count (linux: 242, of which 62 are cfg(unix)-only)"
+          if [ "$count" -lt 100 ]; then
+            echo "::error::only $count tests compiled on windows; expected ~180, floor 100." \
+                 "Either a target stopped building or more tests became cfg(unix)-only."
+            exit 1
+          fi
 
   # Nightly clippy + rustfmt. Pin clippy to the nightly toolchain explicitly so
   # CI matches local `cargo +nightly clippy` (the setup action installs nightly
@@ -113,8 +104,11 @@ jobs:
   formatting:
     name: cargo clippy and fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
         with:
@@ -124,15 +118,23 @@ jobs:
       - name: Rustfmt Check
         run: cargo +nightly fmt --all --check
 
+      # Packages are listed explicitly rather than using `--workspace`, which
+      # would pull in `longtail-sys` and make this gate compile the vendored C
+      # library — a git submodule fetch, ~700 C objects and bindgen, on every PR
+      # (measured: 19s cold, and it needs network + a C toolchain + libclang).
+      # The cost is small; the *dependency* is not, and `readme.md` promises no C
+      # library is built in a normal build. The legacy crates are linted in
+      # `differential.yaml`. Review finding CI-02.
+      #
       # `-D warnings`: warnings fail the build, so lint regressions can't merge.
       - name: Clippy
-        run: cargo +nightly clippy --workspace --all-targets -- -D warnings
+        run: cargo +nightly clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli -p longtail-testkit -p longtail-bench -p xtask --all-targets -- -D warnings
 
       # Also lint the pure `fastcdc` chunker feature (no native lib needed). The
       # `differential`-feature clippy runs in the differential lane / locally, as
       # it needs the prebuilt lib + a C compiler.
       - name: Clippy (fastcdc feature)
-        run: cargo +nightly clippy --workspace --all-targets --features longtail-core/fastcdc -- -D warnings
+        run: cargo +nightly clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli -p longtail-testkit -p longtail-bench -p xtask --all-targets --features longtail-core/fastcdc -- -D warnings
 
   # Miri: catch undefined behaviour across the trust-critical pure logic of
   # `longtail-core`. Covers the format layer's unaligned byte-cursor reads (packed
@@ -147,6 +149,9 @@ jobs:
   miri:
     name: miri (longtail-core)
     runs-on: ubuntu-latest
+    # Miri is the slowest PR gate (~2 min) and an interpreter hang would
+    # otherwise sit on the 6-hour default.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

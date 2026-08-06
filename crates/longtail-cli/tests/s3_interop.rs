@@ -31,7 +31,16 @@ struct Minio {
 }
 
 fn minio_env() -> Option<Minio> {
-    let endpoint = std::env::var("LONGTAIL_TEST_S3_ENDPOINT").ok()?;
+    let Ok(endpoint) = std::env::var("LONGTAIL_TEST_S3_ENDPOINT") else {
+        // See `s3_spec.rs`: skipping is the default, but a lane that sets
+        // LONGTAIL_TEST_S3_REQUIRED must not pass by skipping gate ⑧.
+        assert!(
+            std::env::var_os("LONGTAIL_TEST_S3_REQUIRED").is_none(),
+            "LONGTAIL_TEST_S3_REQUIRED is set but LONGTAIL_TEST_S3_ENDPOINT is not — \
+             the mixed-writer gate would have skipped and reported success"
+        );
+        return None;
+    };
     Some(Minio {
         endpoint,
         bucket: std::env::var("LONGTAIL_TEST_S3_BUCKET")
