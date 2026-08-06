@@ -322,12 +322,13 @@ fn cache_bytes(dir: &Path) -> u64 {
 /// A silent fallback to the slow path is indistinguishable from a hang.
 ///
 /// When a version-local store index cannot be read, the download falls back to
-/// scanning the whole store — orders of magnitude slower, and producing no
-/// progress of its own, so the UI simply stops moving. The event naming the
-/// offending URI is the only thing that separates "slow store" from "your
-/// override path is wrong".
+/// the store's own index — every `store*.lsi` shard listed and merged, covering
+/// the whole store rather than this version's blocks — which produces no progress
+/// of its own, so the UI simply stops moving. The event naming the offending URI
+/// is the only thing that separates "slow store" from "your override path is
+/// wrong".
 #[test]
-fn a_fallback_to_the_full_store_scan_says_so() {
+fn a_fallback_to_the_whole_store_index_says_so() {
     use std::sync::{Arc as StdArc, Mutex as StdMutex};
     use tracing_subscriber::prelude::*;
 
@@ -351,6 +352,16 @@ fn a_fallback_to_the_full_store_scan_says_so() {
         }
     }
 
+    /// Records the phase labels in order, which is the channel a GUI renders.
+    #[derive(Default)]
+    struct Phases(StdMutex<Vec<String>>);
+    impl ProgressSink for Phases {
+        fn on_progress(&self, _p: Progress) {}
+        fn on_phase(&self, phase: &str) {
+            self.0.lock().unwrap().push(phase.to_string());
+        }
+    }
+
     pin_umask();
     let events = Capture::default();
     let sink = events.clone();
@@ -361,7 +372,9 @@ fn a_fallback_to_the_full_store_scan_says_so() {
     let target = tmp.path().join("target");
     let missing_lsi = tmp.path().join("nonexistent.lsi");
 
+    let phases = StdArc::new(Phases::default());
     let mut opts = base_opts(&target);
+    opts.progress = Some(phases.clone());
     opts.version_local_store_index_paths = vec![missing_lsi.to_string_lossy().into_owned()];
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -375,11 +388,19 @@ fn a_fallback_to_the_full_store_scan_says_so() {
 
     let captured = events.0.lock().unwrap().join("\n");
     assert!(
-        captured.contains("full store scan"),
+        captured.contains("whole store index"),
         "no warning about the fallback; captured:\n{captured}"
     );
     assert!(
         captured.contains("nonexistent.lsi"),
         "the warning must name the offending uri; captured:\n{captured}"
+    );
+
+    // The log says it to an operator; the phase says it to whoever is watching a
+    // progress bar, which on the desktop path is the only surface there is.
+    let seen = phases.0.lock().unwrap().clone();
+    assert!(
+        seen.iter().any(|p| p == "Reading full store index"),
+        "the fallback must re-phase so a stalled bar names it; phases: {seen:?}"
     );
 }

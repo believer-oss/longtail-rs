@@ -20,9 +20,10 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use longtail::{Progress, ProgressSink};
 use tracing_subscriber::fmt::MakeWriter;
 
-/// Fixed phase-label column width (the longest label, "Reading version index"),
-/// so the bar starts at the same column regardless of phase.
-const MSG_WIDTH: usize = 21;
+/// Fixed phase-label column width (the longest label, "Reading full store
+/// index"), so the bar starts at the same column regardless of phase. A longer
+/// label is not truncated — it just pushes that one phase's bar to the right.
+const MSG_WIDTH: usize = 24;
 
 /// The process-wide owner of anything drawn to stderr.
 ///
