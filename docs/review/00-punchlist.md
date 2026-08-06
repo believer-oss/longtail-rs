@@ -404,7 +404,8 @@ it.
   `prune-store-blocks` sweep, which nothing signals the operator to run **and which carries the same
   swallow**. Kept P1 for that reason.
 
-- [ ] **`STORE-03`** · P1 · `hardening` · — · S · R3
+- [x] **`STORE-03`** · P1 · `hardening` · — · S · R3
+  **FIXED 4bc9a62.** `sync_all` errors are propagated everywhere (the part with no defence). The directory fsync is scoped to the store index and its `.gen` sidecar: measured on local NVMe it costs ~0.8 ms per file and roughly doubles a small-file write, which is fine once per flush and not fine per block, since the same primitive writes every `.lsb` and `.lrb`. The sidecar now rides the same atomic path so a durable index cannot be paired with a lost generation. **verified-by:** `fs.rs::{only_index_writes_force_the_directory_entry,generation_sidecar_round_trips_through_the_atomic_path}`. **Residual, deliberate:** block directory entries are still not forced before the index that references them is committed, so a crash can leave a dangling entry; closing that wants one fsync per directory before the index write, not one per block. The `sync_all` propagation itself is not directly tested — that needs I/O fault injection.
   `crates/longtail-store/src/blob/fs.rs:240,242`
   **Fails when:** `sync_all` fails EIO or delayed-allocation ENOSPC — the rename proceeds anyway,
   `Ok(true)` propagates to exit 0, and on power loss the store index reverts a generation, orphaning
