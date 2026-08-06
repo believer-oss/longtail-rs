@@ -22,8 +22,15 @@ fn default_s3() -> S3OptionsArg {
 fn default_s3() -> S3OptionsArg {}
 
 /// Read + parse a version index from a URI (local path, `file://`, or `s3://`).
-pub async fn read_version_index_from_uri(uri: &str) -> Result<VersionIndex, LongtailError> {
-    let bytes = fs_util::read_from_uri(uri, &default_s3()).await?;
+///
+/// Takes the S3 options rather than defaulting them: a URI is not enough to
+/// reach a store behind a custom endpoint, and defaulting here silently ignored
+/// the caller's endpoint while the same command honoured it for block I/O.
+pub async fn read_version_index_from_uri(
+    uri: &str,
+    s3_options: &S3OptionsArg,
+) -> Result<VersionIndex, LongtailError> {
+    let bytes = fs_util::read_from_uri(uri, s3_options).await?;
     Ok(VersionIndex::from_bytes(&bytes)?)
 }
 
@@ -52,7 +59,7 @@ impl ValidateVersionOptions {
 /// (`GetExistingStoreIndex(all chunks, min-usage 0)` + `ValidateStore`,
 /// cmd_validateversion.go:61-74).
 pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path).await?;
+    let vi = read_version_index_from_uri(&opts.version_index_path, &opts.s3_options).await?;
     let pool = Arc::new(
         rayon::ThreadPoolBuilder::new()
             .num_threads(1)
@@ -85,8 +92,13 @@ fn single_thread_pool() -> Result<Arc<rayon::ThreadPool>, LongtailError> {
 }
 
 /// Read + parse a store index (`.lsi`) from a URI (local / `file://` / `s3://`).
-pub async fn read_store_index_from_uri(uri: &str) -> Result<StoreIndex, LongtailError> {
-    let bytes = fs_util::read_from_uri(uri, &default_s3()).await?;
+///
+/// Takes the S3 options for the same reason as [`read_version_index_from_uri`].
+pub async fn read_store_index_from_uri(
+    uri: &str,
+    s3_options: &S3OptionsArg,
+) -> Result<StoreIndex, LongtailError> {
+    let bytes = fs_util::read_from_uri(uri, s3_options).await?;
     Ok(StoreIndex::from_bytes(&bytes)?)
 }
 
@@ -202,7 +214,7 @@ impl CreateVersionStoreIndexOptions {
 pub async fn create_version_store_index(
     opts: CreateVersionStoreIndexOptions,
 ) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.source_path).await?;
+    let vi = read_version_index_from_uri(&opts.source_path, &opts.s3_options).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
@@ -266,7 +278,7 @@ pub struct VersionUsageStats {
 pub async fn print_version_usage_stats(
     opts: PrintVersionUsageOptions,
 ) -> Result<VersionUsageStats, LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path).await?;
+    let vi = read_version_index_from_uri(&opts.version_index_path, &opts.s3_options).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,

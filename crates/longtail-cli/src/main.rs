@@ -603,6 +603,23 @@ fn parse_size(s: &str) -> Result<u64, String> {
     s.parse::<bytesize::ByteSize>().map(|b| b.as_u64())
 }
 
+/// Build the S3 options for a bare index read from `--s3-endpoint-resolver-uri`.
+///
+/// Commands that open a block store carry these on their options struct; the
+/// read-only inspection commands have no store to open, so they build them here.
+/// Without this the flag parsed and then did nothing on those commands.
+#[cfg(feature = "s3")]
+fn s3_read_options(endpoint: Option<&String>) -> longtail::S3OptionsArg {
+    let mut o = longtail::S3Options::default();
+    if let Some(u) = endpoint {
+        o.endpoint_url = Some(u.clone());
+    }
+    o
+}
+
+#[cfg(not(feature = "s3"))]
+fn s3_read_options(_endpoint: Option<&String>) -> longtail::S3OptionsArg {}
+
 async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::LongtailError> {
     let sources = merge_paths(&a.source_path, &a.source_paths);
     let mut opts = DownsyncOptions::new(sources, a.storage_uri.clone(), String::new());
@@ -682,7 +699,11 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
 }
 
 async fn run_ls(a: &LsArgs) -> Result<(), longtail::LongtailError> {
-    let vi = read_version_index_from_uri(&a.version_index_path).await?;
+    let vi = read_version_index_from_uri(
+        &a.version_index_path,
+        &s3_read_options(a.s3_endpoint_resolver_uri.as_ref()),
+    )
+    .await?;
     let search = match a.path.as_deref() {
         Some(".") | Some("") | None => String::new(),
         Some(p) => p.trim_end_matches('/').to_string(),
@@ -710,7 +731,11 @@ async fn run_validate(cli: &Cli, a: &ValidateArgs) -> Result<(), longtail::Longt
 }
 
 async fn run_print(a: &PrintArgs) -> Result<(), longtail::LongtailError> {
-    let vi = read_version_index_from_uri(&a.version_index_path).await?;
+    let vi = read_version_index_from_uri(
+        &a.version_index_path,
+        &s3_read_options(a.s3_endpoint_resolver_uri.as_ref()),
+    )
+    .await?;
     print_version_index(&a.version_index_path, &vi, a.compact);
     Ok(())
 }
@@ -936,7 +961,11 @@ async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::
 }
 
 async fn run_print_store(a: &PrintStoreArgs) -> Result<(), longtail::LongtailError> {
-    let si = longtail::read_store_index_from_uri(&a.store_index_path).await?;
+    let si = longtail::read_store_index_from_uri(
+        &a.store_index_path,
+        &s3_read_options(a.s3_endpoint_resolver_uri.as_ref()),
+    )
+    .await?;
     let s = longtail::store_index_stats(&si);
     let hash_str = hash_identifier_string(s.hash_identifier);
     if a.compact {
@@ -1004,7 +1033,11 @@ async fn run_print_version_usage(
 }
 
 async fn run_dump_version_assets(a: &DumpVersionAssetsArgs) -> Result<(), longtail::LongtailError> {
-    let vi = read_version_index_from_uri(&a.version_index_path).await?;
+    let vi = read_version_index_from_uri(
+        &a.version_index_path,
+        &s3_read_options(a.s3_endpoint_resolver_uri.as_ref()),
+    )
+    .await?;
     let asset_count = vi.asset_count() as usize;
     let biggest = vi.asset_sizes.iter().copied().max().unwrap_or(0);
     let pad = biggest.to_string().len();

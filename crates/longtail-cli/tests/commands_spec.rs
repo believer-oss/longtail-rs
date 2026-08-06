@@ -1439,3 +1439,56 @@ fn pack() {
 fn unpack() {
     todo!()
 }
+
+/// `--s3-endpoint-resolver-uri` must reach the read-only inspection commands.
+///
+/// These open no block store, so they build their S3 options from the flag
+/// themselves; miss that and the flag parses, is accepted, and silently sends
+/// the request to AWS instead of the configured endpoint — which surfaces as a
+/// credentials or not-found error against a store the operator can demonstrably
+/// reach, and reads as "the store is broken".
+///
+/// Hermetic: port 1 on loopback refuses immediately, and the assertion is that
+/// the connection was attempted *there*. A run that ignored the flag would reach
+/// the network instead, so this must never be relaxed into "any error".
+#[cfg(feature = "s3")]
+#[test]
+fn s3_endpoint_flag_reaches_the_inspection_commands() {
+    // Both option-less readers: the version-index one and the store-index one.
+    let cases = [
+        ("print-version", "--version-index-path", "s3://bucket/v.lvi"),
+        (
+            "dump-version-assets",
+            "--version-index-path",
+            "s3://bucket/v.lvi",
+        ),
+        ("print-store", "--store-index-path", "s3://bucket/store.lsi"),
+    ];
+    for (cmd, flag, uri) in cases {
+        let out = Command::new(bin())
+            .args([
+                cmd,
+                flag,
+                uri,
+                "--s3-endpoint-resolver-uri",
+                "http://127.0.0.1:1",
+            ])
+            // Credentials must resolve for the request to be attempted at all;
+            // these are never sent anywhere but loopback.
+            .env("AWS_ACCESS_KEY_ID", "test")
+            .env("AWS_SECRET_ACCESS_KEY", "test")
+            .env("AWS_REGION", "us-east-1")
+            .output()
+            .expect("spawn longtail binary");
+
+        assert!(
+            !out.status.success(),
+            "{cmd} should fail: nothing is listening"
+        );
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            err.contains("127.0.0.1:1"),
+            "{cmd} did not use the configured endpoint; stderr: {err}"
+        );
+    }
+}

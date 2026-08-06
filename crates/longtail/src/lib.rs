@@ -89,6 +89,7 @@ pub use longtail_store::StoreError;
 // Rides the same `default = ["s3"]` flag. (Credential/provider types are not
 // re-exported: a caller builds the provider via its own aws-config/aws-sdk-s3.)
 #[cfg(feature = "s3")]
+pub use fs_util::S3OptionsArg;
 pub use longtail_store::S3Options;
 pub use prune::{
     PruneStoreBlocksOptions, PruneStoreIndexOptions, PruneStoreOptions, prune_store,
