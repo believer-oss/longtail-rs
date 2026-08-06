@@ -702,7 +702,7 @@ co-owned.
 | [ ] | `STORE-07` | hardening | Windows mixed Rust+Go fs writers do not mutually exclude (`LockFileEx` vs `CreateFile`) → ACKed lost update | `blob/fs.rs:17-21` |
 | [ ] | `STORE-08` | perf | `preflight_get` holds the prefetch mutex across the whole enqueue loop and spawns one detached task per block | `remote.rs:511-530` |
 | [ ] | `STORE-09` | hardening | a dropped `get_stored_block` leaks its map entry and any held worker permit — latent, unreachable today | `remote.rs:485-486` |
-| [ ] | `STORE-10` | memory | the cache byte budget is enforced only in `close()`, which the cancel/error path never reaches | `cache.rs:163` |
+| [x] | `STORE-10` | memory | the cache byte budget is enforced only in `close()`, which the cancel/error path never reaches | `cache.rs:163` |
 | [ ] | `STORE-11` | hardening | a payload-truncated cache entry is served as a hit; for a compressed store the get then fails with no fall-through | `cache.rs:94-98` |
 | [ ] | `STORE-12` | hardening | no `catch_unwind`, no rayon `panic_handler` anywhere → a codec panic aborts the process | `compress.rs:43-47` |
 | [ ] | `STORE-13` | hardening | a caller-supplied `Client` silently discards `force_path_style` / accelerate / stalled-stream opt-out | `blob/s3.rs:196-198` |
@@ -741,7 +741,7 @@ co-owned.
 | [ ] | `API-13` | hardening | `downsync`/`upsync` block their polling tokio thread through `pool.install` for the whole Indexing phase | `downsync.rs:117-126` |
 | [ ] | `API-14` | hardening | progress callbacks fire on rayon workers and on tokio workers under a held `std::sync::Mutex`; contract undocumented | `version.rs:69`, `apply.rs:236-243` |
 | [ ] | `API-15` | hardening | every rayon pool is built without a `panic_handler`, so a detached codec panic aborts the embedding GUI | `version.rs:170`, `store/compress.rs:44` |
-| [ ] | `API-16` | hardening | embedder cancellation is graceful-only with unbounded latency; task abort silently skips flush/close/eviction | `lib.rs:71-81` |
+| [~] | `API-16` | hardening | embedder cancellation is graceful-only with unbounded latency; task abort silently skips flush/close/eviction | `lib.rs:71-81` |
 
 ### 4.5 Security (R6)
 
