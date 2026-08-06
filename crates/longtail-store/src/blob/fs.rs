@@ -233,9 +233,32 @@ fn read_meta_generation(gen_path: &Path) -> Result<i64, StoreError> {
     }
 }
 
+/// Written through [`atomic_write`] so the generation lands with the same
+/// durability as the index it guards: a durable index paired with a lost
+/// generation would let the next writer's compare-and-swap pass against a value
+/// that no longer describes the file.
 fn set_meta_generation(gen_path: &Path, generation: i64) -> Result<(), StoreError> {
-    std::fs::write(gen_path, generation.to_le_bytes())
-        .map_err(|e| StoreError::io(format!("write {}", gen_path.display()), e))
+    atomic_write(gen_path, &generation.to_le_bytes())
+}
+
+/// Whether writing `path` warrants an fsync of its parent directory.
+///
+/// Only the store index and its generation sidecar do. `sync_all` makes the
+/// *contents* durable but not the directory entry the rename creates, so without
+/// this a crash can leave the object simply absent — and losing a store index
+/// costs every block written in that session, which becomes unreferenced.
+///
+/// Not done for blocks: a parent fsync costs on the order of a millisecond on
+/// real storage, roughly doubling a small-file write. That is nothing once per
+/// flush and prohibitive per block. The residual risk is a block whose directory
+/// entry is not durable while the index that references it is, leaving a
+/// dangling entry after a crash; closing that needs one fsync per directory
+/// before the index is committed, not one per block.
+fn needs_durable_rename(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("lsi") | Some("gen")
+    )
 }
 
 /// Atomic write: temp file in the same dir, then rename over the target.
@@ -254,12 +277,37 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), StoreError> {
             .map_err(|e| StoreError::io(format!("create {}", tmp.display()), e))?;
         f.write_all(data)
             .map_err(|e| StoreError::io(format!("write {}", tmp.display()), e))?;
-        f.sync_all().ok();
+        // Propagated, not discarded: a failed `sync_all` (EIO, or a delayed
+        // ENOSPC that only materialises here) means the bytes never reached
+        // stable storage. Swallowing it renames the temp file into place and
+        // reports success for data that may not exist after a crash.
+        f.sync_all()
+            .map_err(|e| StoreError::io(format!("sync {}", tmp.display()), e))?;
     }
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         StoreError::io(format!("rename to {}", path.display()), e)
-    })
+    })?;
+    if needs_durable_rename(path) {
+        sync_dir(parent)?;
+    }
+    Ok(())
+}
+
+/// fsync a directory so a rename into it survives a crash.
+///
+/// Unix only: opening a directory as a file is a POSIX behaviour, and on Windows
+/// the rename is metadata-journaled, so there is nothing to force.
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> Result<(), StoreError> {
+    File::open(dir)
+        .and_then(|d| d.sync_all())
+        .map_err(|e| StoreError::io(format!("sync dir {}", dir.display()), e))
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Path) -> Result<(), StoreError> {
+    Ok(())
 }
 
 /// A cheap non-crypto counter for temp-file uniqueness (no `rand` dep in the
@@ -414,5 +462,55 @@ impl BlobObject for FsBlobObject {
 
     fn name(&self) -> String {
         format!("fsblob://{}", self.path.display())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The durability policy, pinned: index writes force the directory entry,
+    /// bulk block and cache writes do not. Widening this to every blob would put
+    /// a directory fsync on the per-block path, which roughly doubles the cost of
+    /// a small-file write.
+    #[test]
+    fn only_index_writes_force_the_directory_entry() {
+        for durable in ["store.lsi", "store_0a1b.lsi", "store.lsi.gen"] {
+            assert!(
+                needs_durable_rename(Path::new(durable)),
+                "{durable} should force its directory entry"
+            );
+        }
+        for bulk in [
+            "chunks/0a1b/0x0a1b2c3d4e5f6071.lsb",
+            "chunks/0a1b/0x0a1b2c3d4e5f6071.lrb",
+            "store.lsi._lck",
+            "noextension",
+        ] {
+            assert!(
+                !needs_durable_rename(Path::new(bulk)),
+                "{bulk} should not pay for a directory fsync"
+            );
+        }
+    }
+
+    /// The generation sidecar rides the same path as the index it guards, so a
+    /// crash cannot leave a durable index described by a lost generation.
+    #[test]
+    fn generation_sidecar_round_trips_through_the_atomic_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let gen_path = dir.path().join("store.lsi.gen");
+        set_meta_generation(&gen_path, 7).unwrap();
+        assert_eq!(read_meta_generation(&gen_path).unwrap(), 7);
+        set_meta_generation(&gen_path, 8).unwrap();
+        assert_eq!(read_meta_generation(&gen_path).unwrap(), 8);
+        // No temp files left behind by the rename.
+        let strays: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(strays.is_empty(), "temp files left behind: {strays:?}");
     }
 }
