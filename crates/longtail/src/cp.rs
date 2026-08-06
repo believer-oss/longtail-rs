@@ -80,14 +80,31 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
     })?;
 
     // The asset's chunk list (hashes + sizes), in asset order.
+    //
+    // Sized and iterated from the map itself rather than from the header count.
+    // `from_bytes` validates the asset→chunk map, but `VersionIndex`'s fields are
+    // `pub`, so a hand-built index reaches here without that check — and
+    // `Vec::with_capacity` of an attacker-chosen `u32` is an allocation failure,
+    // which aborts the process rather than returning an error.
     let start = vi.asset_chunk_index_starts[asset] as usize;
     let count = vi.asset_chunk_counts[asset] as usize;
-    let mut chunk_hashes: Vec<u64> = Vec::with_capacity(count);
-    let mut chunk_sizes: Vec<u32> = Vec::with_capacity(count);
-    for k in 0..count {
-        let ci = vi.asset_chunk_indexes[start + k] as usize;
-        chunk_hashes.push(vi.chunk_hashes[ci]);
-        chunk_sizes.push(vi.chunk_sizes[ci]);
+    let bad_map = || {
+        LongtailError::InvalidArgument(format!(
+            "version index asset `{}` names chunks outside the index",
+            opts.source_path
+        ))
+    };
+    let indexes = vi
+        .asset_chunk_indexes
+        .get(start..)
+        .and_then(|tail| tail.get(..count))
+        .ok_or_else(bad_map)?;
+    let mut chunk_hashes: Vec<u64> = Vec::with_capacity(indexes.len());
+    let mut chunk_sizes: Vec<u32> = Vec::with_capacity(indexes.len());
+    for &ci in indexes {
+        let ci = ci as usize;
+        chunk_hashes.push(*vi.chunk_hashes.get(ci).ok_or_else(bad_map)?);
+        chunk_sizes.push(*vi.chunk_sizes.get(ci).ok_or_else(bad_map)?);
     }
 
     #[cfg(feature = "s3")]
@@ -115,17 +132,30 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
         let store_index = store.get_existing_content(&chunk_hashes, 0).await?;
 
         // chunk_hash → (block_hash, byte offset within the decompressed block).
+        //
+        // A block whose chunk range runs off the arrays is skipped, matching the
+        // same walk in `apply.rs`. Both are fed `get_existing_content`, whose
+        // output is canonical by construction, so neither guard should ever fire
+        // — but the two walks are the same shape over the same public-fielded
+        // struct, and having one checked and the other bare reads as an oversight
+        // in whichever file you open first.
         let mut location: HashMap<u64, (u64, u64)> = HashMap::new();
         for b in 0..store_index.block_count() as usize {
             let bcount = store_index.block_chunk_counts[b] as usize;
             let boff = store_index.block_chunks_offsets[b] as usize;
+            let Some(end) = boff.checked_add(bcount) else {
+                continue;
+            };
+            if end > store_index.chunk_hashes.len() || end > store_index.chunk_sizes.len() {
+                continue;
+            }
             let mut within: u64 = 0;
-            for k in 0..bcount {
-                let ch = store_index.chunk_hashes[boff + k];
+            for k in boff..end {
+                let ch = store_index.chunk_hashes[k];
                 location
                     .entry(ch)
                     .or_insert((store_index.block_hashes[b], within));
-                within += store_index.chunk_sizes[boff + k] as u64;
+                within += store_index.chunk_sizes[k] as u64;
             }
         }
 

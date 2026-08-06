@@ -240,3 +240,52 @@ fn symlink_inside_target_is_followed_by_design() {
          update this test and the trust boundary in docs/rust-port.md together"
     );
 }
+
+// --- allocation sized from data, not from a header field ---------------------
+
+/// A version index claiming an absurd chunk count must not be able to choose an
+/// allocation size.
+///
+/// `from_bytes` validates the asset→chunk map, so this cannot arrive by parsing
+/// — but `VersionIndex`'s fields are `pub`, and this is exactly what a
+/// hand-built one looks like. Sizing a `Vec` from the header count would request
+/// tens of gigabytes; an allocation failure in Rust runs the alloc error handler
+/// and aborts, so there would be no error to observe and no test to write.
+/// Reaching the assertion at all is part of the result.
+#[test]
+fn an_absurd_chunk_count_is_refused_rather_than_allocated() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+
+    // One asset claiming 0xFFFF_FFFF chunks while the map holds one entry.
+    let mut vi = one_asset_index("asset.bin");
+    vi.asset_sizes = vec![4];
+    vi.asset_chunk_counts = vec![u32::MAX];
+    vi.asset_chunk_index_starts = vec![0];
+    vi.asset_chunk_indexes = vec![0];
+    vi.chunk_hashes = vec![7];
+    vi.chunk_sizes = vec![4];
+    vi.chunk_tags = vec![0];
+
+    let lvi = tmp.path().join("hostile.lvi");
+    std::fs::write(&lvi, vi.to_bytes()).unwrap();
+
+    let mut opts = longtail::CpOptions::new(
+        empty_store(tmp.path()),
+        lvi.to_string_lossy(),
+        "asset.bin",
+        tmp.path().join("out.bin").to_string_lossy(),
+    );
+    opts.remote_worker_count = 1;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let err = rt
+        .block_on(longtail::cp(opts))
+        .expect_err("an out-of-range chunk count must be refused");
+    // Any typed error is acceptable; the point is that one exists to inspect.
+    let msg = err.full_chain();
+    assert!(!msg.is_empty(), "expected a reportable error, got: {err:?}");
+}
