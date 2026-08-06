@@ -487,11 +487,16 @@ struct CpArgs {
 /// The writer is [`progress::BarAwareStderr`], not plain stderr: the progress bar
 /// draws to the same stream, and these events fire while it is live.
 fn init_tracing(default_level: &str) {
+    use std::io::IsTerminal;
+
     use tracing_subscriber::EnvFilter;
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
+        // `fmt` colours unconditionally; gate it on the same terminal check the
+        // progress renderer uses, so a captured CI log holds text and not escapes.
+        .with_ansi(std::io::stderr().is_terminal())
         .with_writer(progress::BarAwareStderr)
         .with_target(false)
         .try_init();
