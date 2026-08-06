@@ -91,7 +91,10 @@ impl BlockStore for CacheBlockStore {
         // Cache hit only when the file exists, parses, and matches the hash;
         // otherwise (corrupt/mismatched) fall through to the remote.
         let obj = self.cache_client.new_object(&key).await?;
-        if obj.exists().await.unwrap_or(false)
+        // Tracked so the write-back below can tell "not cached" from "cached but
+        // unusable" — the two want opposite things from a skip-if-exists.
+        let present = obj.exists().await.unwrap_or(false);
+        if present
             && let Ok(data) = obj.read().await
             && let Ok(block) = StoredBlock::from_bytes(&data)
             && block.block_index.block_hash == block_hash
@@ -116,7 +119,18 @@ impl BlockStore for CacheBlockStore {
         // Miss → fetch from remote and write back to the cache.
         let block = self.remote.get_stored_block(block_hash).await?;
         let mut wb = self.cache_client.new_object(&key).await?;
-        if !wb.exists().await.unwrap_or(false) {
+        if present {
+            // The file is there and did not parse, or named a different block.
+            // Skip-if-exists would leave those bytes in place and re-fetch this
+            // block on every read for the life of the cache — a permanent, silent
+            // miss rather than the one-off a truncated download should be. The
+            // write is atomic (temp + rename), so no delete is needed first.
+            tracing::warn!(
+                block_hash = format_args!("{block_hash:#018x}"),
+                "replacing an unusable cache entry"
+            );
+            let _ = wb.write(block.to_bytes().into()).await;
+        } else if !wb.exists().await.unwrap_or(false) {
             let _ = wb.write(block.to_bytes().into()).await; // best-effort write-back
         }
         Ok(block)

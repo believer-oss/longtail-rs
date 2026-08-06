@@ -372,3 +372,57 @@ async fn an_asset_can_be_created_inside_a_read_only_directory() {
     // Unlock before the tempdir drop, which cannot recurse into a 0555 dir.
     chmod(&landed_dir, 0o755);
 }
+
+/// Files the target has and the version does not are deleted — and an exclude
+/// filter is what keeps user data out of that set.
+///
+/// The delete phase is driven by `source_removed_asset_indexes`, which is
+/// "scanned in the target, absent from the source". A save-game directory sitting
+/// in the install folder qualifies, so a plain downsync removes it. Excluding it
+/// keeps it out of the target scan, so it is never in `current`, never in the
+/// removed set, and never touched — no new option needed.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_exclude_filter_keeps_user_files_out_of_the_delete_set() {
+    pin_umask();
+    let fx = fixtures_dir();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let store = fx.join("stores/default/store");
+    let lvi = fx.join("stores/default/chain-v2.lvi");
+
+    run_downsync(lvi.clone(), store.clone(), target.clone()).await;
+
+    let saved = target.join("Saved");
+    std::fs::create_dir_all(&saved).unwrap();
+    let slot = saved.join("player.sav");
+    std::fs::write(&slot, b"hours of progress").unwrap();
+
+    // Unfiltered: the file is not in the version, so it is removed.
+    run_downsync(lvi.clone(), store.clone(), target.clone()).await;
+    assert!(
+        !slot.exists(),
+        "without a filter the delete phase claims anything not in the version"
+    );
+
+    // Filtered: the scan never sees it, so the diff never proposes it.
+    std::fs::create_dir_all(&saved).unwrap();
+    std::fs::write(&slot, b"hours of progress").unwrap();
+    let mut opts = DownsyncOptions::new(
+        vec![lvi.to_string_lossy().into_owned()],
+        store.to_string_lossy().into_owned(),
+        target.to_string_lossy().into_owned(),
+    );
+    opts.cache_target_index = false;
+    opts.exclude_filter_regex = Some("^Saved".to_string());
+    downsync(opts).await.expect("filtered downsync");
+    assert!(
+        slot.exists(),
+        "an excluded path must survive the delete phase"
+    );
+    assert_eq!(
+        std::fs::read(&slot).unwrap(),
+        b"hours of progress",
+        "and must be left byte-identical"
+    );
+}

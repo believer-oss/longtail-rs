@@ -313,3 +313,90 @@ async fn compressed_block_shorter_than_its_chunk_sizes_is_rejected() {
         "expected the block-index mismatch error, got: {msg}"
     );
 }
+
+/// A *corrupt* cache file must be replaced, not just bypassed.
+///
+/// The probe already refuses to serve a block that does not parse or names a
+/// different hash, so bad bytes are never handed out — but the write-back was
+/// skip-if-exists, and a corrupt file exists. The entry was therefore never
+/// repaired: every read of that block re-fetched it from the remote, for the life
+/// of the cache. Silent, permanent, and invisible except as a cache that keeps
+/// missing on one block. Upstream has the same shape.
+#[tokio::test]
+async fn cache_replaces_a_corrupt_block_rather_than_re_fetching_forever() {
+    let index = fixture_index();
+    let hash = index.block_hashes[0];
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cached = cache_over_fixture(cache_dir.path(), Some(u64::MAX)).await;
+    let lrb = cache_dir.path().join(lrb_rel(hash));
+
+    let first = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(cached.stats().get_count, 1);
+    let good = std::fs::read(&lrb).unwrap();
+
+    // Corrupt it in place, keeping the file present — the case skip-if-exists
+    // could not distinguish from a healthy entry.
+    std::fs::write(&lrb, b"not a stored block").unwrap();
+
+    // The read still succeeds, from the remote.
+    let second = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(first.to_bytes(), second.to_bytes(), "same block bytes");
+    assert_eq!(
+        cached.stats().get_count,
+        2,
+        "a corrupt entry must not be served"
+    );
+    assert_eq!(
+        std::fs::read(&lrb).unwrap(),
+        good,
+        "the corrupt entry must have been overwritten with the real block"
+    );
+
+    // The point of the fix: the *next* read is a cache hit again.
+    let third = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(first.to_bytes(), third.to_bytes());
+    assert_eq!(
+        cached.stats().get_count,
+        2,
+        "the repaired entry must serve the next read, not re-fetch forever"
+    );
+    cached.close().await.unwrap();
+}
+
+/// The same for a file that parses but names a different block — a cache path
+/// collision or a partially-overwritten entry, rather than truncation.
+#[tokio::test]
+async fn cache_replaces_an_entry_holding_the_wrong_block() {
+    let index = fixture_index();
+    let (hash, other) = (index.block_hashes[0], index.block_hashes[1]);
+    let cache_dir = tempfile::tempdir().unwrap();
+    let cached = cache_over_fixture(cache_dir.path(), Some(u64::MAX)).await;
+
+    let wanted = cached.get_stored_block(hash).await.unwrap();
+    let wrong = cached.get_stored_block(other).await.unwrap();
+    assert_eq!(cached.stats().get_count, 2);
+
+    // Plant a valid block under the wrong hash's path.
+    std::fs::write(cache_dir.path().join(lrb_rel(hash)), wrong.to_bytes()).unwrap();
+
+    let got = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(
+        got.to_bytes(),
+        wanted.to_bytes(),
+        "must not serve the wrong block"
+    );
+    assert_eq!(
+        cached.stats().get_count,
+        3,
+        "wrong-hash entry forces a re-fetch"
+    );
+
+    let again = cached.get_stored_block(hash).await.unwrap();
+    assert_eq!(again.to_bytes(), wanted.to_bytes());
+    assert_eq!(
+        cached.stats().get_count,
+        3,
+        "the corrected entry must serve the next read"
+    );
+    cached.close().await.unwrap();
+}
