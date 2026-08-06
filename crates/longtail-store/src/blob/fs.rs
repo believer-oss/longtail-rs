@@ -99,23 +99,40 @@ impl BlobClient for FsBlobClient {
 }
 
 /// Recursively list files under `root`, returning store-relative names that
-/// start with `prefix`. Filters `._lck` lock files (fsstore.go:82). A missing
-/// root lists as empty (`filepath.Walk` swallows the walk error in Go — the
-/// callback returns nil on err).
+/// start with `prefix`. Filters `._lck` lock files (fsstore.go:82).
+///
+/// A missing root lists as empty — that is the "store does not exist yet" case
+/// and Go's `filepath.Walk` swallow (callback returns nil on err) is right for
+/// it. Every *other* error is returned. Go swallowing them is a bug rather than
+/// a compatibility requirement: a listing is not a byte format, and this
+/// listing feeds `get_store_store_indexes`, where a silently short list of
+/// `store_*.lsi` shards is a silently narrowed store index. Blocks that exist
+/// become invisible, which surfaces later as "chunk not in the store index" on
+/// a download, or as deleted blocks via prune.
 fn get_objects_sync(root: &Path, prefix: &str) -> Result<Vec<BlobProperties>, StoreError> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
+    let mut is_root = true;
     while let Some(dir) = stack.pop() {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
-            Err(_) => continue, // missing/unreadable dir → skip (Go returns nil)
+            // An absent store root is an empty store, not a failure.
+            Err(e) if is_root && e.kind() == std::io::ErrorKind::NotFound => {
+                is_root = false;
+                continue;
+            }
+            Err(e) => {
+                return Err(StoreError::io(format!("list dir {}", dir.display()), e));
+            }
         };
-        for entry in entries.flatten() {
+        is_root = false;
+        for entry in entries {
+            let entry =
+                entry.map_err(|e| StoreError::io(format!("dir entry in {}", dir.display()), e))?;
             let path = entry.path();
-            let meta = match entry.metadata() {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
+            let meta = entry
+                .metadata()
+                .map_err(|e| StoreError::io(format!("stat {}", path.display()), e))?;
             if meta.is_dir() {
                 stack.push(path);
                 continue;

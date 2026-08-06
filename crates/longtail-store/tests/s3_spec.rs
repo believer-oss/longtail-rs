@@ -230,3 +230,72 @@ async fn s3_store_index_sync() {
     let unique: std::collections::HashSet<u64> = index.block_hashes.iter().copied().collect();
     assert_eq!(unique.len(), expected);
 }
+
+/// A truncated listing with no continuation token must be a hard error, never a
+/// short list. Review finding STORE-05, S3 arm.
+///
+/// The S3 contract says `IsTruncated=true` always carries a
+/// `NextContinuationToken`, so this needs a non-conformant S3-compatible
+/// endpoint — and custom endpoints are explicitly supported (`--s3-endpoint-resolver-uri`),
+/// which is what makes it reachable. It matters because this listing feeds
+/// `get_store_store_indexes`: a short list of `store_*.lsi` shards is a silently
+/// *narrowed* store index. Blocks that exist become invisible, surfacing much
+/// later as "chunk not in the store index" on a download, or as deleted blocks
+/// via prune.
+///
+/// No minio required — this runs in the per-PR lane.
+#[tokio::test]
+async fn truncated_listing_without_a_continuation_token_is_an_error() {
+    let body = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>bucket</Name>
+  <Prefix>prefix/store</Prefix>
+  <KeyCount>1</KeyCount>
+  <MaxKeys>1000</MaxKeys>
+  <IsTruncated>true</IsTruncated>
+  <Contents>
+    <Key>prefix/store_0000.lsi</Key>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>"#;
+
+    let replay = StaticReplayClient::new(vec![ReplayEvent::new(
+        http::Request::builder()
+            .uri("http://s3.local/bucket?list-type=2&prefix=prefix%2Fstore")
+            .body(SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(SdkBody::from(body))
+            .unwrap(),
+    )]);
+
+    let conf = aws_sdk_s3::config::Builder::new()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(SharedCredentialsProvider::new(Credentials::for_tests()))
+        .http_client(replay.clone())
+        .endpoint_url("http://s3.local")
+        .force_path_style(true)
+        .build();
+
+    let store = S3BlobStore::new(
+        "bucket",
+        "prefix",
+        S3Options {
+            client: Some(aws_sdk_s3::Client::from_conf(conf)),
+            ..Default::default()
+        },
+    );
+    let client = store.new_client().await.unwrap();
+
+    let err = client
+        .get_objects("store")
+        .await
+        .expect_err("a truncated listing with no continuation token must not return Ok");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("truncation") && msg.contains("partial listing"),
+        "expected the partial-listing refusal, got: {msg}"
+    );
+}

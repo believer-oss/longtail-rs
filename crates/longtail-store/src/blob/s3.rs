@@ -303,7 +303,20 @@ impl BlobClient for S3BlobClient {
             if resp.is_truncated().unwrap_or(false) {
                 continuation = resp.next_continuation_token().map(|s| s.to_string());
                 if continuation.is_none() {
-                    break;
+                    // The S3 contract says `IsTruncated=true` always carries a
+                    // continuation token. Breaking here would return `Ok` with a
+                    // short list, and a short list of `store_*.lsi` shards is a
+                    // silently *narrowed* store index — blocks that exist become
+                    // invisible, surfacing much later as "chunk not in the store
+                    // index" on a download, or as deleted blocks via prune.
+                    // Non-conformant S3-compatible endpoints are the reason this
+                    // is reachable at all, and custom endpoints are supported.
+                    return Err(StoreError::Backend(format!(
+                        "list_objects_v2 for `{full_prefix}` reported truncation with no \
+                         continuation token after {} objects; refusing to return a partial \
+                         listing",
+                        out.len()
+                    )));
                 }
             } else {
                 break;

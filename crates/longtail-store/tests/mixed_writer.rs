@@ -1,0 +1,236 @@
+//! Interop hazards from sharing a store with a concurrent golongtail writer,
+//! and from a backend that can under-report what it holds.
+//!
+//! Both are review findings whose common shape is *a partial observation that
+//! looks like a complete one*. Neither is a byte-format question, so neither is
+//! covered by the byte gates, and both are invisible until they cause a
+//! confusing failure much later — a download reporting "chunk not in the store
+//! index" for content that is present, or a format error naming a file that is
+//! valid a millisecond later.
+//!
+//! No minio required: these run in the per-PR lane. The minio gate ⑧ covers the
+//! happy path of mixed writers; these cover the unhappy ones.
+
+#![cfg(unix)]
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use async_trait::async_trait;
+use longtail_core::{BlockIndex, StoreIndex};
+use longtail_store::blob::{BlobClient, BlobObject, BlobProperties, BlobStore, MemBlobStore};
+use longtail_store::{StoreError, add_to_remote_store_index, read_merged_store_index};
+
+fn sample_index() -> StoreIndex {
+    StoreIndex::from_block_indexes(&[BlockIndex {
+        block_hash: 0x0011_2233_4455_6677,
+        hash_identifier: longtail_core::hash::BLAKE3_ID,
+        tag: 0,
+        chunk_hashes: vec![1, 2],
+        chunk_sizes: vec![10, 20],
+    }])
+    .unwrap()
+}
+
+// --- STORE-06: a torn `store.lsi` from a golongtail writer -------------------
+
+/// Truncates the first `tears_remaining` reads of any `.lsi` object to half
+/// their length, simulating golongtail's in-place `ioutil.WriteFile`
+/// (`fsstore.go:266` — no temp+rename) being observed mid-write by a reader that
+/// holds no lock, which is exactly what a Rust `ReadOnly` downsync does.
+#[derive(Debug)]
+struct TearingStore {
+    inner: MemBlobStore,
+    tears_remaining: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl BlobStore for TearingStore {
+    async fn new_client(&self) -> Result<Box<dyn BlobClient>, StoreError> {
+        Ok(Box::new(TearingClient {
+            inner: self.inner.new_client().await?,
+            tears_remaining: self.tears_remaining.clone(),
+        }))
+    }
+    fn name(&self) -> String {
+        "tearing".into()
+    }
+}
+
+struct TearingClient {
+    inner: Box<dyn BlobClient>,
+    tears_remaining: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl BlobClient for TearingClient {
+    async fn new_object(&self, path: &str) -> Result<Box<dyn BlobObject>, StoreError> {
+        Ok(Box::new(TearingObject {
+            inner: self.inner.new_object(path).await?,
+            tears_remaining: self.tears_remaining.clone(),
+            is_index: path.ends_with(".lsi"),
+        }))
+    }
+    async fn get_objects(&self, prefix: &str) -> Result<Vec<BlobProperties>, StoreError> {
+        self.inner.get_objects(prefix).await
+    }
+    fn supports_locking(&self) -> bool {
+        self.inner.supports_locking()
+    }
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+}
+
+struct TearingObject {
+    inner: Box<dyn BlobObject>,
+    tears_remaining: Arc<AtomicUsize>,
+    is_index: bool,
+}
+
+#[async_trait]
+impl BlobObject for TearingObject {
+    async fn exists(&self) -> Result<bool, StoreError> {
+        self.inner.exists().await
+    }
+    async fn lock_write_version(&mut self) -> Result<bool, StoreError> {
+        self.inner.lock_write_version().await
+    }
+    async fn read(&self) -> Result<Vec<u8>, StoreError> {
+        let data = self.inner.read().await?;
+        if !self.is_index {
+            return Ok(data);
+        }
+        loop {
+            let n = self.tears_remaining.load(Ordering::SeqCst);
+            if n == 0 {
+                return Ok(data);
+            }
+            if self
+                .tears_remaining
+                .compare_exchange(n, n - 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                // A prefix of a valid index: passes the `size > 0` filter,
+                // fails `StoreIndex::from_bytes`.
+                return Ok(data[..data.len() / 2].to_vec());
+            }
+        }
+    }
+    async fn write(&mut self, data: bytes::Bytes) -> Result<bool, StoreError> {
+        self.inner.write(data).await
+    }
+    async fn delete(&mut self) -> Result<(), StoreError> {
+        self.inner.delete().await
+    }
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+}
+
+/// A half-written store index must be retried, not treated as terminal. Before
+/// the fix the parse sat *outside* the read retry ladder, so this failed the
+/// whole operation with a format error — and succeeded on the next invocation,
+/// which is what makes it read as a flake rather than a race.
+#[tokio::test]
+async fn torn_store_index_read_is_retried_not_fatal() {
+    let mem = MemBlobStore::new("", false);
+    let seed = mem.new_client().await.unwrap();
+    add_to_remote_store_index(&*seed, &sample_index())
+        .await
+        .expect("seed the store index");
+
+    let tearing = TearingStore {
+        inner: mem,
+        tears_remaining: Arc::new(AtomicUsize::new(1)),
+    };
+    let client = tearing.new_client().await.unwrap();
+    let merged = read_merged_store_index(&*client)
+        .await
+        .expect("a torn index must be retried, not fatal");
+    assert_eq!(merged.block_hashes, sample_index().block_hashes);
+}
+
+/// The ladder is finite: a genuinely corrupt index still fails, with the format
+/// error rather than a timeout. Without this, "retry on parse failure" could
+/// silently become "hang on corruption".
+#[tokio::test]
+async fn permanently_corrupt_store_index_still_fails() {
+    let mem = MemBlobStore::new("", false);
+    let seed = mem.new_client().await.unwrap();
+    add_to_remote_store_index(&*seed, &sample_index())
+        .await
+        .expect("seed the store index");
+
+    let tearing = TearingStore {
+        inner: mem,
+        tears_remaining: Arc::new(AtomicUsize::new(usize::MAX)),
+    };
+    let client = tearing.new_client().await.unwrap();
+    let err = read_merged_store_index(&*client)
+        .await
+        .expect_err("a permanently corrupt index must fail");
+    assert!(
+        matches!(err, StoreError::Format(_)),
+        "expected the format error to survive the ladder, got: {err:?}"
+    );
+}
+
+// --- STORE-05: a listing must not silently under-report -----------------------
+
+/// An unreadable directory inside the store must fail the listing rather than
+/// yield a short one.
+///
+/// The fs walker previously `continue`d past a failed `read_dir`, a failed entry
+/// and a failed `metadata`, returning `Ok(short_list)`. That listing feeds
+/// `get_store_store_indexes`, so an invisible `store_*.lsi` shard silently
+/// narrows the merged store index: on the `add` path it self-heals, but on
+/// `try_overwrite` it does not, and prune then deletes the blocks the invisible
+/// shard referenced. Go's `filepath.Walk` swallows these too — that is Go's bug,
+/// not a compatibility requirement, because a listing is not a byte format.
+#[tokio::test]
+async fn unreadable_directory_fails_the_listing_instead_of_shortening_it() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("store");
+    std::fs::create_dir_all(root.join("chunks/aaaa")).unwrap();
+    std::fs::write(root.join("store_0000.lsi"), b"not-parsed-here").unwrap();
+
+    let blocked = root.join("chunks/aaaa");
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // Root ignores the mode bits; skip rather than assert something untrue.
+    if std::fs::read_dir(&blocked).is_ok() {
+        eprintln!("skipping: this user can read a 0o000 directory (running as root?)");
+        return;
+    }
+
+    let store = longtail_store::FsBlobStore::new(root, false);
+    let client = store.new_client().await.unwrap();
+    let err = client
+        .get_objects("")
+        .await
+        .expect_err("an unreadable directory must fail the listing");
+    assert!(
+        matches!(err, StoreError::Io { .. }),
+        "expected an io error naming the directory, got: {err:?}"
+    );
+
+    // Restore so the tempdir can be cleaned up.
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The counterpart: an absent store root is still an empty store, not an error.
+/// Without this, the fix above would break every "create the store on first
+/// write" path.
+#[tokio::test]
+async fn absent_store_root_still_lists_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = longtail_store::FsBlobStore::new(tmp.path().join("does-not-exist"), false);
+    let client = store.new_client().await.unwrap();
+    let listed = client
+        .get_objects("")
+        .await
+        .expect("an absent store root is an empty store");
+    assert!(listed.is_empty());
+}
