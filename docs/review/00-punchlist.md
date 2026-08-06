@@ -741,7 +741,7 @@ co-owned.
 | [x] | `API-06` | hardening | `put` writes `s3-endpoint-resolver-uri` into the get-config JSON; `get` never reads it back | `put.rs:168-174`, `get.rs:42-83` |
 | [ ] | `API-07` | complexity | CLI S3/progress/cancel wiring copy-pasted 12-13×; the newest S3 knob reached 4 of 12 subcommands | `main.rs:619-626` vs `:730-737` |
 | [ ] | `API-08` | complexity | the re-upload pipeline is duplicated between `upsync` and `clone_store`, diverging exactly where two filed bugs live | `upsync.rs:116-176`, `clonestore.rs:151-198` |
-| [ ] | `API-12` | hardening | the library emits zero telemetry outside 4 cache-eviction events; `tracing` is an unused dep of `longtail` | `07b-machete.txt`, `downsync.rs:303` |
+| [x] | `API-12` | hardening | the library emits zero telemetry outside 4 cache-eviction events; `tracing` is an unused dep of `longtail` | `07b-machete.txt`, `downsync.rs:303` |
 | [ ] | `API-13` | hardening | `downsync`/`upsync` block their polling tokio thread through `pool.install` for the whole Indexing phase | `downsync.rs:117-126` |
 | [ ] | `API-14` | hardening | progress callbacks fire on rayon workers and on tokio workers under a held `std::sync::Mutex`; contract undocumented | `version.rs:69`, `apply.rs:236-243` |
 | [ ] | `API-15` | hardening | every rayon pool is built without a `panic_handler`, so a detached codec panic aborts the embedding GUI | `version.rs:170`, `store/compress.rs:44` |
