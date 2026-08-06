@@ -99,12 +99,7 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
         cache_dir: opts.cache_path.clone(),
-        pool: Arc::new(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(1)
-                .build()
-                .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-        ),
+        pool: Arc::new(crate::version::build_pool(1)?),
         version_local_store_index: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),

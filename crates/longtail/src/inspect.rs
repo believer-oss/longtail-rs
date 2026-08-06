@@ -61,12 +61,7 @@ impl ValidateVersionOptions {
 /// cmd_validateversion.go:61-74).
 pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), LongtailError> {
     let vi = read_version_index_from_uri(&opts.version_index_path, &opts.s3_options).await?;
-    let pool = Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    );
+    let pool = Arc::new(crate::version::build_pool(1)?);
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
@@ -87,12 +82,9 @@ pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), Longta
 }
 
 fn single_thread_pool() -> Result<Arc<rayon::ThreadPool>, LongtailError> {
-    Ok(Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    ))
+    // Via `build_pool` so this pool gets the same panic handler as every other:
+    // a panicking codec job must not abort the process.
+    Ok(Arc::new(crate::version::build_pool(1)?))
 }
 
 /// Read + parse a store index (`.lsi`) from a URI (local / `file://` / `s3://`).

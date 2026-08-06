@@ -27,12 +27,8 @@ fn default_s3() -> S3OptionsArg {
 fn default_s3() -> S3OptionsArg {}
 
 fn pool() -> Result<Arc<rayon::ThreadPool>, LongtailError> {
-    Ok(Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    ))
+    // Via `build_pool` for the shared panic handler.
+    Ok(Arc::new(crate::version::build_pool(1)?))
 }
 
 /// Common versions-driven prune options shared by `prune-store` and
