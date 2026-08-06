@@ -413,7 +413,8 @@ it.
   **verified-by:** none. `:240` is the **only** sync call in the workspace; no parent-dir fsync exists.
   **Note:** likely inherited golongtail parity; say so in the fix.
 
-- [ ] **`STORE-04`** · P1 · `hardening` · — · S · R3 (cluster §1.6, with `API-11`)
+- [x] **`STORE-04`** · P1 · `hardening` · — · S · R3 (cluster §1.6, with `API-11`)
+  **FIXED bf21bff.** `clone_store_error` is now exhaustive with no catch-all, so every class survives the `Shared`-future rebuild and a new variant fails the build. `Io` keeps its `ErrorKind`; `Format`/`Compress` (not `Clone`) map to `BadFormat` with the detail as text. **verified-by:** `actor_behavior.rs::not_authorized_survives_both_the_direct_and_the_coalesced_path`, which checks the direct get *and* two concurrent waiters, since only the coalesced path exercises the rebuild.
   `crates/longtail-store/src/remote.rs:490,626-632`; broken promise at `crates/longtail/src/lib.rs:82-85`
   **Fails when:** the Tauri app hits a 403 on one `.lsb` mid-transfer (credentials rotated, refresh
   failed) and `matches!(e, StoreError::NotAuthorized)` is **false** — the launcher shows "check your
@@ -562,7 +563,8 @@ it.
   **Fix:** `strip_suffix(".lvi")` + assert `lsi_path != target_lvi`. See §11 for whether this is
   inherited.
 
-- [ ] **`API-01`** · P1 · `hardening` · — · S · R5
+- [x] **`API-01`** · P1 · `hardening` · — · S · R5
+  **FIXED bf21bff.** 31 types sealed: 13 options structs, 9 report/stats types, `LongtailError`, `StoreError`, the six core error enums. Codec structs deliberately excluded (literal-constructed cross-crate). The 9 report types have no constructor by design — callers read them, never build them. `longtail-cli` is an out-of-crate consumer and still compiles, which is the evidence that the documented `new()` + field-assignment pattern survives sealing. **Consequence:** `class()` can no longer match `StoreError` exhaustively from outside its crate and carries a fallback arm; the tripwire moved to `clone_store_error`.
   `crates/longtail/src/options.rs:19-79,178-205,211-240`, `crates/longtail/src/error.rs:20`, `crates/longtail-core/src/error.rs:16`
   **Fails when:** the launcher pins the crate and any later added option, report field, or error
   variant becomes semver-major — HEAD itself just added one (`S3Options::stalled_stream_protection`,
@@ -580,7 +582,8 @@ it.
   **verified-by:** none. **Take the break now**, as a `#[non_exhaustive] ReadUriOptions` so the
   signature never breaks again.
 
-- [ ] **`API-11`** · P1 · `hardening` · — · M · R5 (cluster §1.6, with `STORE-04`)
+- [x] **`API-11`** · P1 · `hardening` · — · M · R5 (cluster §1.6, with `STORE-04`)
+  **FIXED bf21bff.** `LongtailError::class() -> ErrorClass` added and re-exported; panics route to a new `LongtailError::Internal` rather than `Io`. **Deviation from the proposal:** an eighth class, `Io`, for local filesystem failures — folding "out of space" into `Internal` would repeat the false-classification this finding is about. **verified-by:** `error.rs::{classes_map_to_the_response_they_call_for,a_panicking_task_is_internal_not_io}`. The minio revoked-key round-trip remains an env-gated experiment.
   promise at `crates/longtail/src/lib.rs:82-85`; breaks at `crates/longtail-store/src/remote.rs:490` and `crates/longtail/src/apply.rs:358`
   **Fails when:** the launcher shows "network problem — retrying" for expired credentials and "disk
   error" for a code-bug panic; the user follows the wrong remedy in both cases.
