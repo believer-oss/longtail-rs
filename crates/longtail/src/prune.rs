@@ -221,25 +221,31 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
     .await?;
 
     let mut keep: HashSet<u64> = HashSet::new();
-    for (i, path) in opts.source_version_index_paths.iter().enumerate() {
-        if path.is_empty() {
-            continue;
+    // The gather loop reads one index per retained version and any of them can
+    // fail; closing inside the block would leave the store open on that path.
+    let gathered = async {
+        for (i, path) in opts.source_version_index_paths.iter().enumerate() {
+            if path.is_empty() {
+                continue;
+            }
+            let vi = read_version_index(path, &s3).await?;
+            let store = &gather_store;
+            let blocks = keep_for_version(
+                &g,
+                i,
+                &vi,
+                |chunks| async move { Ok(store.get_existing_content(&chunks, 0).await?) },
+                &s3,
+            )
+            .await?;
+            if let Some(bs) = blocks {
+                keep.extend(bs);
+            }
         }
-        let vi = read_version_index(path, &s3).await?;
-        let store = &gather_store;
-        let blocks = keep_for_version(
-            &g,
-            i,
-            &vi,
-            |chunks| async move { Ok(store.get_existing_content(&chunks, 0).await?) },
-            &s3,
-        )
-        .await?;
-        if let Some(bs) = blocks {
-            keep.extend(bs);
-        }
+        Ok::<_, LongtailError>(())
     }
-    gather_store.close().await?;
+    .await;
+    crate::store_lifecycle::finish_store(&gather_store, gathered).await?;
     guard_empty_keep_set(
         keep.len(),
         opts.source_version_index_paths.len(),
@@ -269,9 +275,11 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
     )
     .await?;
     let keep_vec: Vec<u64> = keep.iter().copied().collect();
-    let pruned = store.prune_blocks(&keep_vec).await?;
-    store.flush().await?;
-    store.close().await?;
+    let pruned = store
+        .prune_blocks(&keep_vec)
+        .await
+        .map_err(LongtailError::from);
+    let pruned = crate::store_lifecycle::finish_store(&store, pruned).await?;
 
     Ok(PruneStoreResult {
         dry_run: false,

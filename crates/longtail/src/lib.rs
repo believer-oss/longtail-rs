@@ -46,6 +46,7 @@ pub mod path_filter;
 pub mod progress;
 mod prune;
 mod put;
+mod store_lifecycle;
 mod upsync;
 mod version;
 

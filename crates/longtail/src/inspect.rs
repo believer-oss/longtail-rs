@@ -78,8 +78,11 @@ pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), Longta
     };
     let store: Arc<dyn BlockStore> =
         create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let store_index = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let store_index = crate::store_lifecycle::finish_store(&store, fetched).await?;
     validate_store(&store_index, &vi).map_err(LongtailError::from)
 }
 
@@ -173,10 +176,15 @@ pub async fn init_remote_store(opts: InitRemoteStoreOptions) -> Result<u32, Long
     // Forcing the index load triggers the Init rebuild + write-back; the empty
     // chunk request returns an empty retargetted index (block count via a
     // full-store retarget below would double-scan, so we report from the flush).
-    let _ = store.get_existing_content(&[], 0).await?;
-    store.flush().await?;
+    let loaded = store
+        .get_existing_content(&[], 0)
+        .await
+        .map(|_| ())
+        .map_err(LongtailError::from);
     let stats = store.stats();
-    store.close().await?;
+    // `Init` rebuilds and persists the index on close, so a failed load must
+    // still reach it rather than abandoning a half-initialised store.
+    crate::store_lifecycle::finish_store(&store, loaded).await?;
     // The rebuilt store index is now persisted; report gets as a rough progress
     // signal (Go logs the block count from the rebuild — not surfaced here).
     Ok(stats.get_count as u32)
@@ -229,8 +237,11 @@ pub async fn create_version_store_index(
         s3_options: opts.s3_options.clone(),
     };
     let store = create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let retargetted = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let retargetted = crate::store_lifecycle::finish_store(&store, fetched).await?;
     #[cfg(feature = "s3")]
     let s3: S3OptionsArg = opts.s3_options;
     #[cfg(not(feature = "s3"))]
@@ -295,8 +306,11 @@ pub async fn print_version_usage_stats(
         s3_options: opts.s3_options.clone(),
     };
     let store = create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let existing = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let existing = crate::store_lifecycle::finish_store(&store, fetched).await?;
 
     // chunk_hash → block_hash from the retargetted store index.
     let mut block_lookup: HashMap<u64, u64> = HashMap::new();

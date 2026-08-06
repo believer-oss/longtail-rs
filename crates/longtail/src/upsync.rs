@@ -128,37 +128,45 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
     let store: Arc<dyn BlockStore> =
         create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
 
-    // 3. Existing content covering this version's chunks (min usage 80).
-    let existing = store
-        .get_existing_content(&version_index.chunk_hashes, opts.min_block_usage_percent)
-        .await?;
+    // Fallible work runs inside this block so the flush + close below happen on
+    // a cancel or a failure too: an interrupted upload has still written blocks
+    // that the store owes a write-back and an index persist.
+    let written = async {
+        // 3. Existing content covering this version's chunks (min usage 80).
+        let existing = store
+            .get_existing_content(&version_index.chunk_hashes, opts.min_block_usage_percent)
+            .await?;
 
-    // 4. Missing content = version chunks not already covered, packed into blocks.
-    let missing = create_missing_content(
-        hasher.as_ref(),
-        &existing,
-        &version_index,
-        opts.target_block_size,
-        opts.max_chunks_per_block,
-    )?;
-    lap("compute_missing", &mut timer);
-
-    // 5. Write content ONLY when there are missing blocks (cmd_upsync.go:145).
-    let mut wc = WriteContentStats::default();
-    if missing.block_count() > 0 {
-        progress.phase("Writing content");
-        wc = write_content(
-            &store,
-            &source_folder,
+        // 4. Missing content = version chunks not already covered, packed into
+        // blocks.
+        let missing = create_missing_content(
+            hasher.as_ref(),
+            &existing,
             &version_index,
-            &missing,
-            &progress,
-            &cancel,
-        )
-        .await?;
+            opts.target_block_size,
+            opts.max_chunks_per_block,
+        )?;
+        lap("compute_missing", &mut timer);
+
+        // 5. Write content ONLY when there are missing blocks (cmd_upsync.go:145).
+        let mut wc = WriteContentStats::default();
+        if missing.block_count() > 0 {
+            progress.phase("Writing content");
+            wc = write_content(
+                &store,
+                &source_folder,
+                &version_index,
+                &missing,
+                &progress,
+                &cancel,
+            )
+            .await?;
+        }
+        Ok::<_, LongtailError>((existing, missing, wc))
     }
-    store.flush().await?;
-    store.close().await?;
+    .await;
+
+    let (existing, missing, wc) = crate::store_lifecycle::finish_store(&store, written).await?;
     let store_stats = store.stats();
     lap("write_content", &mut timer);
 

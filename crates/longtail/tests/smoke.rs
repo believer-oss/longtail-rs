@@ -214,3 +214,107 @@ fn cancel_mid_transfer_then_resume() {
         .compare(&zoo_manifest(), cfg!(windows))
         .expect("resumed tree matches manifest");
 }
+
+/// A cancelled download must still sweep the block cache to its budget.
+///
+/// The store's end-of-run work — warm-cache write-backs and the LRU sweep that
+/// enforces `cache_size_limit` — lives behind `close()`. Reaching it only on the
+/// success path meant a cancel left the cache oversized until some later run
+/// happened to finish, and for a launcher that cancels routinely "some later
+/// run" may never come.
+#[test]
+fn cancel_still_sweeps_the_block_cache_to_its_budget() {
+    pin_umask();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("target");
+    let cache = tmp.path().join("cache");
+
+    struct CancelAfterFirst {
+        token: CancellationToken,
+        fired: Mutex<bool>,
+    }
+    impl ProgressSink for CancelAfterFirst {
+        fn on_progress(&self, p: Progress) {
+            if p.done_items > 0 {
+                let mut f = self.fired.lock().unwrap();
+                if !*f {
+                    *f = true;
+                    self.token.cancel();
+                }
+            }
+        }
+    }
+
+    let token = CancellationToken::new();
+    let mut opts = base_opts(&target);
+    opts.cache_path = Some(cache.clone());
+    // Budget of zero: whatever the cancelled run cached must be swept away.
+    opts.cache_size_limit = Some(0);
+    opts.progress = Some(Arc::new(CancelAfterFirst {
+        token: token.clone(),
+        fired: Mutex::new(false),
+    }));
+    opts.cancel = Some(token.clone());
+
+    let result = rt.block_on(downsync(opts));
+    assert!(
+        matches!(result, Err(LongtailError::Cancelled)),
+        "expected Cancelled, got {result:?}"
+    );
+
+    let cached_bytes = cache_bytes(&cache);
+    assert_eq!(
+        cached_bytes, 0,
+        "cancel left {cached_bytes} bytes in the cache against a budget of 0; \
+         the close-path sweep did not run"
+    );
+
+    // Control: the same cancelled run with no budget configured leaves blocks
+    // behind. Without this the assertion above would also hold if a cancelled
+    // run simply never cached anything, which would prove nothing.
+    let target2 = tmp.path().join("target2");
+    let cache2 = tmp.path().join("cache2");
+    let token2 = CancellationToken::new();
+    let mut opts2 = base_opts(&target2);
+    opts2.cache_path = Some(cache2.clone());
+    opts2.cache_size_limit = None;
+    opts2.progress = Some(Arc::new(CancelAfterFirst {
+        token: token2.clone(),
+        fired: Mutex::new(false),
+    }));
+    opts2.cancel = Some(token2.clone());
+    let r2 = rt.block_on(downsync(opts2));
+    assert!(
+        matches!(r2, Err(LongtailError::Cancelled)),
+        "expected Cancelled, got {r2:?}"
+    );
+    assert!(
+        cache_bytes(&cache2) > 0,
+        "control failed: a cancelled run cached nothing, so the budget assertion \
+         above cannot distinguish a working sweep from an empty cache"
+    );
+}
+
+/// Total bytes of cached `.lrb` blocks under `dir` (absent dir = 0).
+fn cache_bytes(dir: &Path) -> u64 {
+    fn walk(d: &Path, acc: &mut u64) {
+        if let Ok(rd) = std::fs::read_dir(d) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, acc);
+                } else if p.extension().and_then(|x| x.to_str()) == Some("lrb") {
+                    *acc += e.metadata().map(|m| m.len()).unwrap_or(0);
+                }
+            }
+        }
+    }
+    let mut acc = 0;
+    walk(dir, &mut acc);
+    acc
+}

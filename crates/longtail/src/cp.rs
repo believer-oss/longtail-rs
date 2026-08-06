@@ -112,50 +112,56 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
     let store: Arc<dyn BlockStore> =
         create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
 
-    // Retarget: the store index limited to the blocks covering these chunks.
-    let store_index = store.get_existing_content(&chunk_hashes, 0).await?;
+    // Fallible work runs inside this block so the close below happens on a
+    // failure too; `cp` shares the block cache and write-back obligations of
+    // any other read.
+    let assembled = async {
+        // Retarget: the store index limited to the blocks covering these chunks.
+        let store_index = store.get_existing_content(&chunk_hashes, 0).await?;
 
-    // chunk_hash → (block_hash, byte offset within the decompressed block).
-    let mut location: HashMap<u64, (u64, u64)> = HashMap::new();
-    for b in 0..store_index.block_count() as usize {
-        let bcount = store_index.block_chunk_counts[b] as usize;
-        let boff = store_index.block_chunks_offsets[b] as usize;
-        let mut within: u64 = 0;
-        for k in 0..bcount {
-            let ch = store_index.chunk_hashes[boff + k];
-            location
-                .entry(ch)
-                .or_insert((store_index.block_hashes[b], within));
-            within += store_index.chunk_sizes[boff + k] as u64;
+        // chunk_hash → (block_hash, byte offset within the decompressed block).
+        let mut location: HashMap<u64, (u64, u64)> = HashMap::new();
+        for b in 0..store_index.block_count() as usize {
+            let bcount = store_index.block_chunk_counts[b] as usize;
+            let boff = store_index.block_chunks_offsets[b] as usize;
+            let mut within: u64 = 0;
+            for k in 0..bcount {
+                let ch = store_index.chunk_hashes[boff + k];
+                location
+                    .entry(ch)
+                    .or_insert((store_index.block_hashes[b], within));
+                within += store_index.chunk_sizes[boff + k] as u64;
+            }
         }
-    }
 
-    // Fetch each needed block once (decompressed), then assemble in asset order.
-    let mut block_cache: HashMap<u64, Arc<Vec<u8>>> = HashMap::new();
-    let mut out: Vec<u8> = Vec::new();
-    for (k, &ch) in chunk_hashes.iter().enumerate() {
-        let (block_hash, within) = *location.get(&ch).ok_or_else(|| {
-            LongtailError::InvalidArgument(format!(
-                "chunk {ch:#018x} of `{}` is not present in the store",
-                opts.source_path
-            ))
-        })?;
-        if let std::collections::hash_map::Entry::Vacant(e) = block_cache.entry(block_hash) {
-            let sb = store.get_stored_block(block_hash).await?;
-            e.insert(Arc::new(sb.payload));
+        // Fetch each needed block once (decompressed), then assemble in asset order.
+        let mut block_cache: HashMap<u64, Arc<Vec<u8>>> = HashMap::new();
+        let mut out: Vec<u8> = Vec::new();
+        for (k, &ch) in chunk_hashes.iter().enumerate() {
+            let (block_hash, within) = *location.get(&ch).ok_or_else(|| {
+                LongtailError::InvalidArgument(format!(
+                    "chunk {ch:#018x} of `{}` is not present in the store",
+                    opts.source_path
+                ))
+            })?;
+            if let std::collections::hash_map::Entry::Vacant(e) = block_cache.entry(block_hash) {
+                let sb = store.get_stored_block(block_hash).await?;
+                e.insert(Arc::new(sb.payload));
+            }
+            let payload = &block_cache[&block_hash];
+            let s = within as usize;
+            let e = s + chunk_sizes[k] as usize;
+            if e > payload.len() {
+                return Err(LongtailError::InvalidArgument(format!(
+                    "block {block_hash:#018x} shorter than indexed chunk range"
+                )));
+            }
+            out.extend_from_slice(&payload[s..e]);
         }
-        let payload = &block_cache[&block_hash];
-        let s = within as usize;
-        let e = s + chunk_sizes[k] as usize;
-        if e > payload.len() {
-            store.close().await?;
-            return Err(LongtailError::InvalidArgument(format!(
-                "block {block_hash:#018x} shorter than indexed chunk range"
-            )));
-        }
-        out.extend_from_slice(&payload[s..e]);
+        Ok::<_, LongtailError>(out)
     }
-    store.close().await?;
+    .await;
+    let out = crate::store_lifecycle::finish_store(&store, assembled).await?;
 
     fs_util::write_to_uri(&opts.target_path, out.into(), &s3).await?;
     Ok(())
