@@ -10,18 +10,63 @@
 //! spinner + phase name. When stderr is not a terminal (piped / CI) it falls back
 //! to a single throttled line carrying both metrics.
 
-use std::io::IsTerminal;
-use std::sync::Mutex;
+use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use bytesize::ByteSize;
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use longtail::{Progress, ProgressSink};
+use tracing_subscriber::fmt::MakeWriter;
 
 /// Fixed phase-label column width (the longest label, "Reading version index"),
 /// so the bar starts at the same column regardless of phase.
 const MSG_WIDTH: usize = 21;
+
+/// The process-wide owner of anything drawn to stderr.
+///
+/// The bar and the `tracing` subscriber both write to stderr. Left uncoordinated
+/// they interleave: the library emits warnings during a transfer (a store-index
+/// fallback, an undeleted block), and each one lands on top of the live bar,
+/// leaving a half-drawn frame and a log line spliced into it. Registering the bar
+/// here and routing subscriber output through [`BarAwareStderr`] makes indicatif
+/// clear the bar, let the line through, and redraw beneath it.
+fn bars() -> &'static MultiProgress {
+    static BARS: OnceLock<MultiProgress> = OnceLock::new();
+    BARS.get_or_init(MultiProgress::new)
+}
+
+/// A `tracing` writer that keeps log output from corrupting the progress bar.
+///
+/// Install with `tracing_subscriber::fmt().with_writer(BarAwareStderr)`; without
+/// it, every event emitted while the bar is live scribbles over it. Writes go to
+/// stderr, matching the bar's own draw target, so ordinary stdout piping is
+/// unaffected.
+pub struct BarAwareStderr;
+
+impl MakeWriter<'_> for BarAwareStderr {
+    type Writer = SuspendedStderr;
+
+    fn make_writer(&self) -> SuspendedStderr {
+        SuspendedStderr
+    }
+}
+
+/// Stderr, but each write is bracketed by an indicatif suspend.
+pub struct SuspendedStderr;
+
+impl Write for SuspendedStderr {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // `suspend` clears the bar, runs the write, and redraws. Cheap when no
+        // bar is registered (the non-TTY path), so this needs no terminal check.
+        bars().suspend(|| io::stderr().write(buf))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        io::stderr().flush()
+    }
+}
 
 /// A terminal-aware progress sink for the CLI.
 pub enum CliProgress {
@@ -78,7 +123,9 @@ impl CliProgress {
     /// terminal.
     pub fn new() -> CliProgress {
         if std::io::stderr().is_terminal() {
-            let bar = ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr());
+            // Added to the registry rather than built with its own draw target,
+            // so log output can suspend it (see `bars`).
+            let bar = bars().add(ProgressBar::new_spinner());
             bar.set_style(spinner_style());
             bar.enable_steady_tick(Duration::from_millis(120));
             CliProgress::Bar {
@@ -94,10 +141,6 @@ impl CliProgress {
         }
     }
 
-    /// Finish the live bar, **leaving its final line on screen** so the totals
-    /// (final count + bytes + rate) remain visible after the run. Stops the
-    /// steady tick and drops to a new line, so subsequent stats/errors print
-    /// below it.
     /// Freeze the bar and leave its final line on screen. On `completed` the bar
     /// snaps to 100% (the run finished); otherwise (cancel/error) it is abandoned
     /// at its actual position so the frozen line honestly shows how far it got.
