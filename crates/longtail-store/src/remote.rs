@@ -569,10 +569,24 @@ impl BlockStore for RemoteBlockStore {
                 continue;
             }
             let key = sync::block_path("chunks", bh);
-            if let Ok(mut obj) = self.client.new_object(&key).await
-                && obj.delete().await.is_ok()
-            {
-                pruned_count += 1;
+            // A failed delete is reported as success by the count alone, and the
+            // block is already gone from the index, so nothing will try again.
+            // Say so — this is the difference between "pruned 900 of 1000" and a
+            // store quietly accumulating unreachable blocks.
+            match self.client.new_object(&key).await {
+                Ok(mut obj) => match obj.delete().await {
+                    Ok(()) => pruned_count += 1,
+                    Err(e) => tracing::warn!(
+                        block = %format_args!("{bh:#018x}"),
+                        error = %e,
+                        "orphan block could not be deleted; it is already unreferenced by the index"
+                    ),
+                },
+                Err(e) => tracing::warn!(
+                    block = %format_args!("{bh:#018x}"),
+                    error = %e,
+                    "orphan block could not be opened for delete"
+                ),
             }
         }
         Ok(pruned_count)

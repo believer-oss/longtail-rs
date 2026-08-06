@@ -85,6 +85,16 @@ pub(crate) async fn read_blob_with_retry(
                 if retry_count as usize == READ_RETRY_DELAYS.len() {
                     return Err(e);
                 }
+                // The ladder sleeps for seconds in total. Without an event the
+                // caller sees a stalled transfer and cannot tell a slow store
+                // from a hang.
+                tracing::debug!(
+                    key,
+                    attempt = retry_count + 1,
+                    delay_ms = READ_RETRY_DELAYS[retry_count as usize].as_millis() as u64,
+                    error = %e,
+                    "blob read failed; retrying"
+                );
                 sleep(READ_RETRY_DELAYS[retry_count as usize]).await;
                 retry_count += 1;
             }
@@ -298,8 +308,13 @@ async fn try_write_shard(
         if item == &key {
             continue;
         }
-        if let Ok(mut old) = client.new_object(item).await {
-            let _ = old.delete().await;
+        if let Ok(mut old) = client.new_object(item).await
+            && let Err(e) = old.delete().await
+        {
+            // Surviving shards stay visible to readers and keep referencing
+            // blocks a later prune may remove, so a swallowed failure here is
+            // how an index and its blocks drift apart.
+            tracing::warn!(shard = %item, error = %e, "superseded store-index shard was not deleted");
         }
     }
     Ok(true)
@@ -483,7 +498,13 @@ pub(crate) async fn read_remote_store_index(
         match add_to_remote_store_index(client, &rebuilt).await {
             Ok(Some(persisted)) => return Ok(persisted),
             Ok(None) => return Ok(rebuilt),
-            Err(_) => return Ok(rebuilt), // persist failure is non-fatal (Go logs)
+            // Non-fatal, but the next run rebuilds from scratch again, so the
+            // cost is repeated silently until someone notices the store index
+            // never appears.
+            Err(e) => {
+                tracing::warn!(error = %e, "rebuilt store index could not be persisted");
+                return Ok(rebuilt);
+            }
         }
     }
     match read_store_store_index_with_items(client).await {

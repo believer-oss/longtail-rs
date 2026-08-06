@@ -27,6 +27,16 @@ const CACHE_INDEX_NAME: &str = ".longtail.index.cache.lvi";
 
 /// Downsync one or more source versions into a target folder. See
 /// [`DownsyncOptions`]. Runs on the caller's ambient tokio runtime.
+#[tracing::instrument(
+    name = "downsync",
+    skip_all,
+    fields(
+        storage_uri = %opts.storage_uri,
+        sources = opts.source_paths.len(),
+        worker_count = opts.worker_count,
+        remote_worker_count = opts.remote_worker_count,
+    )
+)]
 pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailError> {
     if opts.use_legacy_write {
         return Err(LongtailError::LegacyWriteUnsupported);
@@ -307,13 +317,48 @@ async fn load_store_index_override(paths: &[String], s3: &S3OptionsArg) -> Optio
     if paths.is_empty() {
         return None;
     }
+    // Any failure here falls back to scanning the whole store, which is orders
+    // of magnitude slower and produces no progress of its own — the download
+    // simply appears to stall. Warn with the URI that caused it, otherwise the
+    // difference between "slow store" and "your override path is wrong" is
+    // invisible from the outside.
     let mut acc: Option<StoreIndex> = None;
     for p in paths {
-        let bytes = fs_util::read_from_uri(p, s3).await.ok()?;
-        let si = StoreIndex::from_bytes(&bytes).ok()?;
+        let bytes = match fs_util::read_from_uri(p, s3).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    uri = %p,
+                    error = %e,
+                    "could not read version-local store index; falling back to a full store scan"
+                );
+                return None;
+            }
+        };
+        let si = match StoreIndex::from_bytes(&bytes) {
+            Ok(si) => si,
+            Err(e) => {
+                tracing::warn!(
+                    uri = %p,
+                    error = %e,
+                    "version-local store index did not parse; falling back to a full store scan"
+                );
+                return None;
+            }
+        };
         acc = Some(match acc {
             None => si,
-            Some(a) => a.merge(&si).ok()?,
+            Some(a) => match a.merge(&si) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        uri = %p,
+                        error = %e,
+                        "version-local store indexes did not merge; falling back to a full store scan"
+                    );
+                    return None;
+                }
+            },
         });
     }
     acc

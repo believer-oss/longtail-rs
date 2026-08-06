@@ -318,3 +318,68 @@ fn cache_bytes(dir: &Path) -> u64 {
     walk(dir, &mut acc);
     acc
 }
+
+/// A silent fallback to the slow path is indistinguishable from a hang.
+///
+/// When a version-local store index cannot be read, the download falls back to
+/// scanning the whole store — orders of magnitude slower, and producing no
+/// progress of its own, so the UI simply stops moving. The event naming the
+/// offending URI is the only thing that separates "slow store" from "your
+/// override path is wrong".
+#[test]
+fn a_fallback_to_the_full_store_scan_says_so() {
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone, Default)]
+    struct Capture(StdArc<StdMutex<Vec<String>>>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct V(String);
+            impl tracing::field::Visit for V {
+                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                    self.0.push_str(&format!(" {}={:?}", f.name(), v));
+                }
+            }
+            let mut v = V(format!("{}", event.metadata().level()));
+            event.record(&mut v);
+            self.0.lock().unwrap().push(v.0);
+        }
+    }
+
+    pin_umask();
+    let events = Capture::default();
+    let sink = events.clone();
+    let subscriber = tracing_subscriber::registry().with(sink);
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("target");
+    let missing_lsi = tmp.path().join("nonexistent.lsi");
+
+    let mut opts = base_opts(&target);
+    opts.version_local_store_index_paths = vec![missing_lsi.to_string_lossy().into_owned()];
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    // The download itself still succeeds — that is the point: it silently got
+    // slower, which is exactly why it needs to be audible.
+    rt.block_on(downsync(opts))
+        .expect("fallback still downloads");
+
+    let captured = events.0.lock().unwrap().join("\n");
+    assert!(
+        captured.contains("full store scan"),
+        "no warning about the fallback; captured:\n{captured}"
+    );
+    assert!(
+        captured.contains("nonexistent.lsi"),
+        "the warning must name the offending uri; captured:\n{captured}"
+    );
+}
