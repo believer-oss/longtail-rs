@@ -441,7 +441,8 @@ it.
   `remote.rs:362` compares a **self-declared header field**, never recomputing the hash, so the block
   index is unbound too; and `apply.rs:317`'s cross-check is a release-stripped `debug_assert_eq!`.
 
-- [ ] **`SEC-04`** · P1 · `memory` · — · M · R6 (cluster §1.2)
+- [x] **`SEC-04`** · P1 · `memory` · — · M · R6 (cluster §1.2)
+  **FIXED aa89916.** Per-read ceiling, default 256 MiB, enforced in both backends (fs takes one byte past it; S3 refuses on `Content-Length` before collecting *and* re-checks what arrived). Configurable via `BlockStoreOpts::max_block_bytes` — a fixed cap would break a store built with a large `--target-block-size`. verified-by `mixed_writer.rs::{an_oversized_object_is_refused_rather_than_read,an_object_within_the_ceiling_still_reads,the_ceiling_can_be_raised_for_stores_that_need_it}`. This is the bound that does not come from the store, so it is what closes the cluster.
   `crates/longtail-store/src/blob/fs.rs:323-325`, `crates/longtail-store/src/blob/s3.rs:378-381`, `crates/longtail-store/src/remote.rs:519`
   **Fails when:** a hostile or corrupted store serves one oversized `.lsb` — RSS goes to object size ×
   in-flight workers (min(NumCPU,8) s3, uncapped fs) and the Tauri app is OOM-killed with no error
@@ -450,7 +451,8 @@ it.
   **Fix:** one `max_block_bytes` on `BlockStoreOpts`, enforced at the two transport reads and in
   `decode_block_payload`.
 
-- [ ] **`SEC-05`** · P1 · `hardening` · — · S · R6 (cluster §1.2)
+- [x] **`SEC-05`** · P1 · `hardening` · — · S · R6 (cluster §1.2)
+  **FIXED e44f14c.** `cp` sizes and iterates from the map slice, not the header count, so the guarantee holds for a hand-built `VersionIndex` too (public fields bypass `from_bytes`). Also settles the guard asymmetry the finding asked for a decision on: both the `apply.rs` and `cp.rs` store-index walks are now guarded, with the reason recorded. verified-by `path_traversal.rs::an_absurd_chunk_count_is_refused_rather_than_allocated`.
   `crates/longtail/src/cp.rs:80-88`; `crates/longtail/src/apply.rs:342` vs `crates/longtail/src/cp.rs:145-152`
   **Fails when:** `longtail cp` against a hostile ~64-byte `.lvi` with
   `asset_chunk_counts[0] = 0xFFFF_FFFF` requests a **32 GiB** `Vec` before any network I/O.
@@ -459,7 +461,8 @@ it.
   < 32 GiB; on a larger Linux host it degrades to a catchable OOB panic. Part (b)'s `cp.rs:118-127`
   half is **refuted as reachable**; part (b)'s `apply.rs:342` half is `FMT-002`.
 
-- [ ] **`SEC-06`** · P1 · `hardening` · — · S · R6 (cluster §1.2)
+- [x] **`SEC-06`** · P1 · `hardening` · — · S · R6 (cluster §1.2)
+  **FIXED 9501a74.** Panic handler on the rayon pools, and all five production pools routed through the single builder that sets it (four were building their own). The codec bridge's `expect` on a dropped result channel — a second panic — now returns a typed error. verified-by `version.rs::a_panicking_job_does_not_abort_the_process`, which without the handler aborts the test binary rather than failing, so reaching the assertion is the result.
   `crates/longtail/src/apply.rs:221-230,350-363` (caught) vs `crates/longtail-store/src/compress.rs:38-48` (not caught)
   **Fails when:** two customers report "the app closes with no error" — one is an unwind to the top,
   one is an abort on the rayon codec pool. Indistinguishable symptoms, different fixes, and only the
@@ -468,7 +471,8 @@ it.
   `store/compress.rs:47`'s `expect` to `StoreError::WorkerGone` in the same change — R6 App. A shows
   it is the one `expect` whose reachability *changes* when the handler lands. Decide via §10 EXP-09.
 
-- [ ] **`ALG-02`** · P1 · `memory` · — · S · R2 (cluster §1.2)
+- [x] **`ALG-02`** · P1 · `memory` · — · S · R2 (cluster §1.2)
+  **FIXED 906a488.** Two guards: `decode_block_payload` takes the bound the caller knows (Σ chunk_sizes) and refuses a larger declaration before allocating; brotli decodes through a `Read` adapter with a ceiling one byte past the declared size, and the up-front reservation is capped so the frame cannot choose the allocation. verified-by `codec_malformed.rs::{a_frame_declaring_more_than_the_block_holds_is_refused,the_size_refusal_precedes_any_body_handling,a_brotli_stream_that_outgrows_its_declaration_is_cut_off}` — the last with a control proving an honest brotli frame still decodes.
   `crates/longtail-core/src/compress.rs:239-244,302-313`; wired for every URI at `crates/longtail-store/src/uri.rs:158`
   **Fails when:** an `.lsb` tagged brotli (reachable — `compress.rs:261-268` dispatches on family
   prefix with no allowlist) carries a bomb payload: `BrotliDecompress` grows the output `Vec` with **no
