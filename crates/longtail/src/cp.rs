@@ -58,9 +58,11 @@ impl CpOptions {
 
 /// Copy one asset out of a version into `target_path`.
 pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
-    let vi =
-        crate::inspect::read_version_index_from_uri(&opts.version_index_path, &opts.s3_options)
-            .await?;
+    let vi = crate::inspect::read_version_index_from_uri(
+        &opts.version_index_path,
+        &crate::s3_arg!(opts),
+    )
+    .await?;
 
     // Locate the asset by its in-version path.
     let want = opts.source_path.trim_end_matches('/');

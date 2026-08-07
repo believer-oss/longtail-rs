@@ -34,6 +34,20 @@ jobs:
       - run: cargo test --locked
       - run: cargo run -p xtask -- verify-fixtures
 
+      # `cargo test` builds every crate with its DEFAULT features, so a call site
+      # that reads an `#[cfg(feature = "s3")]` field unconditionally compiles here
+      # and breaks anywhere `s3` is off. That is a real configuration —
+      # `longtail-testkit` resolves it, so the differential lane hit it — and it
+      # cost a red lane to discover. Cheap to check, so check it.
+      - name: Feature matrix
+        run: |
+          for p in longtail-core longtail-store longtail longtail-cli; do
+            echo "::group::$p --no-default-features"
+            cargo check --locked -p "$p" --no-default-features
+            echo "::endgroup::"
+          done
+          cargo check --locked -p longtail-core --features fastcdc
+
       # Bench-crate compile-check (pure lane = plain + fastcdc
       # variants). Benches never RUN in CI — the numbers are machine-dependent
       # and recorded in docs/bench-<date>.md; CI only proves they still build.

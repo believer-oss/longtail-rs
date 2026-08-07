@@ -91,8 +91,8 @@ pub use longtail_store::StoreError;
 // `GetOptions::s3_options` without adding a direct `longtail-store` dependency.
 // Rides the same `default = ["s3"]` flag. (Credential/provider types are not
 // re-exported: a caller builds the provider via its own aws-config/aws-sdk-s3.)
-#[cfg(feature = "s3")]
 pub use fs_util::S3OptionsArg;
+#[cfg(feature = "s3")]
 pub use longtail_store::S3Options;
 pub use prune::{
     PruneStoreBlocksOptions, PruneStoreIndexOptions, PruneStoreOptions, prune_store,

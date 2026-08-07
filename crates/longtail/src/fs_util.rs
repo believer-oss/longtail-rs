@@ -15,6 +15,10 @@ use crate::error::LongtailError;
 use crate::path_filter::RegexPathFilter;
 
 /// The low-9-bit POSIX permission mask (`st_mode & 0x1FF`, longtail_platform.c:2162).
+///
+/// Both users are unix-only, so on Windows the constant would be dead code — an
+/// error under the `-D warnings` the build runs with.
+#[cfg(unix)]
 const PERM_MASK: u32 = 0x1FF;
 
 /// Join an untrusted asset path under `root`, rejecting anything that could
@@ -463,6 +467,26 @@ fn split_scheme(uri: &str) -> Option<(&str, &str)> {
 pub type S3OptionsArg = longtail_store::S3Options;
 #[cfg(not(feature = "s3"))]
 pub type S3OptionsArg = ();
+
+/// The [`S3OptionsArg`] an options struct carries, or `()` when the feature is
+/// off — for the call sites that pass one to a `read_*_from_uri`.
+///
+/// The `s3_options` fields are themselves `#[cfg(feature = "s3")]`, so reading one
+/// unconditionally compiles on a default build and breaks
+/// `--no-default-features`. That is a real configuration (`longtail-testkit`
+/// resolves it, so the differential lane builds it) and one no default-feature
+/// test run exercises. Written once here so a new call site cannot get it wrong.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! s3_arg {
+    ($opts:expr) => {{
+        #[cfg(feature = "s3")]
+        let arg: $crate::S3OptionsArg = $opts.s3_options.clone();
+        #[cfg(not(feature = "s3"))]
+        let arg: $crate::S3OptionsArg = ();
+        arg
+    }};
+}
 
 #[cfg(feature = "s3")]
 async fn read_s3(uri: &str, options: &longtail_store::S3Options) -> Result<Vec<u8>, LongtailError> {

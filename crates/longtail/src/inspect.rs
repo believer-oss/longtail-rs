@@ -60,7 +60,7 @@ impl ValidateVersionOptions {
 /// (`GetExistingStoreIndex(all chunks, min-usage 0)` + `ValidateStore`,
 /// cmd_validateversion.go:61-74).
 pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path, &opts.s3_options).await?;
+    let vi = read_version_index_from_uri(&opts.version_index_path, &crate::s3_arg!(opts)).await?;
     let pool = Arc::new(crate::version::build_pool(1)?);
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
@@ -220,7 +220,7 @@ impl CreateVersionStoreIndexOptions {
 pub async fn create_version_store_index(
     opts: CreateVersionStoreIndexOptions,
 ) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.source_path, &opts.s3_options).await?;
+    let vi = read_version_index_from_uri(&opts.source_path, &crate::s3_arg!(opts)).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
@@ -290,7 +290,7 @@ pub struct VersionUsageStats {
 pub async fn print_version_usage_stats(
     opts: PrintVersionUsageOptions,
 ) -> Result<VersionUsageStats, LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path, &opts.s3_options).await?;
+    let vi = read_version_index_from_uri(&opts.version_index_path, &crate::s3_arg!(opts)).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
