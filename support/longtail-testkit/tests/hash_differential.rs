@@ -9,7 +9,7 @@
 use longtail_core::hash::{Blake2s, Blake3, Hash, blake2s_hash, blake3_hash};
 use longtail_ffi::HashType;
 use longtail_testkit::corpus;
-use longtail_testkit::differential::c_hash;
+use longtail_testkit::differential::{c_has_blake2, c_hash};
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 
@@ -27,11 +27,19 @@ fn frozen_kats_match_c() {
             0x12763f8910862397,
         ),
     ];
+    // Everything except the C blake2s comparison runs everywhere; see
+    // `c_has_blake2` for why that one cannot on an MSVC-built library.
+    let c_blake2 = c_has_blake2();
+    if !c_blake2 {
+        eprintln!("note: skipping the blake2s-vs-C checks — this C library has no blake2s API");
+    }
     for (input, b3, b2) in cases {
         assert_eq!(blake3_hash(input), b3, "blake3 KAT constant");
         assert_eq!(blake2s_hash(input), b2, "blake2s KAT constant");
         assert_eq!(c_hash(HashType::Blake3, input), b3, "blake3 KAT vs C");
-        assert_eq!(c_hash(HashType::Blake2, input), b2, "blake2s KAT vs C");
+        if c_blake2 {
+            assert_eq!(c_hash(HashType::Blake2, input), b2, "blake2s KAT vs C");
+        }
     }
 }
 
@@ -62,8 +70,19 @@ fn blake3_matches_c_over_corpus_and_random() {
     }
 }
 
+/// Skipped where the C library has no blake2s API (see `c_has_blake2`); the pure
+/// lane still checks our blake2s against frozen KATs and the committed fixtures
+/// on that platform, and this comparison runs in full on Linux.
 #[test]
 fn blake2s_matches_c_over_corpus_and_random() {
+    if !c_has_blake2() {
+        eprintln!(
+            "skipped: this C library reports no blake2s hash API, so there is nothing to \
+             compare against — our blake2s is covered by the pure lane and by the Linux \
+             differential lane"
+        );
+        return;
+    }
     for name in corpus::zoo_all() {
         if let Some(bytes) = corpus::case_bytes(name) {
             assert_eq!(
