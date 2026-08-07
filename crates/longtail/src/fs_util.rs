@@ -337,6 +337,12 @@ fn ensure_user_writable(path: &Path) -> Option<PriorMode> {
     if !p.readonly() {
         return None;
     }
+    // The hazard the lint names — `set_readonly(false)` granting world write —
+    // is a unix one, and this branch only compiles off unix. There the read-only
+    // attribute is the whole of the permission model, so clearing it is the only
+    // way to make the file writable; the unix branch above sets an explicit mode
+    // and never goes through `set_readonly`.
+    #[allow(clippy::permissions_set_readonly_false)]
     p.set_readonly(false);
     fs::set_permissions(path, p).ok()?;
     Some(PriorMode(true))

@@ -187,7 +187,16 @@ fn the_size_refusal_precedes_any_body_handling() {
 /// guarantee of what the stream actually decodes to. The decoder reads through a
 /// bounded sink; the length check that catches the lie has to come *after* a
 /// bounded read, not after an unbounded one.
+///
+/// Not run under miri: it brotli-compresses and decompresses 8 MiB twice, at a
+/// quality the crate's own codec tests already exclude from the miri lane for
+/// being far too slow interpreted (`compress.rs`, `MIRI_IDS`). Miri interprets
+/// every operation, so this does not finish — it stalled the lane for 27 minutes
+/// before the timeout. Nothing here is unsafe or racy, so miri has nothing to
+/// check that the normal lane does not; the bound this asserts is ordinary
+/// control flow.
 #[test]
+#[cfg_attr(miri, ignore = "multi-MiB brotli round trip; far too slow interpreted")]
 fn a_brotli_stream_that_outgrows_its_declaration_is_cut_off() {
     const BROTLI_DEFAULT: u32 = 0x6274_6c31;
     // 8 MiB of zeros compresses to a tiny brotli stream.
