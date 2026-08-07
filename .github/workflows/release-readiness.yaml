@@ -60,7 +60,7 @@ jobs:
       - name: Smoke the binary
         shell: bash
         run: |
-          BIN=target/release/longtail
+          BIN=target/release/longtail-rs
           [ -f "$BIN.exe" ] && BIN="$BIN.exe"
           "$BIN" --version
           "$BIN" version
@@ -69,7 +69,7 @@ jobs:
       - name: Report binary size
         shell: bash
         run: |
-          BIN=target/release/longtail
+          BIN=target/release/longtail-rs
           [ -f "$BIN.exe" ] && BIN="$BIN.exe"
           bytes=$(wc -c < "$BIN")
           echo "::notice::release binary ${{ matrix.os }}: $((bytes / 1048576)) MiB ($bytes bytes)"

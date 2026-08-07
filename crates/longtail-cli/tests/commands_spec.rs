@@ -14,7 +14,7 @@ use longtail_testkit::paths::fixtures_dir;
 use longtail_testkit::tree_manifest::TreeManifest;
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_longtail")
+    env!("CARGO_BIN_EXE_longtail-rs")
 }
 
 #[cfg(unix)]

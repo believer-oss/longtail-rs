@@ -22,7 +22,7 @@ The **paramount constraint** is 100% verified byte-compatibility with existing d
 `.lvi` version indexes, `.lsi` store indexes, and `.lsb` stored blocks in S3 and in local
 caches. The consumers are a Tauri game launcher/downloader (drives the download path; wants a
 caller-owned tokio runtime, caller-supplied AWS credentials that refresh mid-operation, and
-structured errors) and a CI/CD pipeline that needs a drop-in golongtail CLI.
+structured errors) and a CI/CD pipeline that needs a golongtail-compatible CLI.
 
 ## What was ported, and where it lives
 
@@ -31,7 +31,7 @@ structured errors) and a CI/CD pipeline that needs a drop-in golongtail CLI.
 | `longtail-core` | Sync, no tokio. The four on-disk formats (byte-cursor unaligned little-endian codecs), `FileInfos` scan/sort, the HPCDC chunker (exact port) plus FastCDC (benchmarking only), the hash layer (blake3, blake2s, meow parse-only), the compression registry, the store-index algebra, and version build/diff. |
 | `longtail-store` | tokio-native. Blob stores (fs/mem/S3), the `RemoteBlockStore` actor, the `Cache`/`Compress` block-store decorators, and optimistic store-index sync (fs lock + S3 shard-merge). |
 | `longtail` | The facade: `downsync`/`upsync` operations, the `ChangeVersion2` apply flow, the error tree, and progress/cancellation. |
-| `longtail-cli` | A `clap` binary — the golongtail CLI replacement. |
+| `longtail-cli` | A `clap` binary, installed as `longtail-rs` — the golongtail CLI replacement. |
 | `longtail-sys`, `longtail-ffi` | **Legacy.** The C bindings and their safe wrappers, retained only as the reference oracle for differential regression testing; scheduled for deletion after one production release cycle. |
 
 ## Architecture

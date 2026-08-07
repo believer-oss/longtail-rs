@@ -1,4 +1,4 @@
-# CI/CD Switchover Checklist — golongtail → pure-Rust `longtail`
+# CI/CD Switchover Checklist — golongtail → `longtail-rs`
 
 > **Status: PREPARED. Staging execution is a manual gate (NOT run by the port
 > executor).** Work through this on a staging store first, sign off each step,
@@ -6,12 +6,13 @@
 > (still **pending**, folded in here so both halves run together); steps 5-9 are
 > the upload/maintenance path.
 
-The pure-Rust CLI is a drop-in for the golongtail v0.4.5 commands the pipeline
-uses. Build once:
+The pure-Rust CLI takes the golongtail v0.4.5 commands and flags verbatim, so every pipeline
+step ports by changing the program name — the binary is `longtail-rs`, not `longtail`, so both can
+sit on a machine at once and no script picks one up by accident. Build once:
 
 ```sh
 cargo build --release --locked -p longtail-cli
-RUST=./target/release/longtail
+RUST=./target/release/longtail-rs
 GO=./target/golongtail/longtail-linux-x64   # pinned v0.4.5 (xtask fetch-golongtail)
 ```
 
@@ -40,7 +41,7 @@ as a flag. `pack`/`unpack` remain absent (see `docs/rust-port.md` §Dropped and 
 Every pipeline invocation maps 1:1. The Rust flag names are the golongtail v0.4.5
 names verbatim; only the binary changes.
 
-| golongtail | pure-Rust `longtail` | Notes |
+| golongtail | `longtail-rs` | Notes |
 |---|---|---|
 | `upsync --storage-uri … --source-path DIR --target-path X.lvi [--version-local-store-index-path X.lsi] [--compression-algorithm zstd] [--hash-algorithm blake3] [--target-chunk-size 32768] [--target-block-size 8388608] [--max-chunks-per-block 1024] [--min-block-usage-percent 80] [--source-index-path Y.lvi] [--include/--exclude-filter-regex]` | same | defaults identical; `--source-index-path` skips scan+chunk |
 | `put --target-path CFG.json --source-path DIR [--storage-uri …] [--target-version-index-path X.lvi] [--version-local-store-index-path X.lsi] [--no-version-local-store-index]` | same | path-defaulting identical: `<parent>/store`, `<parent>/version-data/version-index/<name>.lvi`, `<parent>/version-data/version-store-index/<name>.lsi`; get-config keys `storage-uri`/`source-path`/`version-local-store-index-path`/`s3-endpoint-resolver-uri` |
@@ -109,7 +110,7 @@ compare_trees() {  # compare_trees A B
 
 ```sh
 cargo build --release -p longtail-cli
-RUST=./target/release/longtail
+RUST=./target/release/longtail-rs
 GO=./target/golongtail/longtail-linux-x64
 ```
 

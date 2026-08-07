@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "longtail"
+# Deliberately not `longtail`: golongtail installs under that name and both
+# tools will be on the same machines for a long time.
+name = "longtail-rs"
 path = "src/main.rs"
 
 [features]

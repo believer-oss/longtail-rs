@@ -1,6 +1,11 @@
-//! `longtail` CLI — a drop-in replacement for the golongtail download-path
-//! commands (`downsync`, `get`, `ls`, `validate-version`, `print-version`).
+//! `longtail-rs` CLI — command- and flag-compatible with the golongtail
+//! download-path commands (`downsync`, `get`, `ls`, `validate-version`,
+//! `print-version`), so a pipeline step ports by changing the program name.
 //! Flag names match the pinned golongtail v0.4.5 `--help`.
+//!
+//! The binary is deliberately **not** called `longtail`: golongtail installs
+//! under that name, both will sit on the same machines through the switchover,
+//! and a script that silently picked up the wrong one would be hard to diagnose.
 
 #![forbid(unsafe_code)]
 
@@ -20,9 +25,9 @@ use crate::progress::CliProgress;
 
 #[derive(Parser)]
 #[command(
-    name = "longtail",
+    name = "longtail-rs",
     version,
-    about = "Pure-Rust longtail CLI (drop-in for golongtail)"
+    about = "Pure-Rust longtail CLI — golongtail-compatible commands and flags"
 )]
 struct Cli {
     /// CPU worker count (chunk/hash); 0 = logical CPUs.
@@ -601,7 +606,7 @@ fn init_tracing(cli: &Cli) -> Result<(), ExitCode> {
         Some(path) => match std::fs::File::create(path) {
             Ok(f) => Some(fmt::layer().json().with_writer(f)),
             Err(e) => {
-                eprintln!("longtail: cannot open --log-file-path `{path}`: {e}");
+                eprintln!("longtail-rs: cannot open --log-file-path `{path}`: {e}");
                 return Err(ExitCode::from(1));
             }
         },

@@ -28,7 +28,7 @@ crates/
   longtail-store/   # tokio-native: blob stores (fs/mem/S3), the RemoteBlockStore actor,
                     #   Cache/Compress block-store decorators, optimistic store-index sync.
   longtail/         # facade: downsync/upsync ops, ChangeVersion2 apply, error tree, progress.
-  longtail-cli/     # clap binary — the golongtail CLI replacement.
+  longtail-cli/     # clap binary `longtail-rs` — the golongtail CLI replacement.
 support/
   longtail-sys/     # LEGACY. Raw bindgen bindings to the prebuilt C library.
   longtail-ffi/     # LEGACY. Safe-ish wrappers over the C library.

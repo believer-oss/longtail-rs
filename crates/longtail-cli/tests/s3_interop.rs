@@ -21,7 +21,7 @@ use std::process::Command;
 use longtail_testkit::paths::golongtail_binary;
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_longtail")
+    env!("CARGO_BIN_EXE_longtail-rs")
 }
 
 struct Minio {
