@@ -19,6 +19,13 @@ on:
   schedule:
     # Mondays 04:30 UTC, ahead of the working week.
     - cron: "30 4 * * 1"
+  # Opt-in per pull request via the `release-lane` label. `workflow_dispatch` only
+  # exists for workflows already on the default branch, so before this file merges
+  # the label is the only way to exercise the shipped profile on a change — which
+  # is exactly when it is most worth exercising. Labelling fires the run; without
+  # the label the job is skipped rather than queued, so normal PRs pay nothing.
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -27,6 +34,11 @@ concurrency:
 jobs:
   release:
     name: release profile - ${{ matrix.os }}
+    # Every trigger except a pull request means "run it"; a pull request needs the
+    # label. Written this way so adding a trigger later does not silently skip.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'release-lane')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:

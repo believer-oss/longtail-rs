@@ -21,6 +21,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `longtail-sys` runs bindgen over headers from the submodule, so this
+          # lane cannot build without it. The pure lanes set `submodules: false`
+          # for the same reason inverted — they must never need it.
+          submodules: true
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
 
