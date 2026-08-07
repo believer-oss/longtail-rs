@@ -1,0 +1,14 @@
+# Fixture bytes are the contract.
+#
+# `cargo run -p xtask -- verify-fixtures` checks every file under `fixtures/`
+# against a sha256 and size recorded in `fixtures/manifest.json`, and the byte
+# gates compare `.lvi`/`.lsi`/`.lsb` output against these files exactly. Git on
+# Windows defaults to `core.autocrlf=true`, which rewrites every LF on checkout —
+# adding one byte per line and changing the hash of anything it touches. That
+# broke the Windows lane on the JSON manifests and `chunker.input` while leaving
+# the code untouched, which makes it look like a data problem rather than a
+# checkout one.
+#
+# `-text` disables end-of-line conversion in both directions. Preferred over
+# `binary` (which is `-text -diff`) so the JSON manifests still diff readably.
+fixtures/** -text
