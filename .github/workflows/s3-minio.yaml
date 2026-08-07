@@ -42,18 +42,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
-    # minio as a service container. bitnami/minio starts a server by default and
-    # auto-creates the bucket named in MINIO_DEFAULT_BUCKETS.
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: longtail-test
-
+    # minio is started as a step, not a service container: the official image
+    # needs `server /data` as its command and `services:` cannot supply one.
+    # (bitnami/minio started a server by default and auto-created
+    # MINIO_DEFAULT_BUCKETS, but no longer publishes the tag this used.)
     env:
       LONGTAIL_TEST_S3_ENDPOINT: http://localhost:9000
       LONGTAIL_TEST_S3_BUCKET: longtail-test
@@ -62,21 +54,34 @@ jobs:
       LONGTAIL_TEST_S3_REQUIRED: "1"
 
     steps:
+      # First, so it boots while the toolchain installs.
+      - name: Start minio
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+
       - uses: actions/checkout@v4
         with:
           submodules: false
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
 
-      - name: Wait for minio
+      - name: Wait for minio and create the bucket
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_REGION: us-east-1
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:9000/minio/health/ready; then
-              echo "minio ready"; exit 0
-            fi
+            if curl -sf http://localhost:9000/minio/health/ready; then break; fi
             sleep 2
           done
-          echo "minio did not become ready" >&2; exit 1
+          curl -sf http://localhost:9000/minio/health/ready \
+            || { echo "::error::minio did not become ready"; docker logs minio; exit 1; }
+          # The tests set force_path_style, so a plain host works here.
+          aws --endpoint-url http://localhost:9000 s3 mb s3://longtail-test
 
       # The S3 blob/sync tests live in longtail-store's `s3_spec` integration
       # test; the env vars above make them execute against minio (they skip when
@@ -94,16 +99,6 @@ jobs:
     name: s3 lane - gate 8 (mixed writers)
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      minio:
-        image: bitnami/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: longtail-interop
-          MINIO_DOMAIN: 127.0.0.1.nip.io
     env:
       LONGTAIL_TEST_S3_ENDPOINT: http://127.0.0.1.nip.io:9000
       LONGTAIL_TEST_S3_BUCKET: longtail-interop
@@ -114,19 +109,31 @@ jobs:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
     steps:
+      # MINIO_DOMAIN makes minio serve `<bucket>.<host>`, which golongtail's SDK
+      # requires; see the note above.
+      - name: Start minio
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -e MINIO_DOMAIN=127.0.0.1.nip.io \
+            minio/minio:latest server /data
+
       - uses: actions/checkout@v4
         with:
           submodules: false
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
-      - name: Wait for minio
+      - name: Wait for minio and create the bucket
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:9000/minio/health/ready; then
-              echo "minio ready"; exit 0
-            fi
+            if curl -sf http://127.0.0.1:9000/minio/health/ready; then break; fi
             sleep 2
           done
-          echo "minio did not become ready" >&2; exit 1
+          curl -sf http://127.0.0.1:9000/minio/health/ready \
+            || { echo "::error::minio did not become ready"; docker logs minio; exit 1; }
+          # Created through the virtual-host endpoint, so this also proves the
+          # `<bucket>.<host>` path works before the interop test depends on it.
+          aws --endpoint-url http://127.0.0.1.nip.io:9000 s3 mb s3://longtail-interop
       - name: Fetch pinned golongtail
         run: cargo run -p xtask -- fetch-golongtail
       - name: Gate 8 mixed-writer interop
