@@ -221,7 +221,8 @@ pipeline step ports by changing the program name.
 - **Commands and flags** keep golongtail's spelling. Nine subcommands also answer to golongtail's
   camelCase alternative (`validate`, `printVersionIndex`, `printStoreIndex`, `stats`, `dump`,
   `init`, `createVersionStoreIndex`, `cloneStore`, `pruneStore`), and `version` works as a
-  subcommand as well as a flag. `--help` is the authority on the current flag set.
+  subcommand as well as a flag. `--help` is the authority on the current flag set;
+  [`docs/cli.md`](cli.md) is the task-oriented guide.
 - **Globals** include golongtail's logging and stats flags. `--show-store-stats` is a second
   spelling of `--show-stats`; `--log-file-path`, `--[no-]log-to-console` and `--log-coloring` do
   what they say. The `--mem-trace` trio is accepted and does nothing — it instruments the C

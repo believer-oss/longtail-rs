@@ -71,6 +71,8 @@ the C library in both directions.
 
 ## Learn more
 
+- **`docs/cli.md`** — the CLI guide: the publish/install flows, recipes, and the behaviour that is
+  easy to get wrong. `longtail-rs <command> --help` remains the authority on flags.
 - **`docs/rust-port.md`** — motivation, architecture, deliberate divergences from C/Go, upstream
   findings, safety posture, and the roadmap.
 - **`docs/format-spec.md`** — the authoritative on-disk format specification.

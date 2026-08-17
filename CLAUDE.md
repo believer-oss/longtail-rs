@@ -39,7 +39,7 @@ support/
   longtail-bench/   # criterion micro-benches + the e2e harness. publish = false.
 xtask/              # fixture gen/verify tooling.
 fixtures/           # committed golden fixtures + manifest.json (see fixtures/README.md).
-docs/               # rust-port.md, format-spec.md.
+docs/               # cli.md, rust-port.md, format-spec.md.
 test-data/          # mkdata scripts for CI and the differential tests.
 ```
 
