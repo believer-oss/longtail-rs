@@ -407,7 +407,7 @@ fn downsync_corrupt_target_index_cache() {
 
 /// cmd_downsync_test.go::TestMultiVersionDownsync — downsync of multiple merged
 /// source versions produces the union tree. (Full three-way tree agreement is in
-/// the testkit differential lane; here we assert the union superset semantics.)
+/// the testkit's differential tests; here we assert the union superset semantics.)
 #[test]
 fn multi_version_downsync() {
     pin_umask();

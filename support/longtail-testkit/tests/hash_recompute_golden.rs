@@ -1,4 +1,4 @@
-//! Golden hash/decode tests (pure lane, ladder 3-5): recompute the hashes stored
+//! Golden hash/decode tests (no C library, ladder 3-5): recompute the hashes stored
 //! in every committed fixture with the pure-Rust hash layer and framing codec and
 //! assert they equal the stored values. No native library involved.
 //!

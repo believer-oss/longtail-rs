@@ -1,6 +1,6 @@
-//! Hash differential (differential lane, via `longtail-ffi`):
+//! Hash differential (`differential` feature, via `longtail-ffi`):
 //! the pure-Rust blake3/blake2s hashes equal the reference C library's over a
-//! range of inputs, and the frozen known-answer constants used in the pure lane
+//! range of inputs, and the frozen known-answer constants used without the C library
 //! are cross-checked against C here (the real gate for those KATs).
 //!
 //! Compiles to nothing without the `differential` feature.
@@ -13,7 +13,7 @@ use longtail_testkit::differential::{c_has_blake2, c_hash};
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 
-/// The frozen KAT constants that the pure-lane `longtail_core::hash` unit test
+/// The frozen KAT constants that the `longtail_core::hash` unit test
 /// asserts — cross-checked against C here so they are anchored to the reference
 /// implementation, not to the pure code that also produces them.
 #[test]
@@ -71,15 +71,15 @@ fn blake3_matches_c_over_corpus_and_random() {
 }
 
 /// Skipped where the C library has no blake2s API (see `c_has_blake2`); the pure
-/// lane still checks our blake2s against frozen KATs and the committed fixtures
+/// suite still checks our blake2s against frozen KATs and the committed fixtures
 /// on that platform, and this comparison runs in full on Linux.
 #[test]
 fn blake2s_matches_c_over_corpus_and_random() {
     if !c_has_blake2() {
         eprintln!(
             "skipped: this C library reports no blake2s hash API, so there is nothing to \
-             compare against — our blake2s is covered by the pure lane and by the Linux \
-             differential lane"
+             compare against — our blake2s is covered by the ordinary tests and by the Linux \
+             differential run"
         );
         return;
     }

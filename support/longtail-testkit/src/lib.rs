@@ -3,7 +3,7 @@
 //! suites.
 //!
 //! Everything except the [`differential`] module builds without the native
-//! library (no `differential` feature), so the pure test lane needs no C
+//! library (no `differential` feature), so a default test run needs no C
 //! toolchain and no prebuilt-lib download.
 #![forbid(unsafe_code)]
 

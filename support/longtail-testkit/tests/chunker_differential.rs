@@ -1,4 +1,4 @@
-//! Chunker differential (differential lane, ladder 8-9):
+//! Chunker differential (`differential` feature, ladder 8-9):
 //!
 //! - **Ladder 8** — random buffers of varied sizes (`< 48`, `≈min`, `≈max`,
 //!   `> max*4`) at the four standard targets {1024, 32768, 131072, 1048576}:

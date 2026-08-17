@@ -41,18 +41,18 @@ jobs:
   #
   # The `differential` feature also compiles a small C shim
   # (support/longtail-testkit/shim/hpcdc_discriminator_shim.c) via `cc` in
-  # longtail-testkit's build.rs, so this lane requires a **host C compiler**
+  # longtail-testkit's build.rs, so this job requires a **host C compiler**
   # (present on the GitHub ubuntu/windows runners); the golden `d` table +
   # boundary-table equality fallback covers environments without a C compiler.
   differential-linux:
-    name: differential lane - linux
+    name: differential - linux
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           # `longtail-sys` runs bindgen over headers from the submodule, so this
-          # lane cannot build without it. The pure lanes set `submodules: false`
+          # job cannot build without it. Every other job sets `submodules: false`
           # for the same reason inverted — they must never need it.
           submodules: true
 
@@ -75,20 +75,20 @@ jobs:
       - name: Clippy (including the legacy C crates)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Differential-lane bench-crate compile-check. The `differential`
-      # feature pulls longtail-ffi (cannot compile in the pure lane) and builds
+      # Bench-crate compile-check with the C column. The `differential`
+      # feature pulls longtail-ffi (cannot compile without a C toolchain) and builds
       # the e2e + ffi-driver bins. Never RUN in CI.
       - run: cargo bench --no-run -p longtail-bench --features differential
 
   differential-windows:
-    name: differential lane - windows
+    name: differential - windows
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
           # `longtail-sys` runs bindgen over headers from the submodule, so this
-          # lane cannot build without it. The pure lanes set `submodules: false`
+          # job cannot build without it. Every other job sets `submodules: false`
           # for the same reason inverted — they must never need it.
           submodules: true
 

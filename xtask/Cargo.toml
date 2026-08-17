@@ -15,6 +15,6 @@ tempfile = "3"
 
 [features]
 # Enables boundary-table generation via the C chunker (needed by gen-fixtures).
-# Kept off in the pure lane so `verify-fixtures`/`fetch-golongtail` need no
+# Kept off by default so `verify-fixtures`/`fetch-golongtail` need no
 # native lib.
 differential = ["longtail-testkit/differential"]

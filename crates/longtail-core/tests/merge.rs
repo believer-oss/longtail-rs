@@ -1,5 +1,5 @@
 //! Pure `StoreIndex::merge` semantics (no ffi). Byte-identity vs C is proven in
-//! the testkit differential lane; these lock down the logic itself.
+//! the testkit's differential tests; these lock down the logic itself.
 
 use longtail_core::{FormatError, StoreIndex};
 

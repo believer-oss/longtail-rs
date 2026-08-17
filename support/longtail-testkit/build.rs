@@ -6,10 +6,10 @@
 //! `HPCDCDiscriminatorFromAvg` expression under an exported symbol so the
 //! discriminator differential can compare Rust against the literal C
 //! expression. Without `differential` this build script does
-//! nothing, so the pure lane needs no C toolchain.
+//! nothing, so a default build needs no C toolchain.
 //!
-//! This adds a **host C compiler requirement to the differential lane only**
-//! (present on GitHub ubuntu/windows runners). The differential lane was
+//! This adds a **host C compiler requirement to the `differential` feature only**
+//! (present on GitHub ubuntu/windows runners). The differential tests were
 //! designed as "prebuilt lib, no C toolchain"; the golden `d` table +
 //! boundary-table equality fallback covers environments without a C compiler.
 

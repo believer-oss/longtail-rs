@@ -1,7 +1,7 @@
 //! Pure-logic tests for the store-index algebra:
 //! `StoreIndex::from_block_indexes` (CreateStoreIndexFromBlocks) and
 //! `StoreIndex::get_existing_store_index` (GetExistingStoreIndex). The byte-level
-//! agreement with C is proved by the testkit differential lane.
+//! agreement with C is proved by the testkit's differential tests.
 
 use longtail_core::{BlockIndex, StoreIndex};
 

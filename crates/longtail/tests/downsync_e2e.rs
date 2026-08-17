@@ -199,10 +199,10 @@ async fn sharded_store_merge_on_read() {
 /// golongtail offers) but the library rejects it.
 ///
 /// Both versions record the *same* `0444`, so the asset is content-modified and
-/// not permissions-modified (`diff.rs:75-82` tests those independently). Step 7
-/// therefore never visits it, and the mode below is the one apply put back rather
-/// than one it reassigned — which is the half of the fix a fixture with differing
-/// modes would not reach.
+/// not permissions-modified (`create_version_diff` tests those independently).
+/// Step 7 therefore never visits it, and the mode below is the one apply put
+/// back rather than one it reassigned — which is the half of the fix a fixture
+/// with differing modes would not reach.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_read_only_asset_can_be_rewritten_and_keeps_its_mode() {

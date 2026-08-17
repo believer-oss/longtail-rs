@@ -5,7 +5,7 @@
 //!
 //! Throughput is reported by criterion via `Throughput::Bytes` (→ MiB/s). The C
 //! comparison runs in-process in this same bench binary (the `differential`
-//! machinery); it is cfg'd out in the pure lane so `cargo bench --no-run`
+//! machinery); it is cfg'd out without that feature so `cargo bench --no-run`
 //! compiles without the native lib.
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -71,7 +71,7 @@ fn bench_chunker(c: &mut Criterion) {
             });
         }
         group.finish();
-        // Silence unused-var warnings in the pure lane (no C column).
+        // Silence unused-var warnings without the `differential` feature (no C column).
         let _ = (min, avg, max);
     }
 }

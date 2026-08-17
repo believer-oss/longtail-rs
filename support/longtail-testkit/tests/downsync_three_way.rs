@@ -12,7 +12,7 @@
 //! never the committed fixtures. Source `.lvi`/`.lsi` are read lock-free and
 //! come straight from the fixtures.
 //!
-//! Differential lane only (needs the native lib). Linux-only.
+//! `differential` feature only (needs the native lib). Linux-only.
 
 #![cfg(all(feature = "differential", unix))]
 

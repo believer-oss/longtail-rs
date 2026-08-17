@@ -111,7 +111,7 @@ fn fetch_golongtail() -> Result<()> {
 }
 
 /// Download a URL to a path using the system `curl` (fallback `wget`), avoiding a
-/// TLS stack dependency in the pure lane.
+/// TLS stack dependency in a default build.
 fn download(url: &str, dst: &Path) -> Result<()> {
     let curl = Command::new("curl")
         .args(["-fsSL", "-o"])

@@ -14,12 +14,12 @@ hex = "0.4"
 walkdir = "2"
 
 # The pure-Rust format layer under test. Always available (the golden fixture
-# tests in the pure lane parse/serialize via longtail-core, no native lib).
+# tests without that feature parse/serialize via longtail-core, no native lib).
 longtail-core = { path = "../../crates/longtail-core" }
 
 # Only pulled in for the `differential` feature: drives the C library via the
 # ffi wrapper to produce/reproduce goldens. Never a default dependency, so the
-# pure test lane needs no native lib.
+# default test run needs no native lib.
 longtail-ffi = { path = "../longtail-ffi", optional = true }
 # The pure-Rust facade, for the three-way e2e differential (Rust vs ffi vs
 # spawned golongtail). Differential-gated; s3 not needed for local fixtures.
@@ -28,11 +28,11 @@ longtail = { path = "../../crates/longtail", default-features = false, optional 
 [features]
 # Enables the C-backed differential helpers (boundary generation, round-trip,
 # downsync reproduction) and compiles the HPCDC discriminator shim via `cc`
-# (build.rs). Off by default — the pure lane needs no C toolchain.
+# (build.rs). Off by default — a default build needs no C toolchain.
 differential = ["dep:longtail-ffi", "dep:longtail", "dep:cc"]
 
 # `cc` is only needed to compile the discriminator shim in the differential
-# lane; optional + activated by the `differential` feature above.
+# tests; optional + activated by the `differential` feature above.
 [build-dependencies]
 cc = { version = "1", optional = true }
 

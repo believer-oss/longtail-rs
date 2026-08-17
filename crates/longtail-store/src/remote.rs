@@ -6,7 +6,7 @@
 //!   accumulated block indexes, serialized behind an `mpsc` command channel — no
 //!   shared-state lock on the index (Go's `contentIndexWorker` guarantee).
 //! - **Block I/O** (`get`/`put`) runs directly on the calling task, sharing one
-//!   cheaply-cloned [`BlobClient`], bounded by a [`Semaphore`] (worker-count
+//!   cheaply-cloned `BlobClient`, bounded by a [`Semaphore`] (worker-count
 //!   equivalent — Go's `remoteWorker` pool).
 //! - **Prefetch** is a `Mutex<PrefetchState>` (an in-flight
 //!   `HashMap<u64, Shared<future>>` + an enqueued-but-undispatched `queued` set):

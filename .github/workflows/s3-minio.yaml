@@ -1,4 +1,4 @@
-name: "S3 (minio) integration"
+name: "S3 integration"
 
 # The S3-backed blob/sync tests and the mixed-writer test (concurrent Rust +
 # golongtail writers against one store). These need a live S3-compatible
@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   s3-minio-linux:
-    name: s3 lane - minio
+    name: s3 - linux
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -85,7 +85,7 @@ jobs:
 
       # The S3 blob/sync tests live in longtail-store's `s3_spec` integration
       # test; the env vars above make them execute against minio (they skip when
-      # absent). The pure store suite (mem/fs) already runs in the pure lane.
+      # absent). The mem/fs store suite already runs in the main test job.
       - name: S3 blob/sync tests against minio
         run: cargo test -p longtail-store --test s3_spec
 
@@ -96,7 +96,7 @@ jobs:
   # `*.127.0.0.1.nip.io` resolves to 127.0.0.1 via public DNS, so it works on a
   # runner. Validated locally against podman minio.
   s3-interop-gate8:
-    name: s3 lane - gate 8 (mixed writers)
+    name: s3 mixed-writer interop - linux
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:

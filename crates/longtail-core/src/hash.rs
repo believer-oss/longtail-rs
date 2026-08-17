@@ -130,9 +130,10 @@ mod tests {
 
     // Known-answer vectors: the little-endian first-8-byte longtail hash for a
     // few fixed inputs. These constants are cross-checked against the reference
-    // C library in the testkit `differential` lane
+    // C library by the testkit's differential tests
     // (`hash_differential.rs::hash_kats_match_c`) — a red differential there is
-    // the real gate; this pure test freezes the values so the pure/miri lane has
+    // the real gate; this pure test freezes the values so a run without the C
+    // library has
     // hash coverage without the native library.
     const BLAKE3_EMPTY: u64 = 0xa6a1f9f5b94913af;
     const BLAKE3_LONGTAIL: u64 = 0xefb32f524ca47d58;

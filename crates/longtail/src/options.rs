@@ -67,7 +67,7 @@ pub struct DownsyncOptions {
     /// read path re-hashes a fetched payload, so a store that serves substituted
     /// bytes under intact chunk hashes is accepted silently. Turning this on binds
     /// payload bytes to the index and turns that into an
-    /// [`LongtailError::ValidationMismatch`] before anything is written.
+    /// [`crate::LongtailError::ValidationMismatch`] before anything is written.
     ///
     /// It authenticates the blocks against the **version index**, which is itself
     /// unsigned — so it defends against a tampered or corrupted `.lsb`, not

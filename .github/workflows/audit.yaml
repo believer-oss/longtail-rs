@@ -27,6 +27,7 @@ on:
 
 jobs:
   audit:
+    name: audit - linux
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -39,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
-        name: Audit Rust Dependencies
+        name: audit - linux
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
         # Comma separated list of issues to ignore

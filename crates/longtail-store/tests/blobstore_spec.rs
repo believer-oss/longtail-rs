@@ -1,7 +1,7 @@
 //! `BlobStore` semantics ported from golongtail's
 //! `longtailstorelib/blobStore_test.go` and `longtailstorelib/fsstore_test.go`.
 //!
-//! mem/fs cases run everywhere (pure lane — no native lib, no network). The two
+//! mem/fs cases run everywhere (no native lib, no network). The two
 //! `create_*_blob_store_from_uri` cases that merely check the store name are
 //! pure construction (no network), so they run too; the S3-backed
 //! *behavioral* cases live in `s3_spec.rs` under the env-gated job.

@@ -367,7 +367,7 @@ pub async fn add_to_remote_store_index(
 }
 
 /// Read the current merged store index (canonical `store.lsi` + all shards).
-/// Public convenience over [`read_store_store_index_with_items`] for the
+/// Public convenience over `read_store_store_index_with_items` for the
 /// download/upload paths
 /// and the chaos test's convergence check.
 pub async fn read_merged_store_index(client: &dyn BlobClient) -> Result<StoreIndex, StoreError> {
@@ -409,7 +409,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     Ok(true)
 }
 
-/// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry [`try_overwrite`]
+/// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry `try_overwrite`
 /// on a lost CAS; hard errors tolerated up to 3 times. Public: the prune path
 /// calls this to overwrite the store index BEFORE deleting blocks.
 pub async fn overwrite_remote_store_index(

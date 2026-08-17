@@ -6,7 +6,7 @@
 //! something to tune away.
 //!
 //! The whole file compiles to nothing without the `differential` feature, so
-//! the pure test lane never touches the native library.
+//! a default test run never touches the native library.
 #![cfg(feature = "differential")]
 
 use std::path::{Path, PathBuf};

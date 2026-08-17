@@ -119,7 +119,7 @@ pub struct PruneStoreOptions {
     pub write_version_local_store_index: bool,
     pub remote_worker_count: usize,
     /// Proceed even when the resolved keep-set is empty. See
-    /// [`guard_empty_keep_set`].
+    /// `guard_empty_keep_set`.
     pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,
@@ -297,7 +297,7 @@ pub struct PruneStoreIndexOptions {
     pub skip_invalid_versions: bool,
     pub write_version_local_store_index: bool,
     /// Proceed even when the resolved keep-set is empty. See
-    /// [`guard_empty_keep_set`].
+    /// `guard_empty_keep_set`.
     pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,

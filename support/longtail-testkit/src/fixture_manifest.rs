@@ -3,7 +3,7 @@
 //! The manifest records the generating CLI (version, url, binary sha256, os)
 //! and a sha256 for every committed file under `fixtures/` (except the manifest
 //! itself). `verify` re-hashes every file and fails on mismatch, extra, or
-//! missing files — this is the fast, network-free check the pure CI lane runs.
+//! missing files — the fast, network-free check every build runs.
 
 use std::path::Path;
 

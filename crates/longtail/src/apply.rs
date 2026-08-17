@@ -94,7 +94,7 @@ pub(crate) async fn change_version2(
     //    checked and rewritten, and everything else is left where it is. Safe to
     //    skip because the removed set is disjoint from the write set by
     //    construction — a path present in both versions is content- or
-    //    permissions-modified, never "removed" (diff.rs:72-91).
+    //    permissions-modified, never "removed" (`create_version_diff`).
     stats.assets_removed = if delete_removed {
         delete_assets(target_root, current, diff, cancel)?
     } else {
@@ -144,8 +144,9 @@ pub(crate) async fn change_version2(
     // Modes relaxed below so a write could land, to be put back before step 7.
     // An asset whose content changed but whose permissions did not is in
     // `target_content_modified_asset_indexes` and in neither list step 7 walks
-    // (diff.rs:75-82 tests the two independently), so step 7 will not restore it
-    // for us — and under `retain_permissions == false` step 7 does not run at all.
+    // (`create_version_diff` tests the two independently), so step 7 will not
+    // restore it for us — and under `retain_permissions == false` step 7 does
+    // not run at all.
     let mut relaxed = RelaxedModes::new(target_root);
 
     // 5a. Zero-size job: create dirs + empty files (longtail.c:8292).

@@ -4,9 +4,8 @@ How this workspace was built and why. It is a pure-Rust reimplementation of
 [longtail](https://github.com/DanEngelbrecht/longtail) (the C library) and the parts of
 [golongtail](https://github.com/DanEngelbrecht/golongtail) we use — byte-compatible with the
 existing on-disk formats and stores. For the exact wire formats see
-[`docs/format-spec.md`](format-spec.md); for measured performance see
-[`docs/bench-2026-07-05.md`](bench-2026-07-05.md). C citations are against longtail `@96241fe`
-and golongtail `@49a20e1`.
+[`docs/format-spec.md`](format-spec.md); for measured performance see §Performance below. C
+citations are against longtail `@96241fe` and golongtail `@49a20e1`.
 
 ## Motivation
 
@@ -106,8 +105,22 @@ Cold and warm downsync are at golongtail parity (≈1.00× at 8 remote workers a
 download-path fixes below); a 1 GiB cold downsync completes and tree-verifies; the
 micro-benchmarks (chunk/hash/compress and the index codecs) are within target of the C library.
 Incremental downloads are scan-bound *when the target scan runs* — the benchmark forces it, while
-the default cached target index skips it (see the Roadmap). Full methodology and numbers are in
-[`docs/bench-2026-07-05.md`](bench-2026-07-05.md).
+the default cached target index skips it (see the Roadmap). On the upload path, flush-path peak RSS
+is roughly halved against golongtail after the block-write and store-index changes.
+
+The compat-critical micro paths — the HPCDC chunker (block identity), the hashes, and the index
+codecs — all measured within ±10 % of C, at parity or faster. Two measurements settled decisions
+that would otherwise get revisited:
+
+- **FastCDC stays benchmarking-only.** It chunks ~2.85× faster but shows *no* dedup advantage (the
+  download-avoided fraction is identical), and block identity is the HPCDC boundary — adopting it
+  would orphan the dedup in every existing store. A throughput-only win does not justify that.
+- **Owned index structs stay.** Parse and serialize are not a hot spot (4–26 GiB/s), so the
+  borrow-from-buffer redesign that would complicate every codec buys nothing.
+
+Numbers come from dated runs on stated hardware, and the reports live outside the repo — see
+`## Common commands` in `CLAUDE.md` for how to reproduce them. Re-measure rather than trusting a
+figure here if a decision depends on it.
 
 ## Deliberate divergences from C/Go
 
@@ -187,10 +200,46 @@ mmap/locks (→ `std` + `fs4`).
 
 **Deferred** (real functionality, postponed): the GCS (`gs://`) blob store — our stores are S3 +
 fs and GCS cannot be tested here, so `gs://` returns a clear "not supported"; `ArchiveIndex` +
-`pack`/`unpack` (behind an `archive` feature, droppable); the `clone-store` zip fallback; and
+`pack`/`unpack` (behind an `archive` feature, droppable); the `clone-store` zip fallback;
 `blockstorestorage` — rather than
 port its 1.6k-line virtual filesystem, `ls` is a pure index walk and `cp` is a targeted block
-fetch.
+fetch; and `If-None-Match` on the store-index PUT, which mirrors Go: `supports_locking()` is
+false and the write is an unconditional `PutObject`, leaving the HEAD-then-PUT window open. The
+`BlobObject::write -> bool` CAS-lost contract already exists, so wiring the header and mapping
+412 is small — but shard names are content-addressed, so it would only ever dedupe *identical*
+shards. Two writers producing different merged shards (each `base + its own new blocks`, neither
+a superset of the other) is exactly the case that leaves two shards behind, and the header does
+not prevent it; that needs a canonical-key CAS instead.
+
+## CLI compatibility
+
+The binary is **`longtail-rs`**, deliberately not `longtail`: golongtail installs under that name
+and both will sit on the same machines through a switchover, so a script that picked up the wrong
+one would be hard to diagnose. Everything else is golongtail v0.4.5's surface verbatim, so a
+pipeline step ports by changing the program name.
+
+- **Commands and flags** keep golongtail's spelling. Nine subcommands also answer to golongtail's
+  camelCase alternative (`validate`, `printVersionIndex`, `printStoreIndex`, `stats`, `dump`,
+  `init`, `createVersionStoreIndex`, `cloneStore`, `pruneStore`), and `version` works as a
+  subcommand as well as a flag. `--help` is the authority on the current flag set.
+- **Globals** include golongtail's logging and stats flags. `--show-store-stats` is a second
+  spelling of `--show-stats`; `--log-file-path`, `--[no-]log-to-console` and `--log-coloring` do
+  what they say. The `--mem-trace` trio is accepted and does nothing — it instruments the C
+  allocator this implementation does not use — and says so on stderr rather than producing an
+  empty file.
+
+Behaviour a pipeline has to know before switching, beyond the missing commands in §Dropped and
+deferred:
+
+- **`--use-legacy-write` returns a typed error.** Only the `ChangeVersion2` write path is
+  implemented, so a pipeline must not pass it.
+- **`clone-store --hash-algorithm` / `--compression-algorithm` are accepted and ignored** — the
+  hash and compression tags come from the source version index. golongtail ignores them here too.
+- **`clone-store` skips already-cloned versions**, where v0.4.5's swapped arguments meant the skip
+  never fired (§Upstream findings). Re-running is cheaper; the end state is identical.
+- **minio and other S3-compatible endpoints** need virtual-host bucket addressing, because
+  golongtail's AWS SDK never sets path-style. Run minio with `MINIO_DOMAIN=<host>` and use an
+  endpoint whose host resolves `<bucket>.<host>` — `127.0.0.1.nip.io` does. Real S3 is unaffected.
 
 ## Trust boundary
 

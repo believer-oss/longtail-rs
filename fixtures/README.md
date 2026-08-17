@@ -1,7 +1,7 @@
 # Fixtures
 
 Committed golden fixtures for the pure-Rust longtail test suites. These are the byte-exact
-reference outputs the pure lane checks parsing, serialization, chunking, decompression, and
+reference outputs the default test run checks parsing, serialization, chunking, decompression, and
 end-to-end downsync against — no native library required. They were produced by a **pinned
 upstream golongtail CLI** (`v0.4.5`); the exact binary URL, OS, and SHA256 are recorded in
 `manifest.json`, whose `entries` list every committed file with its size and SHA256.

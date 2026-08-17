@@ -480,7 +480,7 @@ pub type S3OptionsArg = ();
 /// The `s3_options` fields are themselves `#[cfg(feature = "s3")]`, so reading one
 /// unconditionally compiles on a default build and breaks
 /// `--no-default-features`. That is a real configuration (`longtail-testkit`
-/// resolves it, so the differential lane builds it) and one no default-feature
+/// resolves it, so the differential tests build it) and one no default-feature
 /// test run exercises. Written once here so a new call site cannot get it wrong.
 #[macro_export]
 #[doc(hidden)]

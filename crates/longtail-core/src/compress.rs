@@ -69,7 +69,7 @@
 //! **Encode byte-parity is a deliberate NON-gate:** block identity is the hash
 //! of the chunk-hash array, not the compressed bytes.
 //! The encode gate is: C decodes every Rust-compressed payload back to identical
-//! plaintext, for every ID (proved in the testkit `differential` lane).
+//! plaintext, for every ID (proved by the testkit's differential tests).
 
 use std::io::Cursor;
 
@@ -381,7 +381,7 @@ pub fn decode_block_payload(
 ///
 /// The output bytes are **not** required to match C's byte-for-byte (encode
 /// parity is a deliberate non-gate); the gate is that C can decode this back to
-/// `raw` (proved in the differential lane).
+/// `raw` (proved by the differential tests).
 pub fn encode_block_payload(tag: u32, raw: &[u8]) -> Result<Vec<u8>, CompressError> {
     if tag == 0 {
         return Ok(raw.to_vec());
@@ -413,8 +413,8 @@ mod tests {
     use super::*;
 
     // zstd is the only FFI codec (libzstd). Under miri, foreign calls are
-    // unsupported, so the miri lane exercises the pure codecs (lz4_flex, brotli)
-    // + the registry/framing logic and excludes zstd. The non-miri lane covers
+    // unsupported, so under miri this exercises the pure codecs (lz4_flex, brotli)
+    // + the registry/framing logic and excludes zstd. An ordinary run covers
     // every ID.
     const PURE_IDS: &[u32] = &[
         LZ4_ID,
@@ -435,7 +435,7 @@ mod tests {
     // Under miri, keep only the fast codecs: lz4 + the quality-0 brotli variants.
     // brotli quality 11 (the default/max variants) is far too slow interpreted,
     // and it exercises the same encode/decode code path as quality 0. zstd is FFI
-    // (excluded). The non-miri and differential lanes cover every ID at full params.
+    // (excluded). Ordinary and differential runs cover every ID at full params.
     const MIRI_IDS: &[u32] = &[LZ4_ID, 0x6274_6c30, 0x6274_6c61];
 
     fn test_ids() -> Vec<u32> {

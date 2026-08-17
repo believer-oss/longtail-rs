@@ -12,7 +12,7 @@
 //! `http://127.0.0.1.nip.io:PORT`).
 
 // Unix-only: this drives a spawned golongtail binary, and the pinned build
-// xtask fetches is Linux-only. The lane that runs these is Linux anyway.
+// xtask fetches is Linux-only, and these only run there anyway.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};

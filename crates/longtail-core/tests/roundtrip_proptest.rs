@@ -1,4 +1,4 @@
-//! Proptest round-trip fixpoint (pure lane): for every format, arbitrary valid
+//! Proptest round-trip fixpoint, no C library needed: for every format, arbitrary valid
 //! structs satisfy `from_bytes(to_bytes(x)) == x` and `to_bytes(from_bytes(b))
 //! == b`. Strategies deliberately include empty (all counts 0), odd counts
 //! (which force `u64` arrays onto 4-byte boundaries), mixed dirs/files, and

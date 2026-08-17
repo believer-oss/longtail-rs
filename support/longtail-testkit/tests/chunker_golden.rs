@@ -1,4 +1,4 @@
-//! Golden chunker tests (pure lane, ladder 1-2): the pure-Rust streaming HPCDC
+//! Golden chunker tests (no C library, ladder 1-2): the pure-Rust streaming HPCDC
 //! chunker + pure blake3 reproduce **every** committed `*.streaming.json`
 //! boundary table exactly (offset, size, hash_hex), and the labeled
 //! [`SeedMode::Buffer`] variant reproduces every `*.buffer.json`.

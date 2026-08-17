@@ -444,14 +444,14 @@ impl ProgressSink for CancelOnPhase {
 ///
 /// Every other test in this file sets `cache_target_index = false`, so the
 /// invariant the default rests on has no coverage: a cached target index
-/// short-circuits the target scan entirely (`downsync.rs:84`), so a cache file
-/// surviving a cancelled run would make the next run believe the target is
-/// already the desired version, write nothing, and exit 0 over a torn tree.
+/// short-circuits the target scan entirely, so a cache file surviving a
+/// cancelled run would make the next run believe the target is already the
+/// desired version, write nothing, and exit 0 over a torn tree.
 ///
-/// What prevents that is ordering — the cache index is deleted before anything
-/// mutates the target (`downsync.rs:202`) and rewritten only after a successful
-/// apply (`downsync.rs:248`). Moving the write earlier, or making the delete
-/// non-fatal, passes every other test here and fails this one.
+/// What prevents that is ordering — `downsync` deletes the cache index before
+/// anything mutates the target and rewrites it only after a successful apply.
+/// Moving the write earlier, or making the delete non-fatal, passes every other
+/// test here and fails this one.
 ///
 /// Cancellation is keyed on the apply phase rather than a block count: the
 /// v1 → v2 diff is small, and "after the first block" may be after the last one.

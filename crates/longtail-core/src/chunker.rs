@@ -150,7 +150,7 @@ pub struct ChunkSpan {
 
 /// A content-defined chunker: maps a byte slice to ordered chunk boundaries.
 /// Implemented by [`HpcdcChunker`] (the compat-critical port) and, behind the
-/// `fastcdc` feature, [`FastCdcChunker`] (benchmarking only — NOT held to
+/// `fastcdc` feature, `FastCdcChunker` (benchmarking only — NOT held to
 /// HPCDC's constants and with no compat gates).
 pub trait Chunker {
     /// Chunk `data` into ordered, contiguous, input-covering boundaries.
@@ -266,7 +266,7 @@ impl HpcdcChunker {
 
     /// Construct in the [`SeedMode::Buffer`] variant. **Labeled differential
     /// target only** — reproduces the upstream mmap-path seed window and must not
-    /// be used by production chunking. Kept `pub` so the testkit's pure-lane
+    /// be used by production chunking. Kept `pub` so the testkit's C-free
     /// `*.buffer.json` golden can drive it without a native library.
     pub fn new_buffer(min: u32, avg: u32, max: u32) -> Result<Self, ChunkerError> {
         Self::with_seed_mode(min, avg, max, SeedMode::Buffer)

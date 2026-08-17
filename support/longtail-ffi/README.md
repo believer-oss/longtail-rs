@@ -5,12 +5,13 @@ original production code path before the pure-Rust rewrite (`crates/longtail-cor
 `longtail-store`, `longtail`, `longtail-cli`).
 
 **It is retained for one purpose only: differential regression testing.** The `differential`
-test lane drives the same operations through both this C wrapper and the pure-Rust crates and
+tests drive the same operations through both this C wrapper and the pure-Rust crates and
 asserts byte-identical results, so the C implementation remains the reference oracle. Nothing in
 the default build depends on it.
 
-It is **not a default workspace member** — building it requires the prebuilt native library that
-`longtail-sys`'s `build.rs` downloads. Reach it explicitly with `-p longtail-ffi`, or via the
-differential feature (`cargo test -p longtail-testkit --features differential`).
+It is **not a default workspace member** — building it compiles the C library through
+`longtail-sys`, which needs the git submodule checked out and a C toolchain. Reach it explicitly
+with `-p longtail-ffi`, or via the differential feature
+(`cargo test -p longtail-testkit --features differential`).
 
 Scheduled for deletion after the pure-Rust code has run in production for one release cycle.

@@ -208,6 +208,15 @@ Verified against `lib/fsblockstore/longtail_fsblockstore.c` and
   discovered index — the canonical `store.lsi` (if present) and all `store_<sha256>.lsi`
   shards — via `Longtail_MergeStoreIndex` (longtail.c:9151). Merge-on-read is what makes the
   lockless shard-write scheme coherent.
+- **Several shards are a steady state, not a race artifact.** A writer deletes only the shards
+  it actually read and merged (`tryAddRemoteStoreIndex`, remotestore.go:1260-1297). It cannot
+  delete a shard that appeared underneath it, because that file is a superset of *its own*
+  additions and removing it would permanently lose those block-index entries. Two writers whose
+  windows overlap therefore both leave a shard behind, and a store can sit at two or more
+  `store_<sha256>.lsi` files indefinitely. A reader that consults only one of them sees a
+  partial store, which is why merge-on-read is mandatory rather than an optimisation. Nothing
+  in either implementation is aware of how the shards were grouped — any monthly or per-release
+  arrangement is a pipeline convention layered on top.
 
 ## 3. StoredBlock (`.lsb`)
 

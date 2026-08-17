@@ -1,4 +1,4 @@
-//! Differential suite (differential lane, via `longtail-ffi`) for the
+//! Differential suite (`differential` feature, via `longtail-ffi`) for the
 //! new upload-path algebra in `longtail-core`:
 //!
 //! 1. **CreateStoreIndex (packing)** — `pack::create_store_index` is

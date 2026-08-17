@@ -4,7 +4,7 @@ name: "Release readiness"
 #
 # Everything in `rust.yaml` runs dev-profile, where `debug_assertions` are on and
 # the optimizer is off. The binary that goes into the desktop app is
-# release-profile. Without this lane the shipped configuration is exercised only
+# release-profile. Without this job the shipped configuration is exercised only
 # on whichever machine ran the build, once, with no provenance — and a
 # release-only misbehaviour reaches users through the one artefact nobody tested.
 #
@@ -19,7 +19,7 @@ on:
   schedule:
     # Mondays 04:30 UTC, ahead of the working week.
     - cron: "30 4 * * 1"
-  # Opt-in per pull request via the `release-lane` label. `workflow_dispatch` only
+  # Opt-in per pull request via the `release-tests` label. `workflow_dispatch` only
   # exists for workflows already on the default branch, so before this file merges
   # the label is the only way to exercise the shipped profile on a change — which
   # is exactly when it is most worth exercising. Labelling fires the run; without
@@ -33,18 +33,20 @@ concurrency:
 
 jobs:
   release:
-    name: release profile - ${{ matrix.os }}
+    name: release - ${{ matrix.platform }}
     # Every trigger except a pull request means "run it"; a pull request needs the
     # label. Written this way so adding a trigger later does not silently skip.
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'release-lane')
+      contains(github.event.pull_request.labels.*.name, 'release-tests')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, platform: linux }
+          - { os: windows-latest, platform: windows }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,12 +54,12 @@ jobs:
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
 
-      # `--locked` so the lane fails on an out-of-date lockfile rather than
+      # `--locked` so this fails on an out-of-date lockfile rather than
       # quietly resolving something other than what ships.
       - name: Build the shipped binary
         run: cargo build --release --locked -p longtail-cli
 
-      # The reason this lane exists. Invariants guarded by `debug_assert` vanish
+      # The reason this job exists. Invariants guarded by `debug_assert` vanish
       # here, and optimizer-sensitive paths behave differently, so the byte gates
       # and the download-path suites have to run in this profile too.
       - name: Test in the release profile
@@ -84,4 +86,4 @@ jobs:
           BIN=target/release/longtail-rs
           [ -f "$BIN.exe" ] && BIN="$BIN.exe"
           bytes=$(wc -c < "$BIN")
-          echo "::notice::release binary ${{ matrix.os }}: $((bytes / 1048576)) MiB ($bytes bytes)"
+          echo "::notice::release binary ${{ matrix.platform }}: $((bytes / 1048576)) MiB ($bytes bytes)"

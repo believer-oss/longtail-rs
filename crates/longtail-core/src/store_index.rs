@@ -318,7 +318,7 @@ impl StoreIndex {
     ///
     /// Why `self` can be reused: merge Pass 1 copies `local`'s unique blocks, in
     /// order, re-deriving cumulative chunk offsets. When `local` is already
-    /// [canonical](Self::is_canonical) and has no internal duplicate block
+    /// canonical (see `is_canonical`) and has no internal duplicate block
     /// hashes, that Pass-1 output is **bit-identical to `local` itself** — so we
     /// keep `self` as-is and only append Pass 2 (the remote-only blocks). That
     /// drops the merge high-water mark from `local + remote + output` (~3 shards

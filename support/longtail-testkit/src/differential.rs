@@ -35,9 +35,9 @@ pub fn blake3_hash() -> (HashRegistry, HashAPI) {
 /// `__x86_64__ || _M_X64`, so this is a one-macro oversight rather than a
 /// deliberate exclusion.
 ///
-/// Only the C side is affected: our blake2s is pure Rust, the pure lane checks
+/// Only the C side is affected: our blake2s is pure Rust, the ordinary tests check
 /// it against frozen KATs and committed fixtures on every platform, and the
-/// Linux differential lane still compares it against C. Probed at runtime rather
+/// differential tests still compare it against C on Linux. Probed at runtime rather
 /// than keyed to `cfg!(windows)`, so a fixed upstream library re-enables these
 /// comparisons without a code change here.
 pub fn c_has_blake2() -> bool {

@@ -1,4 +1,4 @@
-//! Codec cross-compat differential (differential lane, ladder 7): for **every**
+//! Codec cross-compat differential (`differential` feature, ladder 7): for **every**
 //! compression ID in the `docs/format-spec.md` §4 table, Rust-encode → C-decode
 //! is identical to the plaintext, and C-encode → Rust-decode is identical. This
 //! covers the IDs golongtail never writes (`zstd_high`/`zstd_low`, brotli

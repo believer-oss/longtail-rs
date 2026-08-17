@@ -28,7 +28,7 @@
 //!   trigger: the codecs run at 4–26 GiB/s, so realistic `.lvi`/`.lsi`
 //!   parse+serialize is tens of microseconds (~0.02 % of an e2e downsync wall) —
 //!   not a hot spot. Verdict: keep owned structs, do not adopt zero-copy views
-//!   (see `docs/bench-2026-07-05.md` §5 / verdict 3).
+//!   (measured: parse/serialize is not a hot spot — see `docs/rust-port.md` §Performance).
 //! - **Round-trip fidelity beats normalization.** Structs preserve exactly what
 //!   was parsed (raw `name_data` blob + offsets verbatim, all 16 permission
 //!   bits, no sorting/dedup on read), so every committed fixture re-serializes

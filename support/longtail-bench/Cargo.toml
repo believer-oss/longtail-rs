@@ -6,8 +6,8 @@ publish = false
 
 # Benchmarking crate. Produces NUMBERS and DECISION RECORDS, not compat
 # gates. Micro-benches (criterion, harness = false) compare the pure-Rust port
-# against the C library; the e2e harness + drivers live as `[[bin]]`s. See
-# `docs/bench-2026-07-05.md`.
+# against the C library; the e2e harness + drivers live as `[[bin]]`s. How to run
+# them is in `CLAUDE.md` §Benchmarks.
 
 [dependencies]
 # Pure-Rust algorithm/format layer under measurement. Always available.
@@ -27,9 +27,9 @@ rand_core = "0.9"
 libc = "0.2"
 tempfile = "3"
 
-# Differential lane only: the C library via the ffi wrapper, for the in-process
+# `differential` feature only: the C library via the ffi wrapper, for the in-process
 # Rust-vs-C micro pairs and the ffi e2e driver bin. Never a default dependency,
-# so the pure bench lane needs no native lib / C toolchain.
+# so a default bench build needs no native lib / C toolchain.
 longtail-ffi = { path = "../longtail-ffi", optional = true }
 
 [dev-dependencies]

@@ -20,7 +20,7 @@ jobs:
   # Builds and tests the default members and checks the committed fixtures
   # against manifest.json.
   pure-linux:
-    name: pure lane - linux
+    name: tests - linux
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,8 +37,8 @@ jobs:
       # `cargo test` builds every crate with its DEFAULT features, so a call site
       # that reads an `#[cfg(feature = "s3")]` field unconditionally compiles here
       # and breaks anywhere `s3` is off. That is a real configuration —
-      # `longtail-testkit` resolves it, so the differential lane hit it — and it
-      # cost a red lane to discover. Cheap to check, so check it.
+      # `longtail-testkit` resolves it, so the differential tests hit it. Cheap
+      # to check here, so check it.
       - name: Feature matrix
         run: |
           for p in longtail-core longtail-store longtail longtail-cli; do
@@ -48,9 +48,17 @@ jobs:
           done
           cargo check --locked -p longtail-core --features fastcdc
 
-      # Bench-crate compile-check (pure lane = plain + fastcdc
+      # Intra-doc links are checked by nothing else: a `[`Foo`]` that does not
+      # resolve, or a public doc pointing at a private item, compiles and tests
+      # perfectly well and only shows up here.
+      - name: Rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli
+
+      # Bench-crate compile-check (no C column = plain + fastcdc
       # variants). Benches never RUN in CI — the numbers are machine-dependent
-      # and recorded in docs/bench-<date>.md; CI only proves they still build.
+      # and recorded outside the repo; CI only proves they still build.
       - run: cargo bench --no-run -p longtail-bench
       - run: cargo bench --no-run -p longtail-bench --features fastcdc
 
@@ -62,7 +70,7 @@ jobs:
   # lint the Windows-only code, match Linux on what does build, and refuse to
   # pass when almost nothing compiled.
   pure-windows:
-    name: pure lane - windows
+    name: tests - windows
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -104,7 +112,7 @@ jobs:
   # CI matches local `cargo +nightly clippy` (the setup action installs nightly
   # but does not necessarily make it the default toolchain for bare `cargo`).
   formatting:
-    name: cargo clippy and fmt
+    name: clippy + fmt - linux
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -131,7 +139,7 @@ jobs:
         run: cargo +nightly clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli -p longtail-testkit -p longtail-bench -p xtask --all-targets -- -D warnings
 
       # Also lint the pure `fastcdc` chunker feature (no native lib needed). The
-      # `differential`-feature clippy runs in the differential lane / locally, as
+      # `differential`-feature clippy runs in the differential job / locally, as
       # it needs the prebuilt lib + a C compiler.
       - name: Clippy (fastcdc feature)
         run: cargo +nightly clippy --locked -p longtail-core -p longtail-store -p longtail -p longtail-cli -p longtail-testkit -p longtail-bench -p xtask --all-targets --features longtail-core/fastcdc -- -D warnings
@@ -143,11 +151,11 @@ jobs:
   # pure codecs (lz4_flex, brotli), and the hash layer (blake2 is pure Rust;
   # blake3 has portable `cfg(miri)` fallbacks). The zstd codec is FFI (libzstd) —
   # outside miri's reach — so its tests are `cfg`-excluded under miri and the
-  # zstd differential runs in the differential lane instead. Runs per-PR:
+  # zstd differential runs in the differential job instead. Runs per-PR:
   # `longtail-core` is small, needs no native lib, and case counts are capped
   # under `cfg!(miri)`, so gating merges on it is cheap insurance.
   miri:
-    name: miri (longtail-core)
+    name: miri - linux
     runs-on: ubuntu-latest
     # Bounded because an interpreter hang would otherwise sit on the default.
     timeout-minutes: 30

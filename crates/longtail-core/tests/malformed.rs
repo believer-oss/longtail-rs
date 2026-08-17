@@ -1,4 +1,4 @@
-//! Malformed-input tests (pure lane): wrong version, truncation at every field
+//! Malformed-input tests, no C library needed: wrong version, truncation at every field
 //! boundary, trailing bytes, and overflow-implying counts all return `Err` and
 //! never panic. Plus a fuzz-ish proptest that mutates valid buffers and only
 //! asserts the parser does not panic.

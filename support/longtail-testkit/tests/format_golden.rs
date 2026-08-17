@@ -1,4 +1,4 @@
-//! Golden fixture tests (pure lane): every committed `.lvi`, `.lsi`, and `.lsb`
+//! Golden fixture tests, no C library needed: every committed `.lvi`, `.lsi`, and `.lsb`
 //! parses and re-serializes **byte-identical** through the pure-Rust
 //! `longtail-core` codecs. This is compat gate ① for the format layer — no
 //! native library involved.

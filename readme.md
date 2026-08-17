@@ -4,7 +4,10 @@ A pure-Rust implementation of [longtail](https://github.com/DanEngelbrecht/longt
 parts of [golongtail](https://github.com/DanEngelbrecht/golongtail) we use. It is byte-compatible
 with the C library's on-disk formats — `.lvi` version indexes, `.lsi` store indexes, and `.lsb`
 stored blocks — and with existing S3 and local-filesystem stores, and it ships a
-golongtail-compatible CLI. No C library is built or linked in a normal build.
+golongtail-compatible CLI. The longtail C library is neither built nor linked — "pure Rust"
+means the longtail implementation itself, not the whole dependency tree: a normal build still
+compiles the C in `zstd-sys`, `blake3`'s SIMD paths, and (with the default `s3` feature)
+`aws-lc-sys`.
 
 ## Crates
 

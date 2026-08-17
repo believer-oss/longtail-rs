@@ -533,8 +533,8 @@ mod tests {
         assert!(permissions_disagree(0o444, 0o644, false));
 
         // Windows: a rescan synthesizes 0o666 for any writable file, so a store
-        // authored on unix records 0o644 and must still validate. This is the
-        // case that failed on the Windows lane against the committed fixtures.
+        // authored on unix records 0o644 and must still validate. Reading a
+        // unix-authored store on Windows is the ordinary case, not a corner one.
         assert!(!permissions_disagree(0o666, 0o644, true));
         assert!(!permissions_disagree(0o666, 0o664, true));
         // Directories come back with the execute bits set; still writable.

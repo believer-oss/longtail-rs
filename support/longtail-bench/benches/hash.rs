@@ -4,7 +4,7 @@
 //!
 //! The stored longtail hash is the little-endian u64 of the first 8 digest
 //! bytes; both the Rust and C sides compute exactly that, so this is a like-for
-//! -like throughput comparison. C runs in-process (differential lane).
+//! -like throughput comparison. C runs in-process (`differential` feature).
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use longtail_core::{Blake2s, Blake3, Hash};

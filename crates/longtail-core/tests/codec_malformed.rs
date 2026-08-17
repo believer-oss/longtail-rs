@@ -1,4 +1,4 @@
-//! Malformed-input tests for the framing codec (pure lane):
+//! Malformed-input tests for the framing codec, no C library needed:
 //! truncated frame header, `compressed_size` mismatch, wrong decoded length, and
 //! unknown tag all return typed [`CompressError`]s and never panic. Plus a
 //! fuzz-ish proptest that mutates a valid compressed payload and only asserts the
@@ -17,7 +17,7 @@ fn config() -> ProptestConfig {
 
 // Use LZ4 (pure Rust) as the framing test codec so this whole file runs under
 // miri (zstd is the only FFI codec — miri can't call it). The framing header
-// logic is codec-independent; the differential lane proves every codec ID.
+// logic is codec-independent; the differential tests prove every codec ID.
 const LZ4: u32 = 0x6c7a_3432;
 
 fn sample() -> Vec<u8> {
@@ -189,12 +189,10 @@ fn the_size_refusal_precedes_any_body_handling() {
 /// bounded read, not after an unbounded one.
 ///
 /// Not run under miri: it brotli-compresses and decompresses 8 MiB twice, at a
-/// quality the crate's own codec tests already exclude from the miri lane for
-/// being far too slow interpreted (`compress.rs`, `MIRI_IDS`). Miri interprets
-/// every operation, so this does not finish — it stalled the lane for 27 minutes
-/// before the timeout. Nothing here is unsafe or racy, so miri has nothing to
-/// check that the normal lane does not; the bound this asserts is ordinary
-/// control flow.
+/// quality `compress.rs` already excludes from `MIRI_IDS` as too slow to
+/// interpret. Miri interprets every operation, so this does not finish at all —
+/// it is a throughput workload, not a soundness one. Nothing here is unsafe or
+/// racy, so there is nothing for miri to find that an ordinary run does not.
 #[test]
 #[cfg_attr(miri, ignore = "multi-MiB brotli round trip; far too slow interpreted")]
 fn a_brotli_stream_that_outgrows_its_declaration_is_cut_off() {

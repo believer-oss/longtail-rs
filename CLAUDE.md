@@ -30,7 +30,7 @@ crates/
   longtail/         # facade: downsync/upsync ops, ChangeVersion2 apply, error tree, progress.
   longtail-cli/     # clap binary `longtail-rs` — the golongtail CLI replacement.
 support/
-  longtail-sys/     # LEGACY. Raw bindgen bindings to the prebuilt C library.
+  longtail-sys/     # LEGACY. Raw bindgen bindings over the vendored C sources.
   longtail-ffi/     # LEGACY. Safe-ish wrappers over the C library.
                     #   sys + ffi are retained ONLY as the reference oracle for differential
                     #   regression testing; scheduled for deletion after one release cycle.
@@ -39,30 +39,32 @@ support/
   longtail-bench/   # criterion micro-benches + the e2e harness. publish = false.
 xtask/              # fixture gen/verify tooling.
 fixtures/           # committed golden fixtures + manifest.json (see fixtures/README.md).
-docs/               # rust-port.md, format-spec.md, bench-<date>.md, switchover-checklist.md.
-test-data/          # CI + differential-lane mkdata scripts.
+docs/               # rust-port.md, format-spec.md.
+test-data/          # mkdata scripts for CI and the differential tests.
 ```
 
 `crates/*`, `support/longtail-testkit`, `support/longtail-bench`, and `xtask` are pure Rust and
 form `default-members`, so a plain `cargo build`/`cargo test` needs no network access and never
 touches the native library. `support/longtail-sys` and `support/longtail-ffi` are workspace
-members but **not** default members (they need a prebuilt native-lib download) — reach them with
+members but **not** default members (they build the C library) — reach them with
 `-p longtail-sys` / `-p longtail-ffi`, or `--workspace` to include everything.
 
-`support/longtail-sys/build.rs` downloads a pinned prebuilt native library for the target platform
-(see `UPSTREAM_VERSION` and the per-OS SHA256 constants) and runs `bindgen`; a git submodule under
-`support/longtail-sys/longtail/` supplies headers. This matters only to the legacy differential
-lane. To bump the upstream C library, refresh the SHA256 constants with
-`support/longtail-sys/scripts/get-hashes-for-upstream.sh`.
+`support/longtail-sys/build.rs` defaults to the `vendored` feature: it compiles the C sources from
+the git submodule under `support/longtail-sys/longtail/` with `cc`, then runs `bindgen` over its
+headers. So the submodule must be checked out and a C toolchain present — that is what the
+differential CI jobs need, and the only thing that needs it. `--no-default-features` switches to a
+pinned prebuilt download instead (`UPSTREAM_VERSION`, the per-OS SHA256 constants, and
+`support/longtail-sys/scripts/get-hashes-for-upstream.sh`); nothing here builds it that way. To
+move to a different upstream C version, bump the submodule.
 
 ## Common commands
 
 - Build (pure crates only, no network): `cargo build`
 - Build everything, including the native legacy pair: `cargo build --workspace`
-- Tests (pure lane): `cargo test`. Full: `cargo test --workspace`. The pure lane depends only on
+- Tests: `cargo test`. Full: `cargo test --workspace`. The default run depends only on
   the committed `fixtures/` (no `mkdata` needed).
-- Differential lane (regression against the C library): `cargo test -p longtail-testkit --features
-  differential`. This needs the prebuilt native lib and, for the three-way e2e, the pinned
+- Differential tests (regression against the C library): `cargo test -p longtail-testkit --features
+  differential`. This needs the submodule + a C toolchain and, for the three-way e2e, the pinned
   golongtail binary — run `test-data/mkdata.sh` (or `.ps1`) and `cargo run -p xtask --
   fetch-golongtail` first.
 - Verify fixtures: `cargo run -p xtask -- verify-fixtures`.
@@ -72,18 +74,48 @@ lane. To bump the upstream C library, refresh the SHA256 constants with
   `--check` on nightly.
 - CLI: `cargo run -p longtail-cli -- <subcommand>` — `get`, `downsync`, `upsync`, `put`, `ls`,
   `print-version`, `validate-version`, `prune-store{,-index,-blocks}`, `clone-store`, `cp`, and the
-  other store-maintenance commands.
+  other store-maintenance commands. The built binary is `longtail-rs`.
+
+### Benchmarks
+
+Benches never run in CI — the numbers are machine-dependent — so CI only proves they still
+compile. To measure, build the release binaries first, then run them; the e2e harness spawns the
+three implementations itself and needs the pinned golongtail binary and a C toolchain.
+
+```sh
+cargo run -p xtask -- fetch-golongtail                 # pinned golongtail, once
+cargo build --release -p longtail-cli
+cargo build --release -p longtail-bench --features differential --bin e2e --bin ffi-driver
+cargo build --release -p longtail-bench --features fastcdc --bin dedup
+
+cargo bench -p longtail-bench --features differential,fastcdc   # micro-benches
+target/release/e2e     # end-to-end matrix; LONGTAIL_BENCH_DATA_SIZE_MB, ITERS,
+                       # COLD_WORKERS and MAIN_WORKERS size the run
+target/release/dedup   # HPCDC vs FastCDC dedup ratios, reusing the e2e dataset
+```
+
+Keep a run's numbers with the machine spec that produced them; a figure without its hardware
+cannot be compared against anything later. Bench reports are working documents, not repo content —
+the durable conclusions belong in `docs/rust-port.md` §Performance.
 
 ## CI
 
-`.github/workflows/rust.yaml`: the **pure lane** (Ubuntu + Windows), **clippy/fmt** (nightly), and
-**miri** (over `longtail-core`) gate every PR. The **differential lanes** (Ubuntu + Windows,
-regression against the retained C implementation) run on a **weekly schedule and manual dispatch
-only** — they cost a native-lib build per run and only guard against the C library, which no
-longer changes per-PR. `.github/workflows/fixture-freshness.yaml` and
-`.github/workflows/s3-minio.yaml` (the S3/minio blob-sync and mixed-writer interop jobs) are
-scheduled. `.github/workflows/audit.yaml` runs `rustsec/audit-check` daily and on Cargo.{toml,lock}
-changes.
+`rust.yaml` gates every PR: the test job on Linux + Windows (build, test, `verify-fixtures`,
+the `--no-default-features` feature matrix, and rustdoc with `-D warnings`), nightly clippy/fmt,
+and miri over `longtail-core`. Windows runs its own clippy, because `cfg(windows)` code is
+compiled by nothing else.
+
+The heavier suites carry their own triggers so they run when they can tell you something:
+`differential.yaml` (regression against the retained C implementation, Ubuntu + Windows) and
+`s3-minio.yaml` (blob sync and the mixed Rust/Go writer interop, against a minio container) run
+on a schedule and on PRs that touch what they guard — manifests, lockfile, or the code underneath
+them. `audit.yaml` runs `rustsec/audit-check`. `fixture-freshness.yaml` is schedule-only.
+`release-readiness.yaml` builds and tests the shipped `[profile.release]` on both platforms; it is
+off the PR gate because release-mode test compilation is slow, and opts in per PR via the
+`release-tests` label.
+
+Both differential jobs need the `longtail-sys` submodule checked out and a C toolchain; every
+other job sets `submodules: false` and must keep working without one.
 
 ## Runtime configuration
 
