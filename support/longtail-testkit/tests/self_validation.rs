@@ -421,11 +421,11 @@ fn downsync_cache_blocks_are_passthrough() {
 /// ffi crate's own blob store rather than C's — the other downsync tests here
 /// pass a plain path — and that listing is not Windows-clean; it carries a
 /// `// TODO: Windows strings may fail here` and returns an internal error
-/// against a shard-only store. That is the retired oracle, not the port: our
-/// merge-on-read is covered on Windows by
-/// `crates/longtail/tests/downsync_e2e.rs::sharded_store_merge_on_read`, and
-/// this fixture check still runs in full on Linux. Not worth repairing a crate
-/// scheduled for deletion.
+/// against a shard-only store. The defect is in the oracle's own path handling,
+/// not in the port: our merge-on-read reads this same fixture correctly on
+/// Windows (`crates/longtail/tests/downsync_e2e.rs::sharded_store_merge_on_read`),
+/// and this fixture check runs in full on Linux. Fixing the ffi crate's Windows
+/// listing would buy coverage that already exists.
 #[cfg_attr(
     windows,
     ignore = "legacy ffi blob-store listing is not Windows-clean; covered on linux"

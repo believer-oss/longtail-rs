@@ -2,7 +2,7 @@
 name = "longtail-ffi"
 version = "0.2.0"
 edition = "2024"
-description = "LEGACY. Safe-ish wrappers over the longtail C library (via longtail-sys). Retained solely for differential regression testing of the pure-Rust workspace against the C implementation; not a default workspace member. Scheduled for deletion after one release cycle of the pure-Rust code in production."
+description = "LEGACY. Safe-ish wrappers over the longtail C library (via longtail-sys). Exists solely as the reference oracle for differential regression testing of the pure-Rust workspace against the C implementation; not a default workspace member and not a dependency of anything shipped."
 
 [dev-dependencies]
 itertools = "0.14.0"

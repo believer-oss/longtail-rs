@@ -32,8 +32,8 @@ crates/
 support/
   longtail-sys/     # LEGACY. Raw bindgen bindings over the vendored C sources.
   longtail-ffi/     # LEGACY. Safe-ish wrappers over the C library.
-                    #   sys + ffi are retained ONLY as the reference oracle for differential
-                    #   regression testing; scheduled for deletion after one release cycle.
+                    #   sys + ffi exist ONLY as the reference oracle for differential
+                    #   regression testing — nothing on a build path depends on them.
   longtail-testkit/ # corpus gen, fixture manifest, differential helpers. The pure part is always
                     #   available; C-backed helpers are behind the `differential` feature.
   longtail-bench/   # criterion micro-benches + the e2e harness. publish = false.

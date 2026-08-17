@@ -31,7 +31,7 @@ structured errors) and a CI/CD pipeline that needs a golongtail-compatible CLI.
 | `longtail-store` | tokio-native. Blob stores (fs/mem/S3), the `RemoteBlockStore` actor, the `Cache`/`Compress` block-store decorators, and optimistic store-index sync (fs lock + S3 shard-merge). |
 | `longtail` | The facade: `downsync`/`upsync` operations, the `ChangeVersion2` apply flow, the error tree, and progress/cancellation. |
 | `longtail-cli` | A `clap` binary, installed as `longtail-rs` — the golongtail CLI replacement. |
-| `longtail-sys`, `longtail-ffi` | **Legacy.** The C bindings and their safe wrappers, retained only as the reference oracle for differential regression testing; scheduled for deletion after one production release cycle. |
+| `longtail-sys`, `longtail-ffi` | **Legacy.** The C bindings and their safe wrappers. Not a dependency of anything shipped — they exist as the reference oracle for differential regression testing, which is worth running for as long as both implementations write the same stores. |
 
 ## Architecture
 

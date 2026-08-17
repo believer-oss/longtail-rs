@@ -14,6 +14,5 @@ default build does.
 It is **not a default workspace member** — a plain `cargo build`/`cargo test` never touches it or
 the native library. Reach it explicitly with `-p longtail-sys`, or via `--workspace`.
 
-Scheduled for deletion after the pure-Rust code has run in production for one release cycle. To
-move to a different upstream C version, bump the submodule; the SHA256 constants and
+To move to a different upstream C version, bump the submodule; the SHA256 constants and
 `scripts/get-hashes-for-upstream.sh` apply only to the non-default prebuilt path.
