@@ -23,7 +23,7 @@ concurrency:
 # lint output in front of you. Only clippy, rustfmt and miri need nightly; every
 # other job here is stable.
 env:
-  NIGHTLY: nightly-2026-08-07
+  NIGHTLY: nightly-2026-08-18
 
 jobs:
   # Builds and tests the default members and checks the committed fixtures
