@@ -502,6 +502,82 @@ fn resume_with_the_target_index_cache_enabled() {
         .expect("resumed tree matches manifest");
 }
 
+/// An unreadable cache index costs a scan, not the download.
+///
+/// The cache file sits inside the target, so a folder that was downsynced and
+/// then upsynced carries it into the version index as an asset — golongtail
+/// indexes it the same way, so existing stores already hold such versions. Apply
+/// then re-creates it like any other asset: sized up front by `create_file_sized`
+/// and zero-filled until its blocks arrive. A run that dies in between leaves the
+/// zeros, and the post-apply cache write never replaces them. Reading that back
+/// as a version index yields `unsupported format version: found 0x00000000`, and
+/// the download used to stop there — on a target that was only stale, and whose
+/// cure was deleting a file no user should have to know about.
+///
+/// Zeros at the full size are the exact residue that path leaves, so the test
+/// writes those rather than arbitrary junk.
+#[test]
+fn a_corrupt_target_index_cache_falls_back_to_scanning() {
+    pin_umask();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let cache_index = target.join(".longtail.index.cache.lvi");
+
+    rt.block_on(downsync(chain_opts(&target, "chain-v1.lvi")))
+        .expect("v1 downsync");
+    let good_len = std::fs::metadata(&cache_index).unwrap().len();
+    assert!(good_len > 0, "the cache index must exist to be corrupted");
+
+    std::fs::write(&cache_index, vec![0u8; good_len as usize]).unwrap();
+
+    // The run must succeed *and* do real work: falling back means scanning the
+    // target, so the v1 -> v2 diff is computed from what is on disk.
+    rt.block_on(downsync(chain_opts(&target, "chain-v2.lvi")))
+        .expect("a zero-filled cache index must not fail the download");
+
+    assert!(
+        std::fs::read(&cache_index).unwrap().iter().any(|&b| b != 0),
+        "a successful run must replace the rejected cache, not leave the zeros behind"
+    );
+
+    std::fs::remove_file(&cache_index).unwrap();
+    TreeManifest::capture(&target)
+        .unwrap()
+        .compare(&chain_manifest("chain-v2.json"), cfg!(windows))
+        .expect("tree matches v2 despite the corrupt cache");
+}
+
+/// An explicitly named `--target-index-path` keeps failing loudly. The fallback
+/// above is for a file this code wrote for itself; a path the caller supplied is
+/// part of the request, and quietly scanning instead would run an operation they
+/// did not ask for.
+#[test]
+fn an_explicit_target_index_still_errors_when_unreadable() {
+    pin_umask();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+    let bogus = tmp.path().join("supplied.lvi");
+    std::fs::write(&bogus, vec![0u8; 4096]).unwrap();
+
+    let mut opts = chain_opts(&target, "chain-v1.lvi");
+    opts.target_index_path = Some(bogus.to_string_lossy().into_owned());
+    let result = rt.block_on(downsync(opts));
+    assert!(
+        matches!(result, Err(LongtailError::Format(_))),
+        "expected a format error, got {result:?}"
+    );
+}
+
 /// The one thing a resume cannot heal, recorded as a limitation rather than a bug.
 ///
 /// The cached index is trusted as the target's state, so damage done to the tree

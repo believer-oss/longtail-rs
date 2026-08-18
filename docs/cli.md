@@ -105,8 +105,15 @@ diffed and only the remainder fetched. A second Ctrl-C exits immediately.
 **The target-index cache is a speed/accuracy trade.** By default a successful run leaves
 `.longtail.index.cache.lvi` in the target and the next run trusts it instead of scanning, which is
 much faster. It is deleted before anything is written and rewritten only on success, so an
-interrupted run cannot leave a stale one. What it cannot detect is damage done to the tree *after*
-a successful run — for that, scan (`--no-cache-target-index`).
+interrupted run cannot leave a stale one *that it wrote*. It can still leave an unreadable one:
+the file sits inside the target, so a folder that was downsynced and then upsynced carries it into
+the version index as ordinary content, and a later download re-creates it like any other asset —
+sized up front, zero-filled until its blocks arrive. A run that fails in between leaves the zeros.
+That is not fatal; an unreadable cache is ignored with a warning and the target is scanned instead.
+If you never want it in your indexes, exclude it on upsync with `--exclude-filter-regex`.
+
+What the cache cannot detect is damage done to the tree *after* a successful run — for that, scan
+(`--no-cache-target-index`).
 
 **`--validate` checks the download against the index it was given**, by re-scanning the target and
 comparing content hashes. That proves the download matched the `.lvi`; it does not prove the `.lvi`

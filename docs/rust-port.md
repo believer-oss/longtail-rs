@@ -148,6 +148,17 @@ Each is intentional; the end state stays compatible.
   implements the intended behaviour, so re-runs are genuinely cheaper. The end state is identical.
 - **`cp` assembles the whole asset then writes once**, which is correct for files > 128 MiB that
   golongtail truncates via per-segment overwrites.
+- **An unreadable target-index cache falls back to scanning.** golongtail exits fatal when
+  `<target>/.longtail.index.cache.lvi` will not parse; the port warns and scans the target, which
+  is what would have happened had the file never existed. The file is reachable in an unreadable
+  state without any crash: it lives inside the target, so a folder that was downsynced and then
+  upsynced carries it into the version index as an asset (golongtail indexes it the same way, so
+  existing stores hold such versions), and apply re-creates it like any other asset — sized up
+  front, zero-filled until its blocks land. A failed or cancelled run leaves those zeros, and the
+  next run read `0x00000000` as a format version. The cache is an optimisation this code wrote for
+  itself, so its worst case has to be a slower run rather than a stopped download whose only cure
+  is deleting a hidden file. An explicit `--target-index-path` still fails loudly: that one is part
+  of the caller's request, not an optimisation. Nothing about store bytes changes.
 - **`prune --dry-run` phrasing** adds a trailing newline golongtail omits (harmless).
 - **HPCDC rejects an out-of-range target.** For target `avg` above ≈ 9.31M the C `(uint32_t)`
   cast of the discriminator is undefined (the expression crosses its denominator pole), so no
