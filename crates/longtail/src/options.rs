@@ -188,6 +188,90 @@ pub struct GetOptions {
     pub s3_options: S3Options,
 }
 
+/// Options for [`crate::upsync`]. Construct with [`UpsyncOptions::new`]
+/// (source folder + storage URI + target `.lvi` URI); block-packing defaults
+/// match golongtail v0.4.5 (`options.go`): 32 KiB target chunk, 8 MiB target
+/// block, 1024 max chunks/block, 80 min block usage percent, `zstd`/`blake3`.
+pub struct UpsyncOptions {
+    /// Source folder to upload.
+    pub source_path: String,
+    /// A pre-built source version index (`.lvi`) URI; skips scan+chunk.
+    pub source_index_path: Option<String>,
+    /// Target version-index (`.lvi`) URI to write.
+    pub target_path: String,
+    /// Block store URI.
+    pub storage_uri: String,
+    /// Version-local store index (`.lsi`) URI to write (`merge(existing, missing)`).
+    pub version_local_store_index_path: Option<String>,
+    pub target_chunk_size: u32,
+    pub max_chunks_per_block: u32,
+    pub target_block_size: u32,
+    pub min_block_usage_percent: u32,
+    pub compression_algorithm: String,
+    pub hash_algorithm: String,
+    pub include_filter_regex: Option<String>,
+    pub exclude_filter_regex: Option<String>,
+    pub worker_count: usize,
+    pub remote_worker_count: usize,
+    pub enable_file_mapping: bool,
+    pub use_legacy_write: bool,
+    pub cancel: Option<CancellationToken>,
+    pub pool: Option<Arc<rayon::ThreadPool>>,
+    #[cfg(feature = "s3")]
+    pub s3_options: S3Options,
+}
+
+impl UpsyncOptions {
+    /// Minimal options: source folder, storage URI, target `.lvi` URI.
+    pub fn new(
+        source_path: impl Into<String>,
+        storage_uri: impl Into<String>,
+        target_path: impl Into<String>,
+    ) -> UpsyncOptions {
+        UpsyncOptions {
+            source_path: source_path.into(),
+            source_index_path: None,
+            target_path: target_path.into(),
+            storage_uri: storage_uri.into(),
+            version_local_store_index_path: None,
+            target_chunk_size: crate::upsync::DEFAULT_TARGET_CHUNK_SIZE,
+            max_chunks_per_block: crate::upsync::DEFAULT_MAX_CHUNKS_PER_BLOCK,
+            target_block_size: crate::upsync::DEFAULT_TARGET_BLOCK_SIZE,
+            min_block_usage_percent: crate::upsync::DEFAULT_MIN_BLOCK_USAGE_PERCENT,
+            compression_algorithm: "zstd".to_string(),
+            hash_algorithm: "blake3".to_string(),
+            include_filter_regex: None,
+            exclude_filter_regex: None,
+            worker_count: 0,
+            remote_worker_count: 0,
+            enable_file_mapping: false,
+            use_legacy_write: false,
+            cancel: None,
+            pool: None,
+            #[cfg(feature = "s3")]
+            s3_options: S3Options::default(),
+        }
+    }
+}
+
+/// The result of a successful [`crate::upsync`] / [`crate::put`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpsyncReport {
+    /// The written target `.lvi` URI.
+    pub target_path: String,
+    pub phases: Vec<PhaseTiming>,
+    /// Blocks packed and written this upsync (== `blocks_missing`).
+    pub blocks_written: u32,
+    /// Blocks the version needed that were not already in the store.
+    pub blocks_missing: u32,
+    /// Uncompressed bytes assembled into block payloads.
+    pub bytes_written: u64,
+    /// Chunk entries across the written blocks.
+    pub chunks_written: u32,
+    /// Block-store I/O counters.
+    pub store_stats: DownsyncStoreStats,
+}
+
 impl GetOptions {
     /// Minimal options: get-config URI(s) + target folder.
     pub fn new(get_config_paths: Vec<String>, target_path: impl Into<String>) -> GetOptions {

@@ -393,10 +393,34 @@ impl BlockStore for RemoteBlockStore {
         rx.await.map_err(|_| StoreError::WorkerGone)?
     }
 
-    async fn prune_blocks(&self, _keep_block_hashes: &[u64]) -> Result<u32, StoreError> {
-        Err(StoreError::NotSupported(
-            "prune_blocks is deferred to Stage 7".into(),
-        ))
+    async fn prune_blocks(&self, keep_block_hashes: &[u64]) -> Result<u32, StoreError> {
+        if self.access_type == AccessType::ReadOnly {
+            return Err(StoreError::AccessViolation);
+        }
+        // Current store index (loaded via the owner; `added` is empty on the
+        // prune path, so this is the authoritative on-store index).
+        let source = self.get_index_snapshot().await?;
+        let pruned = source.prune(keep_block_hashes);
+
+        // Overwrite the store index FIRST, then delete orphan blocks
+        // (remotestore.go:655-684 ordering — a crash leaves harmless orphans,
+        // never dangling index entries).
+        sync::overwrite_remote_store_index(&*self.client, &pruned).await?;
+
+        let kept: std::collections::HashSet<u64> = pruned.block_hashes.iter().copied().collect();
+        let mut pruned_count = 0u32;
+        for &bh in &source.block_hashes {
+            if kept.contains(&bh) {
+                continue;
+            }
+            let key = sync::block_path("chunks", bh);
+            if let Ok(mut obj) = self.client.new_object(&key).await
+                && obj.delete().await.is_ok()
+            {
+                pruned_count += 1;
+            }
+        }
+        Ok(pruned_count)
     }
 
     async fn flush(&self) -> Result<(), StoreError> {

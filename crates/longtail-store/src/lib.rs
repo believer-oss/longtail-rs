@@ -32,12 +32,17 @@ pub use blob::{
     create_blob_store_for_uri,
 };
 pub use block_store::{BlockStore, BlockStoreStats, StatsSnapshot};
-pub use cache::CacheBlockStore;
+pub use cache::{CacheBlockStore, EvictionReport, evict_cache_dir};
 pub use compress::CompressBlockStore;
 pub use error::StoreError;
-pub use remote::RemoteBlockStore;
-pub use sync::{AccessType, add_to_remote_store_index, block_path, read_merged_store_index};
-pub use uri::create_block_store_for_uri;
+pub use remote::{DEFAULT_MAX_PREFETCH_BYTES, RemoteBlockStore};
+pub use sync::{
+    AccessType, add_to_remote_store_index, block_path, overwrite_remote_store_index,
+    read_merged_store_index,
+};
+pub use uri::{
+    create_block_store_for_uri, create_block_store_for_uri_with_budget, resolved_worker_count,
+};
 
 #[cfg(feature = "s3")]
 pub use blob::{S3BlobStore, S3Options};

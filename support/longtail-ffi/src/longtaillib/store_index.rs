@@ -117,7 +117,7 @@ impl StoreIndex {
     }
 
     /// Serialize this `StoreIndex` back to a byte buffer via
-    /// `Longtail_WriteStoreIndexToBuffer`. Used by the Stage 1 self-validation
+    /// `Longtail_WriteStoreIndexToBuffer`. Used by the self-validation
     /// harness to prove the C serializer round-trips committed `.lsi` bytes
     /// byte-identically before any pure-Rust port exists.
     pub fn write_to_buffer(&self) -> Result<Vec<u8>, i32> {
@@ -186,6 +186,26 @@ impl StoreIndex {
         self.merge_store_index(&added_store_index)
     }
 
+    /// Prune this store index to only the blocks in `keep_block_hashes`
+    /// (`Longtail_PruneStoreIndex`). Kept solely for the
+    /// `PruneStoreIndex` differential (`packing_differential.rs`); the
+    /// pure-Rust `StoreIndex::prune` is validated byte-for-byte against this.
+    pub fn prune(&self, keep_block_hashes: &[u64]) -> Result<StoreIndex, i32> {
+        let mut out = std::ptr::null_mut::<Longtail_StoreIndex>();
+        let result = unsafe {
+            longtail_sys::Longtail_PruneStoreIndex(
+                self.store_index,
+                keep_block_hashes.len() as u32,
+                keep_block_hashes.as_ptr(),
+                &mut out,
+            )
+        };
+        if result != 0 {
+            return Err(result);
+        }
+        Ok(StoreIndex::new_from_lt(out))
+    }
+
     /// Get the hashes contained in the store index
     pub fn get_block_hashes(&self) -> Vec<u64> {
         let count = unsafe { *(*self.store_index).m_BlockCount } as usize;
@@ -201,9 +221,9 @@ impl StoreIndex {
         tags.to_vec()
     }
 
-    // The getters below were added in Stage 2 to give the pure-Rust format layer
+    // The getters below give the pure-Rust format layer
     // a complete parse-equivalence differential (every scalar/array compared
-    // against the C reader). See `rust-port-2.md` Task 6.4.
+    // against the C reader).
 
     /// The store index format version (`m_Version`).
     pub fn get_version(&self) -> u32 {

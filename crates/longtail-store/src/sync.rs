@@ -321,6 +321,62 @@ pub async fn read_merged_store_index(client: &dyn BlobClient) -> Result<StoreInd
     Ok(index)
 }
 
+/// `tryOverwriteRemoteStoreIndex` (remotestore.go:1432) — make `index` the sole
+/// authoritative store index (used by prune, which must REPLACE not merge).
+/// - Locking flavor: lock `store.lsi`, write it unconditionally.
+/// - Lockless flavor: write the `store_<sha256>.lsi` shard for `index` (if not
+///   already present), then delete every *other* `store*.lsi` item.
+async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bool, StoreError> {
+    if client.supports_locking() {
+        let mut obj = client.new_object("store.lsi").await?;
+        obj.lock_write_version().await?;
+        return obj.write(&index.to_bytes()).await;
+    }
+    let items = get_store_store_indexes(client).await?;
+    let bytes = index.to_bytes();
+    let key = shard_key(&bytes);
+    if !items.iter().any(|i| i == &key) {
+        let mut obj = client.new_object(&key).await?;
+        if !obj.exists().await? {
+            let ok = obj.write(&bytes).await?;
+            if !ok {
+                return Ok(false);
+            }
+        }
+    }
+    for item in &items {
+        if item == &key {
+            continue;
+        }
+        if let Ok(mut old) = client.new_object(item).await {
+            let _ = old.delete().await;
+        }
+    }
+    Ok(true)
+}
+
+/// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry [`try_overwrite`]
+/// on a lost CAS; hard errors tolerated up to 3 times. Public: the prune path
+/// (Stage 7) calls this to overwrite the store index BEFORE deleting blocks.
+pub async fn overwrite_remote_store_index(
+    client: &dyn BlobClient,
+    index: &StoreIndex,
+) -> Result<(), StoreError> {
+    let mut error_retries = 0u32;
+    loop {
+        match try_overwrite(client, index).await {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(e) => {
+                error_retries += 1;
+                if error_retries == 3 {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+
 /// `getStoreIndexFromBlocks` (remotestore.go:1482): read each `.lsb`, parse its
 /// block index, keep only blocks whose stored hash matches their path, and
 /// build one store index. **Rust-assembled order is sorted by block hash** for

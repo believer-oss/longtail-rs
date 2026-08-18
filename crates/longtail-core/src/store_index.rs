@@ -343,6 +343,30 @@ impl StoreIndex {
         })
     }
 
+    /// Keep only the blocks whose hash is in `keep_block_hashes`, matching
+    /// `Longtail_PruneStoreIndex` (longtail.c:9287). Source block **order is
+    /// preserved** and chunk offsets are rebuilt cumulatively; the
+    /// `hash_identifier` is carried over from the source **even when the result
+    /// is empty** (longtail.c:9406 — a divergence from
+    /// [`StoreIndex::from_block_indexes`], which would yield `0`). Keep-hashes
+    /// not present in the source are ignored; duplicate keep-hashes are deduped.
+    pub fn prune(&self, keep_block_hashes: &[u64]) -> StoreIndex {
+        let keep: HashSet<u64> = keep_block_hashes.iter().copied().collect();
+        let mut out = StoreIndex::empty(self.hash_identifier);
+        for b in 0..self.block_hashes.len() {
+            if !keep.contains(&self.block_hashes[b]) {
+                continue;
+            }
+            // A wild source block (offset/count off the arrays) is skipped
+            // rather than panicking (C would read OOB).
+            if Self::push_block(&mut out, self, b).is_err() {
+                continue;
+            }
+        }
+        out.hash_identifier = self.hash_identifier;
+        out
+    }
+
     /// Select the subset of blocks that cover the requested `chunk_hashes`,
     /// matching `Longtail_GetExistingStoreIndex` (longtail.c:7087).
     ///

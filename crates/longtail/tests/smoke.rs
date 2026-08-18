@@ -3,7 +3,6 @@
 //! assertions. Linux-only; skipped under miri.
 
 #![cfg(unix)]
-#![cfg_attr(miri, ignore)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

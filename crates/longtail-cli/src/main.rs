@@ -1,6 +1,8 @@
 //! `longtail` CLI — a drop-in replacement for the golongtail download-path
 //! commands (`downsync`, `get`, `ls`, `validate-version`, `print-version`).
-//! Flag names match the pinned v0.4.5 `--help` (rust-port-1-results.md §5).
+//! Flag names match the pinned golongtail v0.4.5 `--help`.
+
+#![forbid(unsafe_code)]
 
 use std::process::ExitCode;
 
@@ -15,7 +17,7 @@ use longtail_core::VersionIndex;
 #[command(
     name = "longtail",
     version,
-    about = "Pure-Rust longtail — download-path CLI (drop-in for golongtail)"
+    about = "Pure-Rust longtail CLI (drop-in for golongtail)"
 )]
 struct Cli {
     /// CPU worker count (chunk/hash); 0 = logical CPUs.
@@ -46,6 +48,30 @@ enum Command {
     ValidateVersion(ValidateArgs),
     /// Print a summary of a version index.
     PrintVersion(PrintArgs),
+    /// Upload a folder into a store, writing the version index.
+    Upsync(UpsyncArgs),
+    /// Upsync a folder and write a get-config JSON (path-defaulting).
+    Put(PutArgs),
+    /// Open/create a remote store and force-rebuild the store index.
+    InitRemoteStore(InitArgs),
+    /// Create a store index optimized for a version index.
+    CreateVersionStoreIndex(CreateVsiArgs),
+    /// Prune the store index and delete orphan blocks for a version set.
+    PruneStore(PruneStoreArgs),
+    /// Prune only the store index for a version set.
+    PruneStoreIndex(PruneStoreIndexArgs),
+    /// Delete block files not referenced by the store index.
+    PruneStoreBlocks(PruneStoreBlocksArgs),
+    /// Clone versions from one store to another (materialize + re-upload).
+    CloneStore(CloneStoreArgs),
+    /// Print info about a store index.
+    PrintStore(PrintStoreArgs),
+    /// Show block usage and asset fragmentation for a version.
+    PrintVersionUsage(PrintVersionUsageArgs),
+    /// List all asset paths inside a version index.
+    DumpVersionAssets(DumpVersionAssetsArgs),
+    /// Copy one asset out of a version into a local file.
+    Cp(CpArgs),
 }
 
 #[derive(Args)]
@@ -163,6 +189,256 @@ struct PrintArgs {
     compact: bool,
 }
 
+#[derive(Args)]
+struct UpsyncArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    source_path: String,
+    #[arg(long)]
+    source_index_path: Option<String>,
+    #[arg(long)]
+    target_path: String,
+    #[arg(long)]
+    version_local_store_index_path: Option<String>,
+    #[arg(long, default_value_t = 32768)]
+    target_chunk_size: u32,
+    #[arg(long, default_value_t = 1024)]
+    max_chunks_per_block: u32,
+    #[arg(long, default_value_t = 8388608)]
+    target_block_size: u32,
+    #[arg(long, default_value_t = 80)]
+    min_block_usage_percent: u32,
+    #[arg(long, default_value = "zstd")]
+    compression_algorithm: String,
+    #[arg(long, default_value = "blake3")]
+    hash_algorithm: String,
+    #[arg(long)]
+    include_filter_regex: Option<String>,
+    #[arg(long)]
+    exclude_filter_regex: Option<String>,
+    #[arg(long, default_value_t = false)]
+    enable_file_mapping: bool,
+    #[arg(long, default_value_t = false)]
+    use_legacy_write: bool,
+}
+
+#[derive(Args)]
+struct PutArgs {
+    #[arg(long)]
+    target_path: String,
+    #[arg(long)]
+    target_version_index_path: Option<String>,
+    #[arg(long)]
+    version_local_store_index_path: Option<String>,
+    #[arg(long)]
+    storage_uri: Option<String>,
+    #[arg(long, default_value_t = false)]
+    no_version_local_store_index: bool,
+    #[arg(long)]
+    source_path: String,
+    #[arg(long)]
+    source_index_path: Option<String>,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long, default_value_t = 32768)]
+    target_chunk_size: u32,
+    #[arg(long, default_value_t = 8388608)]
+    target_block_size: u32,
+    #[arg(long, default_value_t = 1024)]
+    max_chunks_per_block: u32,
+    #[arg(long, default_value = "zstd")]
+    compression_algorithm: String,
+    #[arg(long, default_value = "blake3")]
+    hash_algorithm: String,
+    #[arg(long)]
+    include_filter_regex: Option<String>,
+    #[arg(long)]
+    exclude_filter_regex: Option<String>,
+    #[arg(long, default_value_t = 80)]
+    min_block_usage_percent: u32,
+    #[arg(long, default_value_t = false)]
+    enable_file_mapping: bool,
+}
+
+#[derive(Args)]
+struct InitArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long, default_value = "blake3")]
+    hash_algorithm: String,
+}
+
+#[derive(Args)]
+struct CreateVsiArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    source_path: String,
+    #[arg(long)]
+    version_local_store_index_path: String,
+}
+
+#[derive(Args)]
+struct PruneStoreArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    /// Path to a text file listing source version-index URIs (one per line).
+    #[arg(long)]
+    source_paths: String,
+    /// Path to a text file listing version-local store-index URIs (one per line).
+    #[arg(long)]
+    version_local_store_index_paths: Option<String>,
+    #[arg(long, default_value_t = false)]
+    dry_run: bool,
+    #[arg(long, default_value_t = false)]
+    write_version_local_store_index: bool,
+    #[arg(long, default_value_t = false)]
+    validate_versions: bool,
+    #[arg(long, default_value_t = false)]
+    skip_invalid_versions: bool,
+}
+
+#[derive(Args)]
+struct PruneStoreIndexArgs {
+    #[arg(long)]
+    store_index_path: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    source_paths: String,
+    #[arg(long)]
+    version_local_store_index_paths: Option<String>,
+    #[arg(long, default_value_t = false)]
+    dry_run: bool,
+    #[arg(long, default_value_t = false)]
+    write_version_local_store_index: bool,
+    #[arg(long, default_value_t = false)]
+    validate_versions: bool,
+    #[arg(long, default_value_t = false)]
+    skip_invalid_versions: bool,
+}
+
+#[derive(Args)]
+struct PruneStoreBlocksArgs {
+    #[arg(long)]
+    store_index_path: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    blocks_root_path: String,
+    #[arg(long, default_value = ".lsb")]
+    block_extension: String,
+    #[arg(long, default_value_t = false)]
+    dry_run: bool,
+}
+
+#[derive(Args)]
+struct CloneStoreArgs {
+    #[arg(long)]
+    source_storage_uri: String,
+    #[arg(long)]
+    target_storage_uri: String,
+    #[arg(long)]
+    source_s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    target_s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    target_path: String,
+    #[arg(long)]
+    source_paths: String,
+    #[arg(long)]
+    target_paths: String,
+    #[arg(long)]
+    source_zip_paths: Option<String>,
+    #[arg(long, default_value_t = false)]
+    create_version_local_store_index: bool,
+    #[arg(long, default_value_t = false)]
+    skip_validate: bool,
+    #[arg(long)]
+    cache_path: Option<String>,
+    #[arg(long, default_value_t = false)]
+    retain_permissions: bool,
+    #[arg(long, default_value_t = false)]
+    no_retain_permissions: bool,
+    #[arg(long, default_value_t = 1024)]
+    max_chunks_per_block: u32,
+    #[arg(long, default_value_t = 8388608)]
+    target_block_size: u32,
+    #[arg(long, default_value_t = 80)]
+    min_block_usage_percent: u32,
+    /// Accepted for parity; ignored (the hash comes from the source version).
+    #[arg(long, default_value = "blake3")]
+    hash_algorithm: String,
+    /// Accepted for parity; ignored (compression comes from the source version).
+    #[arg(long, default_value = "zstd")]
+    compression_algorithm: String,
+    #[arg(long, default_value_t = false)]
+    enable_file_mapping: bool,
+    #[arg(long, default_value_t = false)]
+    use_legacy_write: bool,
+}
+
+#[derive(Args)]
+struct PrintStoreArgs {
+    #[arg(long)]
+    store_index_path: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long, default_value_t = false)]
+    compact: bool,
+    #[arg(long, default_value_t = false)]
+    details: bool,
+}
+
+#[derive(Args)]
+struct PrintVersionUsageArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    version_index_path: String,
+    #[arg(long)]
+    cache_path: Option<String>,
+}
+
+#[derive(Args)]
+struct DumpVersionAssetsArgs {
+    #[arg(long)]
+    version_index_path: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long, default_value_t = false)]
+    details: bool,
+}
+
+#[derive(Args)]
+struct CpArgs {
+    #[arg(long)]
+    storage_uri: String,
+    #[arg(long)]
+    s3_endpoint_resolver_uri: Option<String>,
+    #[arg(long)]
+    version_index_path: String,
+    #[arg(long)]
+    cache_path: Option<String>,
+    #[arg(long, default_value_t = false)]
+    enable_file_mapping: bool,
+    /// Asset path inside the version index.
+    source_path: String,
+    /// Destination file path/URI.
+    target_path: String,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -191,7 +467,33 @@ async fn run(cli: &Cli) -> Result<(), longtail::LongtailError> {
         Command::Ls(a) => run_ls(a).await,
         Command::ValidateVersion(a) => run_validate(cli, a).await,
         Command::PrintVersion(a) => run_print(a).await,
+        Command::Upsync(a) => run_upsync(cli, a).await,
+        Command::Put(a) => run_put(cli, a).await,
+        Command::InitRemoteStore(a) => run_init(cli, a).await,
+        Command::CreateVersionStoreIndex(a) => run_create_vsi(cli, a).await,
+        Command::PruneStore(a) => run_prune_store(cli, a).await,
+        Command::PruneStoreIndex(a) => run_prune_store_index(a).await,
+        Command::PruneStoreBlocks(a) => run_prune_store_blocks(a).await,
+        Command::CloneStore(a) => run_clone_store(cli, a).await,
+        Command::PrintStore(a) => run_print_store(a).await,
+        Command::PrintVersionUsage(a) => run_print_version_usage(cli, a).await,
+        Command::DumpVersionAssets(a) => run_dump_version_assets(a).await,
+        Command::Cp(a) => run_cp(cli, a).await,
     }
+}
+
+/// Read a text file of one URI per line into a `Vec<String>` (golongtail's
+/// `--source-paths`/`--target-paths` list files).
+fn read_lines_file(path: &str) -> Result<Vec<String>, longtail::LongtailError> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        longtail::LongtailError::InvalidArgument(format!("read list file {path}: {e}"))
+    })?;
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 fn merge_paths(single: &Option<String>, multi: &[String]) -> Vec<String> {
@@ -291,6 +593,318 @@ async fn run_print(a: &PrintArgs) -> Result<(), longtail::LongtailError> {
     let vi = read_version_index_from_uri(&a.version_index_path).await?;
     print_version_index(&a.version_index_path, &vi, a.compact);
     Ok(())
+}
+
+async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::UpsyncOptions::new(
+        a.source_path.clone(),
+        a.storage_uri.clone(),
+        a.target_path.clone(),
+    );
+    opts.source_index_path = a.source_index_path.clone();
+    opts.version_local_store_index_path = a.version_local_store_index_path.clone();
+    opts.target_chunk_size = a.target_chunk_size;
+    opts.max_chunks_per_block = a.max_chunks_per_block;
+    opts.target_block_size = a.target_block_size;
+    opts.min_block_usage_percent = a.min_block_usage_percent;
+    opts.compression_algorithm = a.compression_algorithm.clone();
+    opts.hash_algorithm = a.hash_algorithm.clone();
+    opts.include_filter_regex = a.include_filter_regex.clone();
+    opts.exclude_filter_regex = a.exclude_filter_regex.clone();
+    opts.enable_file_mapping = a.enable_file_mapping;
+    opts.use_legacy_write = a.use_legacy_write;
+    opts.worker_count = cli.worker_count;
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let report = longtail::upsync(opts).await?;
+    if cli.show_stats {
+        eprintln!(
+            "upsync complete: {} blocks written, {} bytes, target {}",
+            report.blocks_written, report.bytes_written, report.target_path
+        );
+    }
+    Ok(())
+}
+
+async fn run_put(cli: &Cli, a: &PutArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::PutOptions::new(a.target_path.clone(), a.source_path.clone());
+    opts.target_version_index_path = a.target_version_index_path.clone();
+    opts.version_local_store_index_path = a.version_local_store_index_path.clone();
+    opts.storage_uri = a.storage_uri.clone();
+    opts.no_version_local_store_index = a.no_version_local_store_index;
+    opts.source_index_path = a.source_index_path.clone();
+    opts.s3_endpoint_resolver_uri = a.s3_endpoint_resolver_uri.clone();
+    opts.target_chunk_size = a.target_chunk_size;
+    opts.target_block_size = a.target_block_size;
+    opts.max_chunks_per_block = a.max_chunks_per_block;
+    opts.compression_algorithm = a.compression_algorithm.clone();
+    opts.hash_algorithm = a.hash_algorithm.clone();
+    opts.include_filter_regex = a.include_filter_regex.clone();
+    opts.exclude_filter_regex = a.exclude_filter_regex.clone();
+    opts.min_block_usage_percent = a.min_block_usage_percent;
+    opts.enable_file_mapping = a.enable_file_mapping;
+    opts.worker_count = cli.worker_count;
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let report = longtail::put(opts).await?;
+    if cli.show_stats {
+        eprintln!(
+            "put complete: {} blocks written, get-config {}",
+            report.blocks_written, a.target_path
+        );
+    }
+    Ok(())
+}
+
+async fn run_init(cli: &Cli, a: &InitArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::InitRemoteStoreOptions::new(a.storage_uri.clone());
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let _ = &a.hash_algorithm; // accepted for parity; rebuild derives it from blocks
+    longtail::init_remote_store(opts).await?;
+    Ok(())
+}
+
+async fn run_create_vsi(cli: &Cli, a: &CreateVsiArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::CreateVersionStoreIndexOptions::new(
+        a.source_path.clone(),
+        a.version_local_store_index_path.clone(),
+        a.storage_uri.clone(),
+    );
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    longtail::create_version_store_index(opts).await
+}
+
+async fn run_prune_store(cli: &Cli, a: &PruneStoreArgs) -> Result<(), longtail::LongtailError> {
+    let sources = read_lines_file(&a.source_paths)?;
+    let mut opts = longtail::PruneStoreOptions::new(a.storage_uri.clone(), sources);
+    if let Some(p) = &a.version_local_store_index_paths {
+        opts.version_local_store_index_paths = read_lines_file(p)?;
+    }
+    opts.dry_run = a.dry_run;
+    opts.write_version_local_store_index = a.write_version_local_store_index;
+    opts.validate_versions = a.validate_versions;
+    opts.skip_invalid_versions = a.skip_invalid_versions;
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let r = longtail::prune_store(opts).await?;
+    if r.dry_run {
+        println!("Prune would keep {} blocks", r.keep_blocks);
+    } else if cli.show_stats {
+        eprintln!("Pruned {} blocks", r.pruned_blocks);
+    }
+    Ok(())
+}
+
+async fn run_prune_store_index(a: &PruneStoreIndexArgs) -> Result<(), longtail::LongtailError> {
+    let sources = read_lines_file(&a.source_paths)?;
+    let mut opts = longtail::PruneStoreIndexOptions::new(a.store_index_path.clone(), sources);
+    if let Some(p) = &a.version_local_store_index_paths {
+        opts.version_local_store_index_paths = read_lines_file(p)?;
+    }
+    opts.dry_run = a.dry_run;
+    opts.write_version_local_store_index = a.write_version_local_store_index;
+    opts.validate_versions = a.validate_versions;
+    opts.skip_invalid_versions = a.skip_invalid_versions;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let r = longtail::prune_store_index(opts).await?;
+    println!(
+        "Pruned {} blocks out of {}",
+        r.old_block_count - r.new_block_count,
+        r.old_block_count
+    );
+    Ok(())
+}
+
+async fn run_prune_store_blocks(a: &PruneStoreBlocksArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::PruneStoreBlocksOptions::new(
+        a.store_index_path.clone(),
+        a.blocks_root_path.clone(),
+    );
+    opts.block_extension = a.block_extension.clone();
+    opts.dry_run = a.dry_run;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let r = longtail::prune_store_blocks(opts).await?;
+    println!("Found {} blocks", r.found_blocks);
+    println!("Found {} blocks to prune", r.blocks_to_prune);
+    if !r.dry_run {
+        println!("Deleted {} blocks", r.deleted_blocks);
+    }
+    Ok(())
+}
+
+async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::LongtailError> {
+    let sources = read_lines_file(&a.source_paths)?;
+    let targets = read_lines_file(&a.target_paths)?;
+    let mut opts = longtail::CloneStoreOptions::new(
+        a.source_storage_uri.clone(),
+        a.target_storage_uri.clone(),
+        a.target_path.clone(),
+        sources,
+        targets,
+    );
+    if let Some(p) = &a.source_zip_paths {
+        opts.source_zip_paths = read_lines_file(p)?;
+    }
+    opts.create_version_local_store_index = a.create_version_local_store_index;
+    opts.skip_validate = a.skip_validate;
+    opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.retain_permissions = !a.no_retain_permissions;
+    opts.max_chunks_per_block = a.max_chunks_per_block;
+    opts.target_block_size = a.target_block_size;
+    opts.min_block_usage_percent = a.min_block_usage_percent;
+    opts.enable_file_mapping = a.enable_file_mapping;
+    opts.use_legacy_write = a.use_legacy_write;
+    opts.worker_count = cli.worker_count;
+    opts.remote_worker_count = cli.remote_worker_count;
+    let _ = (&a.hash_algorithm, &a.compression_algorithm); // ignored (source-derived)
+    #[cfg(feature = "s3")]
+    {
+        if let Some(u) = &a.source_s3_endpoint_resolver_uri {
+            opts.source_s3_options.endpoint_url = Some(u.clone());
+        }
+        if let Some(u) = &a.target_s3_endpoint_resolver_uri {
+            opts.target_s3_options.endpoint_url = Some(u.clone());
+        }
+    }
+    let cloned = longtail::clone_store(opts).await?;
+    if cli.show_stats {
+        eprintln!("clone-store complete: {cloned} versions cloned");
+    }
+    Ok(())
+}
+
+async fn run_print_store(a: &PrintStoreArgs) -> Result<(), longtail::LongtailError> {
+    let si = longtail::read_store_index_from_uri(&a.store_index_path).await?;
+    let s = longtail::store_index_stats(&si);
+    let hash_str = hash_identifier_string(s.hash_identifier);
+    if a.compact {
+        let mut line = format!(
+            "{}\t{}\t{}\t{}\t{}",
+            a.store_index_path, s.version, hash_str, s.block_count, s.chunk_count
+        );
+        if a.details {
+            line.push_str(&format!(
+                "\t{}\t{}",
+                s.stored_chunks_size, s.unique_stored_chunks_size
+            ));
+        }
+        println!("{line}");
+    } else {
+        println!("Version:             {}", s.version);
+        println!("Hash Identifier:     {hash_str}");
+        println!(
+            "Block Count:         {}   ({})",
+            s.block_count,
+            byte_count_decimal(s.block_count as u64)
+        );
+        println!(
+            "Chunk Count:         {}   ({})",
+            s.chunk_count,
+            byte_count_decimal(s.chunk_count as u64)
+        );
+        if a.details {
+            println!(
+                "Data size:           {}   ({})",
+                s.stored_chunks_size,
+                byte_count_binary(s.stored_chunks_size)
+            );
+            println!(
+                "Unique Data size:    {}   ({})",
+                s.unique_stored_chunks_size,
+                byte_count_binary(s.unique_stored_chunks_size)
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn run_print_version_usage(
+    cli: &Cli,
+    a: &PrintVersionUsageArgs,
+) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::PrintVersionUsageOptions::new(
+        a.storage_uri.clone(),
+        a.version_index_path.clone(),
+    );
+    opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.remote_worker_count = cli.remote_worker_count;
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    let stats = longtail::print_version_usage_stats(opts).await?;
+    println!("Block Usage:          {}%", stats.block_usage_percent);
+    println!(
+        "Asset Fragmentation:  {}%",
+        stats.asset_fragmentation_percent
+    );
+    Ok(())
+}
+
+async fn run_dump_version_assets(a: &DumpVersionAssetsArgs) -> Result<(), longtail::LongtailError> {
+    let vi = read_version_index_from_uri(&a.version_index_path).await?;
+    let asset_count = vi.asset_count() as usize;
+    let biggest = vi.asset_sizes.iter().copied().max().unwrap_or(0);
+    let pad = biggest.to_string().len();
+    for i in 0..asset_count {
+        let path = vi.path(i)?;
+        if a.details {
+            let is_dir = path.ends_with('/');
+            println!(
+                "{}",
+                details_string(
+                    path,
+                    vi.asset_sizes[i],
+                    vi.permissions[i].bits(),
+                    is_dir,
+                    pad
+                )
+            );
+        } else {
+            println!("{path}");
+        }
+    }
+    Ok(())
+}
+
+async fn run_cp(cli: &Cli, a: &CpArgs) -> Result<(), longtail::LongtailError> {
+    let mut opts = longtail::CpOptions::new(
+        a.storage_uri.clone(),
+        a.version_index_path.clone(),
+        a.source_path.clone(),
+        a.target_path.clone(),
+    );
+    opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.remote_worker_count = cli.remote_worker_count;
+    let _ = a.enable_file_mapping; // accepted for parity; no-op
+    #[cfg(feature = "s3")]
+    if let Some(u) = &a.s3_endpoint_resolver_uri {
+        opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    longtail::cp(opts).await
 }
 
 // ---- ls / print-version formatting (golongtail-compatible) ----

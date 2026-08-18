@@ -86,7 +86,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
 
     let pool = match &opts.pool {
         Some(p) => p.clone(),
-        None => Arc::new(build_pool(opts.worker_count)?),
+        None => Arc::new(crate::version::build_pool(opts.worker_count)?),
     };
 
     #[cfg(feature = "s3")]
@@ -216,18 +216,6 @@ fn check_cancel(cancel: &CancellationToken) -> Result<(), LongtailError> {
     } else {
         Ok(())
     }
-}
-
-fn build_pool(worker_count: usize) -> Result<rayon::ThreadPool, LongtailError> {
-    let n = if worker_count == 0 {
-        num_cpus::get().max(1)
-    } else {
-        worker_count
-    };
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(n)
-        .build()
-        .map_err(|e| LongtailError::InvalidArgument(format!("failed to build rayon pool: {e}")))
 }
 
 /// Derive the target folder from a source URI: basename (last `/`-segment) of the
