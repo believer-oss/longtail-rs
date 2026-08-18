@@ -49,7 +49,7 @@ every path.
 **Publish a build.**
 
 ```sh
-longtail-rs put --source-path ./build --target-path s3://bucket/game/v1.4.2.json
+longtail-rs put --source-path ./build --target-path s3://bucket/artifacts/v1.4.2.json
 ```
 
 Everything else is derived: blocks under `.../store`, the index under
@@ -59,8 +59,8 @@ consumers the JSON URL.
 **Install or update.**
 
 ```sh
-longtail-rs get --source-path s3://bucket/game/v1.4.2.json \
-                --target-path ./game --cache-path ./cache
+longtail-rs get --source-path s3://bucket/artifacts/v1.4.2.json \
+                --target-path ./install --cache-path ./cache
 ```
 
 Updating is the same command with a new config: the target is scanned, diffed, and only the
@@ -70,21 +70,21 @@ biggest win on repeated installs.
 **Repair an install** — check every asset the version names, without touching anything else:
 
 ```sh
-longtail-rs downsync --storage-uri s3://bucket/game/store \
-                     --source-path s3://bucket/game/version-data/version-index/v1.4.2.lvi \
-                     --target-path ./game \
+longtail-rs downsync --storage-uri s3://bucket/artifacts/store \
+                     --source-path s3://bucket/artifacts/version-data/version-index/v1.4.2.lvi \
+                     --target-path ./install \
                      --no-cache-target-index --no-delete-removed
 ```
 
-**Both flags are required and neither is optional for this to work.** `--no-delete-removed` keeps
-files the version does not contain — save games, logs, user config — which a normal run deletes.
+**Both flags are required for this to work.** `--no-delete-removed` keeps files the version does
+not contain — saved state, logs, local config — which a normal run deletes.
 `--no-cache-target-index` forces the content-hash scan; without it the run trusts the cached index,
 finds nothing to do, and repairs nothing. The run warns on stderr if you pass only the first.
 
 **Verify a store covers a version** (no download):
 
 ```sh
-longtail-rs validate-version --storage-uri s3://bucket/game/store \
+longtail-rs validate-version --storage-uri s3://bucket/artifacts/store \
                              --version-index-path .../v1.4.2.lvi
 ```
 
