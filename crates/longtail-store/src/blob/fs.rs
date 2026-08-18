@@ -37,6 +37,7 @@ use crate::error::StoreError;
 pub struct FsBlobStore {
     prefix: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
 }
 
 impl FsBlobStore {
@@ -45,7 +46,14 @@ impl FsBlobStore {
         FsBlobStore {
             prefix: prefix.as_ref().to_path_buf(),
             enable_locking,
+            max_read_bytes: super::DEFAULT_MAX_BLOB_BYTES,
         }
+    }
+
+    /// Override the per-read ceiling (see [`super::DEFAULT_MAX_BLOB_BYTES`]).
+    pub fn with_max_read_bytes(mut self, max_read_bytes: u64) -> FsBlobStore {
+        self.max_read_bytes = max_read_bytes;
+        self
     }
 }
 
@@ -55,6 +63,7 @@ impl BlobStore for FsBlobStore {
         Ok(Box::new(FsBlobClient {
             prefix: self.prefix.clone(),
             enable_locking: self.enable_locking,
+            max_read_bytes: self.max_read_bytes,
         }))
     }
 
@@ -67,6 +76,7 @@ impl BlobStore for FsBlobStore {
 struct FsBlobClient {
     prefix: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
 }
 
 #[async_trait]
@@ -76,6 +86,7 @@ impl BlobClient for FsBlobClient {
         Ok(Box::new(FsBlobObject {
             path: full,
             enable_locking: self.enable_locking,
+            max_read_bytes: self.max_read_bytes,
             // Go: metageneration starts at -1 (never locked).
             metageneration: -1,
         }))
@@ -99,23 +110,40 @@ impl BlobClient for FsBlobClient {
 }
 
 /// Recursively list files under `root`, returning store-relative names that
-/// start with `prefix`. Filters `._lck` lock files (fsstore.go:82). A missing
-/// root lists as empty (`filepath.Walk` swallows the walk error in Go — the
-/// callback returns nil on err).
+/// start with `prefix`. Filters `._lck` lock files (fsstore.go:82).
+///
+/// A missing root lists as empty — the "store does not exist yet" case, where
+/// Go's `filepath.Walk` swallow (callback returns nil on err) is right. Every
+/// *other* error is returned. Go swallowing those is a bug rather than a
+/// compatibility requirement: a listing is not a byte format, and this one feeds
+/// `get_store_store_indexes`, where a short list of `store_*.lsi` shards is a
+/// narrowed store index. Blocks that exist become invisible, surfacing later as
+/// "chunk not in the store index" on a download, or as blocks deleted by
+/// prune.
 fn get_objects_sync(root: &Path, prefix: &str) -> Result<Vec<BlobProperties>, StoreError> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
+    let mut is_root = true;
     while let Some(dir) = stack.pop() {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
-            Err(_) => continue, // missing/unreadable dir → skip (Go returns nil)
+            // An absent store root is an empty store, not a failure.
+            Err(e) if is_root && e.kind() == std::io::ErrorKind::NotFound => {
+                is_root = false;
+                continue;
+            }
+            Err(e) => {
+                return Err(StoreError::io(format!("list dir {}", dir.display()), e));
+            }
         };
-        for entry in entries.flatten() {
+        is_root = false;
+        for entry in entries {
+            let entry =
+                entry.map_err(|e| StoreError::io(format!("dir entry in {}", dir.display()), e))?;
             let path = entry.path();
-            let meta = match entry.metadata() {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
+            let meta = entry
+                .metadata()
+                .map_err(|e| StoreError::io(format!("stat {}", path.display()), e))?;
             if meta.is_dir() {
                 stack.push(path);
                 continue;
@@ -152,6 +180,7 @@ fn normalize(p: &str) -> String {
 struct FsBlobObject {
     path: PathBuf,
     enable_locking: bool,
+    max_read_bytes: u64,
     /// Go `metageneration`; `-1` = never locked.
     metageneration: i64,
 }
@@ -216,9 +245,32 @@ fn read_meta_generation(gen_path: &Path) -> Result<i64, StoreError> {
     }
 }
 
+/// Written through [`atomic_write`] so the generation lands with the same
+/// durability as the index it guards: a durable index paired with a lost
+/// generation would let the next writer's compare-and-swap pass against a value
+/// that no longer describes the file.
 fn set_meta_generation(gen_path: &Path, generation: i64) -> Result<(), StoreError> {
-    std::fs::write(gen_path, generation.to_le_bytes())
-        .map_err(|e| StoreError::io(format!("write {}", gen_path.display()), e))
+    atomic_write(gen_path, &generation.to_le_bytes())
+}
+
+/// Whether writing `path` warrants an fsync of its parent directory.
+///
+/// Only the store index and its generation sidecar do. `sync_all` makes the
+/// *contents* durable but not the directory entry the rename creates, so without
+/// this a crash can leave the object simply absent — and losing a store index
+/// costs every block written in that session, which becomes unreferenced.
+///
+/// Not done for blocks: a parent fsync costs on the order of a millisecond on
+/// real storage, roughly doubling a small-file write. That is nothing once per
+/// flush and prohibitive per block. The residual risk is a block whose directory
+/// entry is not durable while the index that references it is, leaving a
+/// dangling entry after a crash; closing that needs one fsync per directory
+/// before the index is committed, not one per block.
+fn needs_durable_rename(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("lsi") | Some("gen")
+    )
 }
 
 /// Atomic write: temp file in the same dir, then rename over the target.
@@ -237,12 +289,37 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<(), StoreError> {
             .map_err(|e| StoreError::io(format!("create {}", tmp.display()), e))?;
         f.write_all(data)
             .map_err(|e| StoreError::io(format!("write {}", tmp.display()), e))?;
-        f.sync_all().ok();
+        // Propagated, not discarded: a failed `sync_all` (EIO, or a delayed
+        // ENOSPC that only materialises here) means the bytes never reached
+        // stable storage. Swallowing it renames the temp file into place and
+        // reports success for data that may not exist after a crash.
+        f.sync_all()
+            .map_err(|e| StoreError::io(format!("sync {}", tmp.display()), e))?;
     }
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         StoreError::io(format!("rename to {}", path.display()), e)
-    })
+    })?;
+    if needs_durable_rename(path) {
+        sync_dir(parent)?;
+    }
+    Ok(())
+}
+
+/// fsync a directory so a rename into it survives a crash.
+///
+/// Unix only: opening a directory as a file is a POSIX behaviour, and on Windows
+/// the rename is metadata-journaled, so there is nothing to force.
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> Result<(), StoreError> {
+    File::open(dir)
+        .and_then(|d| d.sync_all())
+        .map_err(|e| StoreError::io(format!("sync dir {}", dir.display()), e))
+}
+
+#[cfg(not(unix))]
+fn sync_dir(_dir: &Path) -> Result<(), StoreError> {
+    Ok(())
 }
 
 /// A cheap non-crypto counter for temp-file uniqueness (no `rand` dep in the
@@ -307,6 +384,7 @@ impl BlobObject for FsBlobObject {
         let path = self.path.clone();
         let lock_path = self.lock_path();
         let enable_locking = self.enable_locking;
+        let max_read_bytes = self.max_read_bytes;
         tokio::task::spawn_blocking(move || -> Result<Vec<u8>, StoreError> {
             let _guard = if enable_locking {
                 Some(lock_file(&path, &lock_path)?)
@@ -320,9 +398,19 @@ impl BlobObject for FsBlobObject {
                 }
                 Err(e) => return Err(StoreError::io(format!("open {}", path.display()), e)),
             };
+            // Read one byte past the ceiling so an oversized object is
+            // detectable rather than silently truncated.
             let mut buf = Vec::new();
-            f.read_to_end(&mut buf)
+            (&mut f)
+                .take(max_read_bytes.saturating_add(1))
+                .read_to_end(&mut buf)
                 .map_err(|e| StoreError::io(format!("read {}", path.display()), e))?;
+            if buf.len() as u64 > max_read_bytes {
+                return Err(StoreError::Backend(format!(
+                    "{} exceeds the {max_read_bytes}-byte read ceiling",
+                    path.display()
+                )));
+            }
             Ok(buf)
         })
         .await
@@ -397,5 +485,55 @@ impl BlobObject for FsBlobObject {
 
     fn name(&self) -> String {
         format!("fsblob://{}", self.path.display())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The durability policy, pinned: index writes force the directory entry,
+    /// bulk block and cache writes do not. Widening this to every blob would put
+    /// a directory fsync on the per-block path, which roughly doubles the cost of
+    /// a small-file write.
+    #[test]
+    fn only_index_writes_force_the_directory_entry() {
+        for durable in ["store.lsi", "store_0a1b.lsi", "store.lsi.gen"] {
+            assert!(
+                needs_durable_rename(Path::new(durable)),
+                "{durable} should force its directory entry"
+            );
+        }
+        for bulk in [
+            "chunks/0a1b/0x0a1b2c3d4e5f6071.lsb",
+            "chunks/0a1b/0x0a1b2c3d4e5f6071.lrb",
+            "store.lsi._lck",
+            "noextension",
+        ] {
+            assert!(
+                !needs_durable_rename(Path::new(bulk)),
+                "{bulk} should not pay for a directory fsync"
+            );
+        }
+    }
+
+    /// The generation sidecar rides the same path as the index it guards, so a
+    /// crash cannot leave a durable index described by a lost generation.
+    #[test]
+    fn generation_sidecar_round_trips_through_the_atomic_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let gen_path = dir.path().join("store.lsi.gen");
+        set_meta_generation(&gen_path, 7).unwrap();
+        assert_eq!(read_meta_generation(&gen_path).unwrap(), 7);
+        set_meta_generation(&gen_path, 8).unwrap();
+        assert_eq!(read_meta_generation(&gen_path).unwrap(), 8);
+        // No temp files left behind by the rename.
+        let strays: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(strays.is_empty(), "temp files left behind: {strays:?}");
     }
 }
