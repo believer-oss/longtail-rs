@@ -5,7 +5,7 @@ edition = "2024"
 description = "LEGACY. Safe-ish wrappers over the longtail C library (via longtail-sys). Exists solely as the reference oracle for differential regression testing of the pure-Rust workspace against the C implementation; not a default workspace member and not a dependency of anything shipped."
 
 [dev-dependencies]
-itertools = "0.14.0"
+itertools = "0.15.0"
 clap = { version = "4.5.27", features = ["derive"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 lazy_static = "1.5.0"
