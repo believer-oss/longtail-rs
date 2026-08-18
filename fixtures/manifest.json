@@ -1,0 +1,682 @@
+{
+  "generator": {
+    "version": "v0.4.5",
+    "url": "https://github.com/DanEngelbrecht/golongtail/releases/download/v0.4.5/longtail-linux-x64",
+    "binary_sha256": "91094c3c28f48b66014f0f5d2679bf6fa1880ca6ce971f861f011c31251401f3",
+    "os": "linux"
+  },
+  "entries": [
+    {
+      "path": "boundaries/big-stream.t32768.buffer.json",
+      "size": 5986,
+      "sha256": "78e017745664ba84574d222f99a76e18a517245ba38c96c21a52a08f2f69124d",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/big-stream.t32768.streaming.json",
+      "size": 6081,
+      "sha256": "ba3f0005bbab72b25bec504b093b03b04d21773199b68a10eb6b2bbfecae7ed7",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t1024.buffer.json",
+      "size": 189306,
+      "sha256": "42983c50444533b7eef8d679a2d4f8a36902864b0209940ad216c82d058634ef",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t1024.streaming.json",
+      "size": 190989,
+      "sha256": "c1e8439d467c2e8f2ba2583d27c859806ae9ce38fff7428ffcffc1980a2317aa",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t1048576.buffer.json",
+      "size": 510,
+      "sha256": "3078ac694f75004f6d19fca271cf074c3e27f483d69c8166e39032536bbdf7f2",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t1048576.streaming.json",
+      "size": 513,
+      "sha256": "8fc1389f7595bf2ccd15bd1c1bb1dfef1ff9cfa8df25f908ca0ea543e03e6861",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t131072.buffer.json",
+      "size": 2121,
+      "sha256": "bd7fb19f9ead02a832c252dbdc644a38841bd9e9c51266c24e1f082fc163688a",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t131072.streaming.json",
+      "size": 2124,
+      "sha256": "6f922eb032c9ed4d537353e7dbcb4b00d53c2a9b62e462ce109cb9e32a806c7a",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t32768.buffer.json",
+      "size": 6463,
+      "sha256": "998a651b7ce0b76baadc7f1a020fbb6351f97e722ad9781bcf5e8a0823de7fa1",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/chunker.input.t32768.streaming.json",
+      "size": 6373,
+      "sha256": "9966cc9fa1ef8862e922c9201c485cd097caa5379566b0556bc7e59e556e978c",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/compressible.txt.t32768.buffer.json",
+      "size": 6745,
+      "sha256": "960babc1003ba97c4646255fdbec6a52fc91de4d9bba1d4387c4b3b85b8f5f5e",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/compressible.txt.t32768.streaming.json",
+      "size": 6748,
+      "sha256": "c99b1698699c0d673bcb107c17705277b7c2d8eb594c5ab30d99e6ab919eb3c5",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/incompressible.bin.t32768.buffer.json",
+      "size": 7126,
+      "sha256": "54c3ec43d678106ddc9cbbd796c8f538fc7c84bf98e436d1feee4ef184034198",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/incompressible.bin.t32768.streaming.json",
+      "size": 7130,
+      "sha256": "fde261e4a1bbafb373d2411f49aaa20f1ea7e05879f21e75247b79a19fffbe8d",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge-minus.t32768.buffer.json",
+      "size": 410,
+      "sha256": "99b85b192d27b1b6ce235cef1ea4c578feb33e0ac67222846d5f193754fedf0c",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge-minus.t32768.streaming.json",
+      "size": 413,
+      "sha256": "a3c3f337f4b95fcb77d7c4e9f4ab13d4f6240ee100b8f720cd14f21472d94365",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge-plus.t32768.buffer.json",
+      "size": 875,
+      "sha256": "0239f7c657519779811920fdf6af203b7806c57da3d4ac51045cb8aa1fb1c739",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge-plus.t32768.streaming.json",
+      "size": 878,
+      "sha256": "83701004d8d8d158032e078045c87662ec14567030ac9f4fc3062cd3c035cfbf",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge.t32768.buffer.json",
+      "size": 774,
+      "sha256": "52e41627c57346f390fcbeecc4d8dac60ba216f922f6016f33f222ccbfef00c5",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/max-edge.t32768.streaming.json",
+      "size": 777,
+      "sha256": "5b0320653a42482726fe13386ef8a1315a5366917202f2ef2abdd89193be3d6e",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/repetitive.bin.t32768.buffer.json",
+      "size": 15526,
+      "sha256": "1bb4954ab6311720d5a9bb12c522dcbefb95937fd09ec6c10b4cff68ae57d5fa",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/repetitive.bin.t32768.streaming.json",
+      "size": 15529,
+      "sha256": "861c2e4b19c0f399e88a20837ff8a7eec990ba6fdfdc52d8d42d756db543f00a",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-47.t32768.buffer.json",
+      "size": 305,
+      "sha256": "041d82a98ee4fb8f584235492a640ca09af841310530c341b04e93b540f5fcb3",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-47.t32768.streaming.json",
+      "size": 308,
+      "sha256": "24976586d519fbcc5e7a81ad9598f8e2ddf65650d2aa486cb56b8e6fa3412162",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-48.t32768.buffer.json",
+      "size": 305,
+      "sha256": "598d4e9a185a2d0f03cc8cbfe0a88fd326af42294df0eb2fb3260e557f7fb722",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-48.t32768.streaming.json",
+      "size": 308,
+      "sha256": "beff0aa4732b9f61965a9a93fe541ac6461a5d82d14e18bb1bf7f4cb7099a7a3",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-49.t32768.buffer.json",
+      "size": 305,
+      "sha256": "6083d5dd38a6f932c6c06e172043aaa00a2b3c4a90784ca8879b45ff6d4efafb",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "boundaries/win-49.t32768.streaming.json",
+      "size": 308,
+      "sha256": "657f79d60722cd6d6cdbb22c268de631ebab964919b3876aac379f6b9fd1547b",
+      "produced_by": "ffi chunker (C)"
+    },
+    {
+      "path": "chunker.input",
+      "size": 1048576,
+      "sha256": "89252af012ef431f066a87c7ca526d5c1cff372142fe5b05dfe86293e5d0326f",
+      "produced_by": "copied from longtail testdata"
+    },
+    {
+      "path": "get-configs/get-config.json",
+      "size": 117,
+      "sha256": "cc63a1cd8140ce79bf96fea6cb0926b9fa1710ca7bda0596c77ae3639d982325",
+      "produced_by": "golongtail put"
+    },
+    {
+      "path": "get-configs/store/chunks/2735/0x2735f9db530c53d3.lsb",
+      "size": 12350,
+      "sha256": "0ff158777164fde80bcc3e6c5153deb1b5d067301f4c64d02cbad13a244d3b21",
+      "produced_by": "golongtail put"
+    },
+    {
+      "path": "get-configs/store/store.lsi",
+      "size": 60,
+      "sha256": "32e6c08cfbe7ab1c9ea3772ad721dfc0179d47e402329b6105b5a02034416ea9",
+      "produced_by": "golongtail put"
+    },
+    {
+      "path": "get-configs/version-store.lsi",
+      "size": 60,
+      "sha256": "32e6c08cfbe7ab1c9ea3772ad721dfc0179d47e402329b6105b5a02034416ea9",
+      "produced_by": "golongtail put"
+    },
+    {
+      "path": "get-configs/version.lvi",
+      "size": 160,
+      "sha256": "8f307fd91353dcc82f460c0ccdf52213388281d15093c081cd70eb17d1fcbea3",
+      "produced_by": "golongtail put"
+    },
+    {
+      "path": "manifests/chain-v1.json",
+      "size": 1580,
+      "sha256": "5160a7ea83892d490fd7b1c1f6c61e7c97685f4f3a8d6f0f15cc3ffc321b27e4",
+      "produced_by": "testkit tree-manifest"
+    },
+    {
+      "path": "manifests/chain-v2.json",
+      "size": 1886,
+      "sha256": "2b409e5718afa34f7f69db49f60fc45100a1e4671da66797378ba381ae4341cb",
+      "produced_by": "testkit tree-manifest"
+    },
+    {
+      "path": "manifests/chain-v3.json",
+      "size": 2070,
+      "sha256": "129b01dbf0e546a8e5b72a1f81ca028d0344e00bd9ba35b8f8353221d38299ae",
+      "produced_by": "testkit tree-manifest"
+    },
+    {
+      "path": "manifests/sharded-union.json",
+      "size": 712,
+      "sha256": "81f3cb31c5aca8bafbec8d37bfb70f1cd0a1971e91f050e5f349afa8ee73dce4",
+      "produced_by": "testkit tree-manifest"
+    },
+    {
+      "path": "manifests/zoo.json",
+      "size": 212698,
+      "sha256": "563942591584da51cc3bc500642486883a9dbfdacf2bafef67a797ea69a0ee69",
+      "produced_by": "testkit tree-manifest"
+    },
+    {
+      "path": "stores/blake2/store/chunks/8808/0x88088c3669bfa4ac.lsb",
+      "size": 217982,
+      "sha256": "2be82d9ec7c7306673e27818ef5d2550491878fa4005f1d3351d0e7c8e6911d6",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/blake2/store/chunks/b880/0xb880502fb86c234d.lsb",
+      "size": 1328600,
+      "sha256": "a1a844b896dc0041c8a335b9c721d98b11291b563a984aad7a226a17a8b0db57",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/blake2/store/store.lsi",
+      "size": 15284,
+      "sha256": "79547e5c1e8c67a93145ece0904d36f82599063f50d94c8221309f68f0dc748e",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/blake2/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "3d5fba6b078d5c38fa0d81280686c3d1ad453f28e208a37f8b0b14dbd73db72f",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/blake2/zoo.lvi",
+      "size": 96760,
+      "sha256": "576c1137f8c758d7b7f6f6e5a6bced77ac905558ffd31e8f2bfacee1e611eb67",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/6e3c/0x6e3c8472cf938925.lsb",
+      "size": 278964,
+      "sha256": "76ef699ea3a36bd2af60f477164d4db936661aadc97df67c454208de9958619c",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/7692/0x76927958065273a9.lsb",
+      "size": 125779,
+      "sha256": "e91cf0606f4982fb3e0a06d368b18fc1a102f8eaf47e438e4144cfa189b8db65",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/9b96/0x9b96ac2159721bf7.lsb",
+      "size": 78096,
+      "sha256": "0757637c05600990c0e4a4f0b3b27942b33a39b8c06fafbd92c09ea113514353",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/abb5/0xabb5f8e435484786.lsb",
+      "size": 532922,
+      "sha256": "5e989c9b4431e8f266237df1b0e0553c3fad24304cf61c107685225f805aca15",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/c366/0xc36648c5f0c394ac.lsb",
+      "size": 119028,
+      "sha256": "cc457427db277d7049e24b078f18bfc0b1969afdb6f5ebc91db6eb222bbf2da8",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/chunks/f7fa/0xf7fabf406f022059.lsb",
+      "size": 532078,
+      "sha256": "d92f1611e48cb92b616e886ff1e026b7c1f7cecbcacfe56a964b2ccac1816aec",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/store/store.lsi",
+      "size": 68680,
+      "sha256": "8aa2c74608eca52b3cb9e6f5500a43fa660f8417102968791e93c641570702a2",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/zoo-store.lsi",
+      "size": 68680,
+      "sha256": "2ad6f7d796d6b4039d0e3a93dd99f0ef11ef7e6c7f6bc3aede9136306215c095",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-1024/zoo.lvi",
+      "size": 200601,
+      "sha256": "7b7a44b6b79801279ad6762fe24e9f431e8ef70a55b3ca5e8004d196518c0cf9",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-131072/store/chunks/1644/0x1644bee677438ed6.lsb",
+      "size": 275406,
+      "sha256": "8ea9555c35eeaba48015daf848798a5c2ec00b844ff04930191f805453bf23ac",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-131072/store/chunks/69ac/0x69ac1761bf0732a1.lsb",
+      "size": 1335384,
+      "sha256": "332fb383f6f0dc9cbd993f14f49599deeeac96e416115c5bd26c1341a27730b2",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-131072/store/store.lsi",
+      "size": 13940,
+      "sha256": "8ee87d39cadcee46d57e1a2c91fb9e4a2e446440d8c52993db236042c2f85988",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-131072/zoo-store.lsi",
+      "size": 13940,
+      "sha256": "e5caee891f7c8f60693249c2a3bb233b27d17c277186a205d4c6253552de8748",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/chunk-131072/zoo.lvi",
+      "size": 94685,
+      "sha256": "ee8eab30acfe0e3bbcf6ef903a0e01945af52aea9b5d2797fcc3d42fa25d5504",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 1273021,
+      "sha256": "96d7195e11b73386e1a8f34249366211c44f43a7cb7a2a2dd2215171330d3cec",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 217972,
+      "sha256": "c8ff9f03d35609b9cd5e2ab000e09f969c4a25f3b543c50ceafac22c93bb46cd",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli/store/store.lsi",
+      "size": 15284,
+      "sha256": "cc31bf9147bc42b2b78a389add2a03a1554fc4b05aa85e7a679e99be409a8199",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "7cb9857f6d18221a1908df2f379dcfbd625b9892ea87b71aab379127652fc25e",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli/zoo.lvi",
+      "size": 96760,
+      "sha256": "1ce5e38a7c6467caf2ad51322c6a0c109c3f6e66450f509a5fa641a2048258e8",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli_text/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 1273021,
+      "sha256": "5ee8cb9889c9f10af67aef61730fb2c77df6c37eddb2b5e2feaa8f4ed6c4f368",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli_text/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 217972,
+      "sha256": "e459e06826c66e08d3f2080af9d27cb77f4366bd546f2847669d2c7e99f54e3c",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli_text/store/store.lsi",
+      "size": 15284,
+      "sha256": "fc2fa7e1a6ea754cd223d0bebc6db9413ee39232efa5999de32597de7ac52944",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli_text/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "65fa7887224648d6d8e75388e98e9f72090e625efb3c7d9c4ad50f956fb22b12",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-brotli_text/zoo.lvi",
+      "size": 96760,
+      "sha256": "e92da323ea65ce999d4d367ca7a3218975bddf366a74b37a8602a7d687c5a3e9",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-lz4/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 1576011,
+      "sha256": "a91db10be740a8faa37fe3f75037806f936e39322fa15b6198e975123c54e6a8",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-lz4/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 218812,
+      "sha256": "5cbf87e7db7edecb81e9d267b30d81c0f37283b5d70cf1a332edcebe2f1d9ec4",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-lz4/store/store.lsi",
+      "size": 15284,
+      "sha256": "bcc7f6bb473d2e1e7b05cc8bf94afd21fb02f717cb67e82c0fa999f0b062080f",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-lz4/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "8f4bbcadb17f27600085ef42cd1ab20e63980626d63ae2bbbc55f6d49ad75ced",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-lz4/zoo.lvi",
+      "size": 96760,
+      "sha256": "478949fb502d2ff0f785678bc9662227c4b5d7053a2441d7d004bf26add556c6",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-none/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 2173982,
+      "sha256": "6215cea61f9c2a612acb6ee11b7097bf692546d5e01d3d030c293a2333d02874",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-none/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 217959,
+      "sha256": "51077c1f62201d283b76d2e811696429655cb649eef8b6f64eb1e5b04db294ab",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-none/store/store.lsi",
+      "size": 15284,
+      "sha256": "b961bfe32fc2db4559fa245b422e8fdbec4f526082e268f1e424c4c1f28a2d24",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-none/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "444768e88c0350a741e154bbb13cb383407eff0ae15913e5a7b2f50a988cba71",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-none/zoo.lvi",
+      "size": 96760,
+      "sha256": "42de6a655c4a47322f492f80044eb521deb917c3abb06f274fb0219a7f82bd14",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_max/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 1269012,
+      "sha256": "8bbc804795e2a922641cca6666ab2b06f7611debd57ed2e55f2033738da2de2f",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_max/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 217982,
+      "sha256": "fddf46707e08da9ba1ddbc1cd2656e2d983c045da18131f2ef3ed90315331335",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_max/store/store.lsi",
+      "size": 15284,
+      "sha256": "334e82018ae14f3e8c31ff5d47a1e007364a02642994760093571196ace4d8bd",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_max/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "c9a6f110c997b28dd8da3d1e6fefc60a6b37cc1f5e53acb80809aa2a4f8ad231",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_max/zoo.lvi",
+      "size": 96760,
+      "sha256": "986d7c433ed269fd986be384169232e4b7db1badf1fc8544fd4d1596f02b35bc",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_min/store/chunks/0e63/0x0e6303b634f80422.lsb",
+      "size": 1328600,
+      "sha256": "6a6e1602313f0a7b74e28f55abe7dc951a28c06948b69fbc4623503d5608afe5",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_min/store/chunks/5e9a/0x5e9af60f691a3c9b.lsb",
+      "size": 217982,
+      "sha256": "3ca6df5d4e33c19b7c97fd33151fa848bb8ba96965fe97347dc5987a971e312f",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_min/store/store.lsi",
+      "size": 15284,
+      "sha256": "42b2b049cdacf3c17c5195602a7f08d10365014c370db6c77e066adbf071bcf1",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_min/zoo-store.lsi",
+      "size": 15284,
+      "sha256": "189f5b29ac09292936fd38ccd954b44ccf0bc8930108da2494a2c58664d2c13b",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/comp-zstd_min/zoo.lvi",
+      "size": 96760,
+      "sha256": "0224c478d16ce09bf7399db0403babb058c88eaba0e10c66beea1e4d1e69ca53",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v1-store.lsi",
+      "size": 120,
+      "sha256": "8e5ecf0707311f4b9b0d3aaab5b7b532218173532a9427ffefc033c9b0792d9b",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v1.lvi",
+      "size": 665,
+      "sha256": "fa7032b0f82726625842e16e4be719a47a120cb363d7f3c6df9c72236e9e6b9c",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v2-store.lsi",
+      "size": 132,
+      "sha256": "74edd7efa7fa3e0857c8d6f53fa6796c620475ed8bb4c6f2973835893dfb0267",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v2.lvi",
+      "size": 807,
+      "sha256": "e2b6647c21cfb8ad4ef2e6ad6e74cf908bcfb6f724455c13e9f75e221f04c85d",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v3-store.lsi",
+      "size": 164,
+      "sha256": "1487ceec96c7d3625a840b14e671048a6b6c8f582f725cbe0d21fe2a2802417c",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/chain-v3.lvi",
+      "size": 886,
+      "sha256": "73b55e690f5c3fb52920abbd5f331f1e21e2fbae6b123defda32a05a62b78714",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/4bb7/0x4bb7a1b8df628d4d.lsb",
+      "size": 257,
+      "sha256": "58c8dcf2727d16fc5bafca38ce5e205a6a68865562f4add05553fe65fe1eaa67",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/590b/0x590b2688fbbeb3d4.lsb",
+      "size": 511324,
+      "sha256": "ae3b6e151581160bbe739c1c495ca81ae7cc3c3a0f3259dc94d6eab684fd8047",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/c269/0xc269f09d474c193b.lsb",
+      "size": 290,
+      "sha256": "34578c826ea1fa722111c552f0ff2ad99bf0b5dbcc8a45836bc18d6cc6df69a5",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/dcbd/0xdcbd229e1debec36.lsb",
+      "size": 2373232,
+      "sha256": "6a51cb5d9e1a1c8b6d771b88c134100216ac667ab3e08aa1108eb7ad8535639d",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/e889/0xe889c6735a278840.lsb",
+      "size": 72,
+      "sha256": "362f466067789613136716f8d52d5b9ad9ad609b1b1eabd0adadb1d854f0ad21",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/chunks/ef2f/0xef2f87a8e29651ac.lsb",
+      "size": 9237203,
+      "sha256": "33e58770bb755b52e9661b0d3d64370ed09e94e0da08cd3e1a0204c8754fe029",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/store/store.lsi",
+      "size": 23200,
+      "sha256": "5b074f7d6696a75e65040713f15bc0fb59aaa9120b450da9c9f2a9e0fac919b2",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/zoo-store.lsi",
+      "size": 22948,
+      "sha256": "dd568efbee480ed17dec052c803a9f888c2e4a39ac69029c08ba0641ac70f894",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/default/zoo.lvi",
+      "size": 110268,
+      "sha256": "16ccc85d3a44be23d4866c4ef8b5604ea5cac3b75dc50bf6586c86bd2db4495e",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/meow/store/chunks/88d2/0x88d2c1d9a40044b6.lsb",
+      "size": 12350,
+      "sha256": "16b87d43ac87d0c259f80ba39ad054fdf93e605c0d56c4222a7b70d19d95dbfd",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/meow/store/store.lsi",
+      "size": 60,
+      "sha256": "69ff83e50dbe26ec89636860731062d5a7e54dac8038b49dad66170990925dc5",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/meow/zoo-store.lsi",
+      "size": 60,
+      "sha256": "69ff83e50dbe26ec89636860731062d5a7e54dac8038b49dad66170990925dc5",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/meow/zoo.lvi",
+      "size": 160,
+      "sha256": "43d4ad0de3b6957d99e4ff98615054c7000264b297a65eda6d29e8db24a50d27",
+      "produced_by": "golongtail upsync"
+    },
+    {
+      "path": "stores/sharded/chunks/5395/0x5395433b5240fc56.lsb",
+      "size": 65659,
+      "sha256": "bb0192c6f8c7562b92252628db3488906ddfba4e10ce958999ee18beb70ea647",
+      "produced_by": "synthesized shard"
+    },
+    {
+      "path": "stores/sharded/chunks/b836/0xb8365691ca7f9805.lsb",
+      "size": 4207,
+      "sha256": "5a1ce3dee2519d4be89b9be1c8ca9060642b5f15b6faaa9ebb5dd9168e2bcf14",
+      "produced_by": "synthesized shard"
+    },
+    {
+      "path": "stores/sharded/store_80bce272de61da375bd9a9344c13ec9f968d4a74f6fbf6defb5a49bff3ff0081.lsi",
+      "size": 60,
+      "sha256": "80bce272de61da375bd9a9344c13ec9f968d4a74f6fbf6defb5a49bff3ff0081",
+      "produced_by": "synthesized shard"
+    },
+    {
+      "path": "stores/sharded/store_894e98ac988504c27ae41091406bdc74a9f812e11c5cfdf723c5bc6be758b23c.lsi",
+      "size": 120,
+      "sha256": "894e98ac988504c27ae41091406bdc74a9f812e11c5cfdf723c5bc6be758b23c",
+      "produced_by": "synthesized shard"
+    },
+    {
+      "path": "stores/sharded/version.lvi",
+      "size": 391,
+      "sha256": "71977c634ffda36d9a796630892ec0762edc7f7732f57be086e63f56ef310891",
+      "produced_by": "synthesized shard"
+    }
+  ]
+}

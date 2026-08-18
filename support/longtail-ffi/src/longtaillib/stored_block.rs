@@ -97,6 +97,13 @@ impl StoredBlock {
         Ok(buf)
     }
 
+    /// Serialize this `StoredBlock` to an owned byte vector via
+    /// `Longtail_WriteStoredBlockToBuffer`. Used by the self-validation
+    /// harness to prove the C serializer round-trips committed `.lsb` bytes.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, i32> {
+        Ok(self.write_to_buffer()?.as_slice().to_vec())
+    }
+
     /// The stored block is valid if it is not null
     /// Note: This is not a full check, as the stored block could be invalid.
     pub fn is_valid(&self) -> bool {

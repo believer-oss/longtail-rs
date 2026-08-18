@@ -1,0 +1,58 @@
+{
+  "entries": [
+    {
+      "path": "abitoftext.txt",
+      "size": 19,
+      "mode_octal": "0644",
+      "blake3_hex": "214dc269148d6f97256d590e35cb6fb888ea6fe418ab81ede46a7bc0d4666f7c"
+    },
+    {
+      "path": "empty-file",
+      "size": 0,
+      "mode_octal": "0644",
+      "blake3_hex": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+    },
+    {
+      "path": "folder",
+      "size": 0,
+      "mode_octal": "0755",
+      "blake3_hex": ""
+    },
+    {
+      "path": "folder/abitoftextinasubfolder.txt",
+      "size": 34,
+      "mode_octal": "0644",
+      "blake3_hex": "296d487f957888407134bb795c1464732e3cc3dc84439763a71e24f8ace8e509"
+    },
+    {
+      "path": "folder/anotherabitoftextinasubfolder.txt",
+      "size": 41,
+      "mode_octal": "0644",
+      "blake3_hex": "d4576928ef3868dd525fed0942114d5aecafc82c16fbf9be7689f37fe030e940"
+    },
+    {
+      "path": "script.sh",
+      "size": 21,
+      "mode_octal": "0644",
+      "blake3_hex": "51b972d648f597be6a7867cc3629ec7e067218e0f9d356a80b9e74b2a7a88326"
+    },
+    {
+      "path": "to-delete.txt",
+      "size": 44,
+      "mode_octal": "0644",
+      "blake3_hex": "ef705d23add2669f80d1e72b2d382d9a1cd66f3cf41db873d8b28ce6f8340adb"
+    },
+    {
+      "path": "to-move.txt",
+      "size": 41,
+      "mode_octal": "0644",
+      "blake3_hex": "b4cfedb1d20bc37aa58c74b73ab9bddc0c3e31f28990ba2a2eae8cb7ca3f5c86"
+    },
+    {
+      "path": "to-rename.txt",
+      "size": 42,
+      "mode_octal": "0644",
+      "blake3_hex": "2d6c6e6c3bab43f4f6030eeb4e4392bd279d0ce53ee1b57c5d2e66748b16e4c8"
+    }
+  ]
+}

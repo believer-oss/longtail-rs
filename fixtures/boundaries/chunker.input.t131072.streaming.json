@@ -1,0 +1,109 @@
+{
+  "input_id": "chunker.input",
+  "input_sha256": "89252af012ef431f066a87c7ca526d5c1cff372142fe5b05dfe86293e5d0326f",
+  "target_chunk_size": 131072,
+  "chunker_path": "streaming",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 81590,
+      "hash_hex": "b1ea59ac180ba336"
+    },
+    {
+      "offset": 81590,
+      "size": 46796,
+      "hash_hex": "34b2d99121751b3c"
+    },
+    {
+      "offset": 128386,
+      "size": 36543,
+      "hash_hex": "ac67a45ffd538ce0"
+    },
+    {
+      "offset": 164929,
+      "size": 83172,
+      "hash_hex": "e93da7d07a22bfdf"
+    },
+    {
+      "offset": 248101,
+      "size": 76749,
+      "hash_hex": "8e2b5716401d40ab"
+    },
+    {
+      "offset": 324850,
+      "size": 79550,
+      "hash_hex": "96cd5d816fbec4bb"
+    },
+    {
+      "offset": 404400,
+      "size": 41484,
+      "hash_hex": "9187e37a2caf203c"
+    },
+    {
+      "offset": 445884,
+      "size": 20326,
+      "hash_hex": "05b26ff03364c691"
+    },
+    {
+      "offset": 466210,
+      "size": 31652,
+      "hash_hex": "9e9aefbeb67fb598"
+    },
+    {
+      "offset": 497862,
+      "size": 19995,
+      "hash_hex": "c1b8c5ff8c0786b5"
+    },
+    {
+      "offset": 517857,
+      "size": 103873,
+      "hash_hex": "b4cca62bcf1ac882"
+    },
+    {
+      "offset": 621730,
+      "size": 38087,
+      "hash_hex": "87bad150a72ba3a1"
+    },
+    {
+      "offset": 659817,
+      "size": 38377,
+      "hash_hex": "344f9212d555015d"
+    },
+    {
+      "offset": 698194,
+      "size": 23449,
+      "hash_hex": "eb8a2a4dbd89d2da"
+    },
+    {
+      "offset": 721643,
+      "size": 47321,
+      "hash_hex": "030b92cad50bb833"
+    },
+    {
+      "offset": 768964,
+      "size": 86692,
+      "hash_hex": "a4c9ec98cfb212fb"
+    },
+    {
+      "offset": 855656,
+      "size": 28268,
+      "hash_hex": "2e9fddea04424381"
+    },
+    {
+      "offset": 883924,
+      "size": 65465,
+      "hash_hex": "c8e2fb7b552c6602"
+    },
+    {
+      "offset": 949389,
+      "size": 33255,
+      "hash_hex": "58d28e73cd20819b"
+    },
+    {
+      "offset": 982644,
+      "size": 65932,
+      "hash_hex": "898a994a8f57b82e"
+    }
+  ]
+}

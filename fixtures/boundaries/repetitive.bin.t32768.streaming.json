@@ -1,0 +1,814 @@
+{
+  "input_id": "repetitive.bin",
+  "input_sha256": "4d4aa177a238e05aada3df7bc25528f44daf621e73cb357ac317be0e7333b24b",
+  "target_chunk_size": 32768,
+  "chunker_path": "streaming",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 15600,
+      "hash_hex": "56c7ab1311a9f910"
+    },
+    {
+      "offset": 15600,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 20619,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 24795,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 48001,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 65180,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 81136,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 86155,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 90331,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 113537,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 130716,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 146672,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 151691,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 155867,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 179073,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 196252,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 212208,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 217227,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 221403,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 244609,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 261788,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 277744,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 282763,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 286939,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 310145,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 327324,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 343280,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 348299,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 352475,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 375681,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 392860,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 408816,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 413835,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 418011,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 441217,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 458396,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 474352,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 479371,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 483547,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 506753,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 523932,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 539888,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 544907,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 549083,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 572289,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 589468,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 605424,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 610443,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 614619,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 637825,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 655004,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 670960,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 675979,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 680155,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 703361,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 720540,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 736496,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 741515,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 745691,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 768897,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 786076,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 802032,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 807051,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 811227,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 834433,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 851612,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 867568,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 872587,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 876763,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 899969,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 917148,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 933104,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 938123,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 942299,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 965505,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 982684,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 998640,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1003659,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1007835,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1031041,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1048220,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1064176,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1069195,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1073371,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1096577,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1113756,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1129712,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1134731,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1138907,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1162113,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1179292,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1195248,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1200267,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1204443,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1227649,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1244828,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1260784,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1265803,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1269979,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1293185,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1310364,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1326320,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1331339,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1335515,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1358721,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1375900,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1391856,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1396875,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1401051,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1424257,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1441436,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1457392,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1462411,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1466587,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1489793,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1506972,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1522928,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1527947,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1532123,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1555329,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1572508,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1588464,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1593483,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1597659,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1620865,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1638044,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1654000,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1659019,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1663195,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1686401,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1703580,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1719536,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1724555,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1728731,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1751937,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1769116,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1785072,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1790091,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1794267,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1817473,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1834652,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1850608,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1855627,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1859803,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1883009,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1900188,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1916144,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1921163,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1925339,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 1948545,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 1965724,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 1981680,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 1986699,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 1990875,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 2014081,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 2031260,
+      "size": 15956,
+      "hash_hex": "49e086bb4e0f3702"
+    },
+    {
+      "offset": 2047216,
+      "size": 5019,
+      "hash_hex": "0dd68e19f81d567b"
+    },
+    {
+      "offset": 2052235,
+      "size": 4176,
+      "hash_hex": "a5a9526645594744"
+    },
+    {
+      "offset": 2056411,
+      "size": 23206,
+      "hash_hex": "4d2b782a07aaf5c2"
+    },
+    {
+      "offset": 2079617,
+      "size": 17179,
+      "hash_hex": "776b1b94fc96f294"
+    },
+    {
+      "offset": 2096796,
+      "size": 356,
+      "hash_hex": "8388d42818c25d42"
+    }
+  ]
+}

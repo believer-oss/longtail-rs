@@ -1,0 +1,14 @@
+{
+  "input_id": "win-47",
+  "input_sha256": "69e995fca648c3d550ddfc28dfa3114e81c082f7ac5447dd1c59fe90f6296656",
+  "target_chunk_size": 32768,
+  "chunker_path": "streaming",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 47,
+      "hash_hex": "7ff9676b1b72050e"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+[package]
+name = "longtail-testkit"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+blake3 = "1"
+rand_chacha = "0.9"
+rand_core = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+walkdir = "2"
+
+# Only pulled in for the `differential` feature: drives the C library via the
+# ffi wrapper to produce/reproduce goldens. Never a default dependency, so the
+# pure test lane needs no native lib.
+longtail-ffi = { path = "../longtail-ffi", optional = true }
+
+[features]
+# Enables the C-backed differential helpers (boundary generation, round-trip,
+# downsync reproduction). Off by default.
+differential = ["dep:longtail-ffi"]
+
+[dev-dependencies]
+tempfile = "3"

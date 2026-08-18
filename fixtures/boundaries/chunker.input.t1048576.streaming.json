@@ -1,0 +1,24 @@
+{
+  "input_id": "chunker.input",
+  "input_sha256": "89252af012ef431f066a87c7ca526d5c1cff372142fe5b05dfe86293e5d0326f",
+  "target_chunk_size": 1048576,
+  "chunker_path": "streaming",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 751438,
+      "hash_hex": "fa7324b27e265607"
+    },
+    {
+      "offset": 751438,
+      "size": 131345,
+      "hash_hex": "c24408a56cde0041"
+    },
+    {
+      "offset": 882783,
+      "size": 165793,
+      "hash_hex": "6c175e35e88580d6"
+    }
+  ]
+}

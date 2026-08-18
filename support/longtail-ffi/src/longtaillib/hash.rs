@@ -92,6 +92,25 @@ impl HashAPI {
             _pin: std::marker::PhantomPinned,
         }
     }
+
+    /// Hash a buffer with this hash API, returning the 64-bit longtail hash.
+    /// This is exactly the call used to compute chunk hashes during
+    /// `CreateVersionIndex` (`HashBuffer` over the chunk's raw bytes).
+    pub fn hash_buffer(&self, data: &[u8]) -> Result<u64, i32> {
+        let mut out: u64 = 0;
+        let r = unsafe {
+            Longtail_Hash_HashBuffer(
+                self.hash_api,
+                data.len() as u32,
+                data.as_ptr() as *const std::ffi::c_void,
+                &mut out,
+            )
+        };
+        if r != 0 {
+            return Err(r);
+        }
+        Ok(out)
+    }
 }
 
 // TODO: Remove strum dependency
