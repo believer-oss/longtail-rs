@@ -1,14 +1,24 @@
 name: "Audit Dependencies"
 on:
+  # Gate pull requests, not just pushes, so a dependency added in a PR is
+  # audited before it merges.
+  pull_request:
+    paths:
+      - ".github/workflows/audit.yaml"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/audit.toml"
+      - "deny.toml"
   push:
     paths:
       # Run if workflow changes
-      - ".github/workflows/audit.yml"
+      - ".github/workflows/audit.yaml"
       # Run on changed dependencies
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       # Run if the configuration file changes
       - "**/audit.toml"
+      - "deny.toml"
   # Rerun periodicly to pick up new advisories
   schedule:
     - cron: "0 0 * * *"
@@ -17,14 +27,20 @@ on:
 
 jobs:
   audit:
+    name: audit - linux
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
+      # `issues: write` for the scheduled-run issue reports; `checks: write` so
+      # the action can create its check-run on push events (without it the API
+      # call fails with "Resource not accessible by integration").
       issues: write
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
-        name: Audit Rust Dependencies
+        name: audit - linux
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
         # Comma separated list of issues to ignore

@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "support/*"]
+members = ["crates/*", "support/*", "xtask"]
 # Exclude the native-lib crates from plain `cargo build`/`cargo test` so default
 # local builds need no network/prebuilt download. CI uses --workspace explicitly.
 default-members = [
   "crates/longtail-core", "crates/longtail-store", "crates/longtail",
-  "crates/longtail-cli", "support/longtail-bench",
+  "crates/longtail-cli", "support/longtail-testkit", "support/longtail-bench", "xtask",
 ]
 
 [workspace.package]

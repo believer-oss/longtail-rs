@@ -1,0 +1,35 @@
+name: "Fixture Freshness"
+# Regenerates the whole fixture set from the pinned golongtail binary + C chunker
+# and compares it against the committed fixtures/, failing loudly on drift. This
+# catches golongtail behavior changes and accidental fixture rot. Store indexes
+# are compared semantically (equal sorted block-hash set) because golongtail
+# emits their block order non-deterministically; everything else is byte-exact.
+#
+# Cadence: this checks for *upstream* drift, and upstream is pinned, so a
+# frequent run mostly re-proves it has not moved. Monthly is enough as a check
+# that regeneration still works; run it on demand when a pin changes.
+on:
+  schedule:
+    # Monthly — the 1st at 06:00 UTC.
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+jobs:
+  freshness:
+    name: fixture freshness - linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `longtail-sys` runs bindgen over headers from the submodule, so this
+          # job cannot build without it. Every other job sets `submodules: false`
+          # for the same reason inverted — they must never need it.
+          submodules: true
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      # Download + verify the pinned golongtail v0.4.5 binary, then regenerate
+      # into a scratch dir and diff against committed fixtures/.
+      - run: cargo run -p xtask --features differential -- fetch-golongtail
+      - run: cargo run -p xtask --features differential -- diff-fixtures

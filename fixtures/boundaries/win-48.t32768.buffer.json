@@ -1,0 +1,14 @@
+{
+  "input_id": "win-48",
+  "input_sha256": "29877c256883494a43e20c17075f2c916787e5a6bc188b2e60e03e00979d1d25",
+  "target_chunk_size": 32768,
+  "chunker_path": "buffer",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 48,
+      "hash_hex": "143ddf585d1778d4"
+    }
+  ]
+}

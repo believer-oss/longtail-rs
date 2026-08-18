@@ -1,0 +1,19 @@
+{
+  "input_id": "max-edge-minus",
+  "input_sha256": "929002881f03bf0800aca6bc8ca98d7b0721b8fd694a9dbeef9e970cb32a222e",
+  "target_chunk_size": 32768,
+  "chunker_path": "streaming",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 33357,
+      "hash_hex": "6d8b03981faabeef"
+    },
+    {
+      "offset": 33357,
+      "size": 32178,
+      "hash_hex": "744071c651529cda"
+    }
+  ]
+}

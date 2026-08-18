@@ -1,0 +1,374 @@
+{
+  "input_id": "incompressible.bin",
+  "input_sha256": "e4b41b70a9a9c07c2d7c9e09055bf978b050c7f12f5ab7b765bf2e1d422e605a",
+  "target_chunk_size": 32768,
+  "chunker_path": "buffer",
+  "hash_algorithm": "blake3",
+  "chunks": [
+    {
+      "offset": 0,
+      "size": 14885,
+      "hash_hex": "defc9a93ca09eb9e"
+    },
+    {
+      "offset": 14885,
+      "size": 19291,
+      "hash_hex": "bbf4ac772ffc67a3"
+    },
+    {
+      "offset": 34176,
+      "size": 11449,
+      "hash_hex": "0d996a19de459dcb"
+    },
+    {
+      "offset": 45625,
+      "size": 8934,
+      "hash_hex": "7a0a276fd2299b07"
+    },
+    {
+      "offset": 54559,
+      "size": 4915,
+      "hash_hex": "e854f57534ac4a0e"
+    },
+    {
+      "offset": 59474,
+      "size": 8087,
+      "hash_hex": "67b9807bd6f969a6"
+    },
+    {
+      "offset": 67561,
+      "size": 10914,
+      "hash_hex": "039cac4aeb5b3ef9"
+    },
+    {
+      "offset": 78475,
+      "size": 5893,
+      "hash_hex": "5191da6aa274f746"
+    },
+    {
+      "offset": 84368,
+      "size": 26539,
+      "hash_hex": "78d04e0924319d5d"
+    },
+    {
+      "offset": 110907,
+      "size": 60919,
+      "hash_hex": "93aaba63fbb1171a"
+    },
+    {
+      "offset": 171826,
+      "size": 12217,
+      "hash_hex": "dddba9994fcfff2e"
+    },
+    {
+      "offset": 184043,
+      "size": 6579,
+      "hash_hex": "2f6502bd608e123c"
+    },
+    {
+      "offset": 190622,
+      "size": 12704,
+      "hash_hex": "0e5b708905f20d6f"
+    },
+    {
+      "offset": 203326,
+      "size": 12268,
+      "hash_hex": "394c456de6e807a4"
+    },
+    {
+      "offset": 215594,
+      "size": 6369,
+      "hash_hex": "5bd0dc50f9fb8bb4"
+    },
+    {
+      "offset": 221963,
+      "size": 16536,
+      "hash_hex": "a8e87d0d865457ee"
+    },
+    {
+      "offset": 238499,
+      "size": 7487,
+      "hash_hex": "d7283680abe7c5ff"
+    },
+    {
+      "offset": 245986,
+      "size": 18957,
+      "hash_hex": "2da4e41138714fe9"
+    },
+    {
+      "offset": 264943,
+      "size": 5323,
+      "hash_hex": "afee89e036bee6eb"
+    },
+    {
+      "offset": 270266,
+      "size": 4613,
+      "hash_hex": "98f4cfd84aa0d8b9"
+    },
+    {
+      "offset": 274879,
+      "size": 6318,
+      "hash_hex": "73ad769097724fc0"
+    },
+    {
+      "offset": 281197,
+      "size": 9168,
+      "hash_hex": "e42e460a1f35e881"
+    },
+    {
+      "offset": 290365,
+      "size": 4994,
+      "hash_hex": "7674c4f3ccd7fdb5"
+    },
+    {
+      "offset": 295359,
+      "size": 10274,
+      "hash_hex": "cde18f6f32dfc5c0"
+    },
+    {
+      "offset": 305633,
+      "size": 4125,
+      "hash_hex": "def9427899a54298"
+    },
+    {
+      "offset": 309758,
+      "size": 7582,
+      "hash_hex": "b827438f5d35129d"
+    },
+    {
+      "offset": 317340,
+      "size": 13053,
+      "hash_hex": "c62baf81caa9417f"
+    },
+    {
+      "offset": 330393,
+      "size": 16569,
+      "hash_hex": "70dab6a2dc09fa05"
+    },
+    {
+      "offset": 346962,
+      "size": 11024,
+      "hash_hex": "9d27767cf1513f52"
+    },
+    {
+      "offset": 357986,
+      "size": 20681,
+      "hash_hex": "d81ab4ff2310e60e"
+    },
+    {
+      "offset": 378667,
+      "size": 8569,
+      "hash_hex": "f92cbfd98f63e2ac"
+    },
+    {
+      "offset": 387236,
+      "size": 25341,
+      "hash_hex": "bec3b18d10331fff"
+    },
+    {
+      "offset": 412577,
+      "size": 9435,
+      "hash_hex": "6f3c40a51961756a"
+    },
+    {
+      "offset": 422012,
+      "size": 24979,
+      "hash_hex": "456ce08a64a1c7ca"
+    },
+    {
+      "offset": 446991,
+      "size": 13641,
+      "hash_hex": "b9f98e147d36738c"
+    },
+    {
+      "offset": 460632,
+      "size": 34202,
+      "hash_hex": "0fbafd76e2000ba4"
+    },
+    {
+      "offset": 494834,
+      "size": 6124,
+      "hash_hex": "291ccfc9230aebf6"
+    },
+    {
+      "offset": 500958,
+      "size": 19471,
+      "hash_hex": "cff5f07058b7f403"
+    },
+    {
+      "offset": 520429,
+      "size": 23602,
+      "hash_hex": "19cfe3b24d9b20e9"
+    },
+    {
+      "offset": 544031,
+      "size": 13234,
+      "hash_hex": "204a9b2d0bbec2ec"
+    },
+    {
+      "offset": 557265,
+      "size": 25780,
+      "hash_hex": "81f31b4b321ef874"
+    },
+    {
+      "offset": 583045,
+      "size": 11066,
+      "hash_hex": "e8ba145cd760b5ce"
+    },
+    {
+      "offset": 594111,
+      "size": 25865,
+      "hash_hex": "dd5b728525c8082b"
+    },
+    {
+      "offset": 619976,
+      "size": 6497,
+      "hash_hex": "74af26978d26e393"
+    },
+    {
+      "offset": 626473,
+      "size": 4740,
+      "hash_hex": "a29e64819d7ec0a9"
+    },
+    {
+      "offset": 631213,
+      "size": 17512,
+      "hash_hex": "cc2d34c22798faaa"
+    },
+    {
+      "offset": 648725,
+      "size": 37124,
+      "hash_hex": "383e33e39ec91f4b"
+    },
+    {
+      "offset": 685849,
+      "size": 5556,
+      "hash_hex": "2b306720f123682f"
+    },
+    {
+      "offset": 691405,
+      "size": 5373,
+      "hash_hex": "550797c5f30e2b2f"
+    },
+    {
+      "offset": 696778,
+      "size": 13581,
+      "hash_hex": "b2e63d65916bf8e6"
+    },
+    {
+      "offset": 710359,
+      "size": 10367,
+      "hash_hex": "922c52acaa5cc4f3"
+    },
+    {
+      "offset": 720726,
+      "size": 18024,
+      "hash_hex": "ef6ad3d75858b8ac"
+    },
+    {
+      "offset": 738750,
+      "size": 17320,
+      "hash_hex": "66064063acecfcb3"
+    },
+    {
+      "offset": 756070,
+      "size": 11992,
+      "hash_hex": "43b81cadf3f4d4fc"
+    },
+    {
+      "offset": 768062,
+      "size": 4459,
+      "hash_hex": "8df11b6468e75644"
+    },
+    {
+      "offset": 772521,
+      "size": 22111,
+      "hash_hex": "ca91a2b313db42ad"
+    },
+    {
+      "offset": 794632,
+      "size": 22759,
+      "hash_hex": "948ecca9458466cf"
+    },
+    {
+      "offset": 817391,
+      "size": 21095,
+      "hash_hex": "fe65a65e7400f8db"
+    },
+    {
+      "offset": 838486,
+      "size": 24926,
+      "hash_hex": "70733e1e7ada6b53"
+    },
+    {
+      "offset": 863412,
+      "size": 4549,
+      "hash_hex": "15118dc2d7ff1e2b"
+    },
+    {
+      "offset": 867961,
+      "size": 5918,
+      "hash_hex": "d1c80ddc71434e15"
+    },
+    {
+      "offset": 873879,
+      "size": 44281,
+      "hash_hex": "88bf33776e8b3055"
+    },
+    {
+      "offset": 918160,
+      "size": 6594,
+      "hash_hex": "c4a8f8a767f10462"
+    },
+    {
+      "offset": 924754,
+      "size": 13828,
+      "hash_hex": "9e4e6dbb456d80ea"
+    },
+    {
+      "offset": 938582,
+      "size": 14137,
+      "hash_hex": "e94012921559f19b"
+    },
+    {
+      "offset": 952719,
+      "size": 4796,
+      "hash_hex": "b6861c6877ecfb00"
+    },
+    {
+      "offset": 957515,
+      "size": 8236,
+      "hash_hex": "ba8def2354344afc"
+    },
+    {
+      "offset": 965751,
+      "size": 23863,
+      "hash_hex": "bccea8640a331d46"
+    },
+    {
+      "offset": 989614,
+      "size": 16764,
+      "hash_hex": "2ab3209d0c113db0"
+    },
+    {
+      "offset": 1006378,
+      "size": 5825,
+      "hash_hex": "ae831a5ac8748ec2"
+    },
+    {
+      "offset": 1012203,
+      "size": 8555,
+      "hash_hex": "f0bd9e3932cf3aa2"
+    },
+    {
+      "offset": 1020758,
+      "size": 26229,
+      "hash_hex": "7b840212ceb5a977"
+    },
+    {
+      "offset": 1046987,
+      "size": 1589,
+      "hash_hex": "b6028daee7d76298"
+    }
+  ]
+}
