@@ -1,0 +1,5 @@
+[package]
+name = "longtail-bench"
+version.workspace = true
+edition.workspace = true
+publish = false

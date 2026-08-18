@@ -2,7 +2,7 @@ mod common;
 
 use clap::Parser;
 use common::version_index_from_file;
-use longtail::*;
+use longtail_ffi::*;
 use longtail_sys::{LONGTAIL_LOG_LEVEL_DEBUG, permissions_to_string};
 
 #[derive(Parser, Debug)]

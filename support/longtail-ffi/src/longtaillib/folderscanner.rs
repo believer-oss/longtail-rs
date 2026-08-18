@@ -240,7 +240,8 @@ mod tests {
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
         let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
         let scanner =
-            FolderScanner::scan("test-data/small/storage", path_filter_ref, &fs, &jobs).unwrap();
+            FolderScanner::scan("../../test-data/small/storage", path_filter_ref, &fs, &jobs)
+                .unwrap();
         let file_infos = scanner.get_file_infos();
         assert_eq!(file_infos.get_file_count(), 7);
         for (path, size, permissions) in file_infos.iter() {
@@ -256,8 +257,9 @@ mod tests {
         let pf = TestPathFilter {};
         let path_filter = PathFilterAPIProxy::new_proxy_ptr(Box::new(pf));
         let path_filter_ref = unsafe { path_filter.as_ref().expect("Cannot deref path filter") };
-        let scanner = FolderScanner::scan("test-data/small", path_filter_ref, &fs, &jobs).unwrap();
-        let source_folder_path = "test-data/small";
+        let scanner =
+            FolderScanner::scan("../../test-data/small", path_filter_ref, &fs, &jobs).unwrap();
+        let source_folder_path = "../../test-data/small";
         let source_index_path = "";
         let target_chunk_size = 64 * 1024;
         let compression_type = 0;
