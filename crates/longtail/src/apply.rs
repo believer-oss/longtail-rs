@@ -70,6 +70,7 @@ pub(crate) async fn change_version2(
     diff: &VersionDiff,
     store_index: &StoreIndex,
     retain_permissions: bool,
+    delete_removed: bool,
     apply_concurrency: usize,
     progress: &Arc<RateLimited>,
     cancel: &CancellationToken,
@@ -86,7 +87,18 @@ pub(crate) async fn change_version2(
     // 3. Deletes FIRST (CleanUpRemoveAssets, longtail.c:8787 / :7758) — removed
     //    indexes are already sorted long-to-short; 10-retry loop lets a dir be
     //    removed after its children succeed.
-    stats.assets_removed = delete_assets(target_root, current, diff, cancel)?;
+    //
+    //    Skipped entirely under `delete_removed == false` (the repair shape): the
+    //    write set below is unaffected, so every asset the version names is still
+    //    checked and rewritten, and everything else is left where it is. Safe to
+    //    skip because the removed set is disjoint from the write set by
+    //    construction — a path present in both versions is content- or
+    //    permissions-modified, never "removed" (diff.rs:72-91).
+    stats.assets_removed = if delete_removed {
+        delete_assets(target_root, current, diff, cancel)?
+    } else {
+        0
+    };
 
     // 4. Build the write set = added + content-modified (longtail.c:8587).
     let chunk_to_block = build_chunk_block_map(store_index);
@@ -911,7 +923,8 @@ mod tests {
             &sc.current,
             &diff,
             &sc.store_index,
-            false,
+            false, // retain_permissions
+            true,  // delete_removed
             concurrency,
             &progress,
             &cancel,
