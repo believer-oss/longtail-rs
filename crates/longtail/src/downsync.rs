@@ -1,0 +1,397 @@
+//! The async download-path orchestration (`ChangeVersion2` semantics; mirrors
+//! `cmd_downsync.go` + the ffi `commands.rs` map).
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Instant;
+
+use longtail_core::{
+    StoreIndex, VersionIndex, create_version_diff, get_required_chunk_hashes, merge_version_index,
+};
+use longtail_store::AccessType;
+use longtail_store::block_store::BlockStore;
+use longtail_store::uri::{BlockStoreOpts, create_block_store_for_uri};
+use tokio_util::sync::CancellationToken;
+
+use crate::apply::change_version2;
+use crate::error::LongtailError;
+use crate::fs_util::{self, S3OptionsArg};
+use crate::hash_util::make_hasher;
+use crate::options::{DownsyncOptions, DownsyncReport, PhaseTiming};
+use crate::path_filter::RegexPathFilter;
+use crate::progress::{NullProgress, ProgressSink, RateLimited};
+use crate::version::create_version_index_from_folder;
+
+const CACHE_INDEX_NAME: &str = ".longtail.index.cache.lvi";
+
+/// Downsync one or more source versions into a target folder. See
+/// [`DownsyncOptions`]. Runs on the caller's ambient tokio runtime.
+pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailError> {
+    if opts.use_legacy_write {
+        return Err(LongtailError::LegacyWriteUnsupported);
+    }
+
+    // Non-empty source paths (cmd_downsync.go:87-94).
+    let sources: Vec<String> = opts
+        .source_paths
+        .iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect();
+    if sources.is_empty() {
+        return Err(LongtailError::InvalidArgument(
+            "please provide at least one source path uri".into(),
+        ));
+    }
+
+    let filter = RegexPathFilter::new(
+        opts.include_filter_regex.as_deref(),
+        opts.exclude_filter_regex.as_deref(),
+    )?;
+
+    // Resolve the target folder (cmd_downsync.go:101).
+    let target_string = match opts.target_path.as_deref() {
+        Some(t) if !t.is_empty() => t.to_string(),
+        _ => derive_target_path(&sources[0])?,
+    };
+    let target_root = PathBuf::from(&target_string);
+
+    // Target-index caching four-step semantics (cmd_downsync.go:120-135).
+    let mut cache_target_index = opts.cache_target_index;
+    let explicit_target_index = opts
+        .target_index_path
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    if explicit_target_index.is_some() {
+        cache_target_index = false;
+    }
+    let cache_index_path = target_root.join(CACHE_INDEX_NAME);
+    // Effective target index: explicit path, or the cache file if it exists.
+    let effective_target_index: Option<String> = if let Some(t) = &explicit_target_index {
+        Some(t.clone())
+    } else if cache_target_index && fs_util::file_exists(&cache_index_path) {
+        Some(cache_index_path.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+
+    let progress: Arc<dyn ProgressSink> = opts
+        .progress
+        .clone()
+        .unwrap_or_else(|| Arc::new(NullProgress));
+    let progress = RateLimited::new(progress);
+    let cancel = opts.cancel.clone().unwrap_or_default();
+
+    let pool = match &opts.pool {
+        Some(p) => p.clone(),
+        None => Arc::new(build_pool(opts.worker_count)?),
+    };
+
+    #[cfg(feature = "s3")]
+    let s3: S3OptionsArg = opts.s3_options.clone();
+    #[cfg(not(feature = "s3"))]
+    let s3: S3OptionsArg = ();
+
+    let mut phases: Vec<PhaseTiming> = Vec::new();
+    let mut phase = PhaseTimer::new();
+
+    // Read + merge source version index(es) (cmd_downsync.go:142-164).
+    check_cancel(&cancel)?;
+    let source_version = read_merged_source(&sources, &s3).await?;
+    let hash_id = source_version.hash_identifier;
+    let target_chunk_size = source_version.target_chunk_size;
+    let hasher = make_hasher(hash_id)?;
+    phases.push(phase.lap("read_source_index"));
+
+    // Build the current target index (explicit/cached file, scan, or empty).
+    progress.phase("Indexing version");
+    let target_index = if let Some(path) = &effective_target_index {
+        read_version_index_local(Path::new(path))?
+    } else if opts.scan_target {
+        create_version_index_from_folder(
+            &target_root,
+            &filter,
+            hasher.as_ref(),
+            target_chunk_size,
+            0, // NoCompressionType for target scanning (cmd_downsync.go:176)
+            &pool,
+            &cancel,
+        )?
+    } else {
+        empty_version_index(hash_id, target_chunk_size)
+    };
+    phases.push(phase.lap("build_target_index"));
+
+    // Build the ReadOnly store-index override from version-local-store-index
+    // paths (remotestore.go:1897; on any failure → None → scan the store).
+    check_cancel(&cancel)?;
+    let override_index =
+        load_store_index_override(&opts.version_local_store_index_paths, &s3).await;
+
+    // Compose the block store (Compress(Cache(Remote))), ReadOnly.
+    let opts_store = BlockStoreOpts {
+        access_type: AccessType::ReadOnly,
+        worker_count: opts.remote_worker_count,
+        cache_dir: opts.cache_path.clone(),
+        pool: pool.clone(),
+        version_local_store_index: override_index,
+        #[cfg(feature = "s3")]
+        s3_options: opts.s3_options.clone(),
+    };
+    let store: Arc<dyn BlockStore> =
+        create_block_store_for_uri(&opts.storage_uri, opts_store).await?;
+    phases.push(phase.lap("open_store"));
+
+    // Diff (from = current target, to = desired source), required chunks,
+    // retargetted store index (min_block_usage_percent = 0, cmd_downsync.go:266).
+    let diff = create_version_diff(&target_index, &source_version);
+    let required = get_required_chunk_hashes(&source_version, &diff);
+    let store_index = store.get_existing_content(&required, 0).await?;
+    phases.push(phase.lap("diff_and_retarget"));
+
+    // Delete the cache index before mutating the target (cmd_downsync.go:274).
+    if cache_target_index {
+        fs_util::delete_local(&cache_index_path)?;
+    }
+
+    // Apply.
+    let apply_stats = change_version2(
+        &store,
+        &target_root,
+        &source_version,
+        &target_index,
+        &diff,
+        &store_index,
+        opts.retain_permissions,
+        &progress,
+        &cancel,
+    )
+    .await?;
+    phases.push(phase.lap("apply"));
+
+    // Flush + close the store chain before resolving (obligation #6; warm-cache
+    // write-backs must complete — cmd_downsync.go:324).
+    store.flush().await?;
+    store.close().await?;
+    let store_stats = store.stats();
+    phases.push(phase.lap("flush"));
+
+    // Optional post-downsync validation (cmd_downsync.go:380-456).
+    if opts.validate {
+        progress.phase("Validating version");
+        validate_target(
+            &target_root,
+            &filter,
+            hasher.as_ref(),
+            target_chunk_size,
+            &source_version,
+            opts.retain_permissions,
+            &pool,
+            &cancel,
+        )?;
+        phases.push(phase.lap("validate"));
+    }
+
+    // Cache the SOURCE version index for next time (cmd_downsync.go:458).
+    if cache_target_index {
+        fs_util::write_local(&cache_index_path, &source_version.to_bytes())?;
+    }
+
+    Ok(DownsyncReport {
+        target_path: target_string,
+        phases,
+        store_stats: store_stats.into(),
+        bytes_written: apply_stats.bytes_written,
+        assets_written: apply_stats.assets_written,
+        assets_removed: apply_stats.assets_removed,
+        blocks_fetched: store_stats.get_count,
+    })
+}
+
+fn check_cancel(cancel: &CancellationToken) -> Result<(), LongtailError> {
+    if cancel.is_cancelled() {
+        Err(LongtailError::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn build_pool(worker_count: usize) -> Result<rayon::ThreadPool, LongtailError> {
+    let n = if worker_count == 0 {
+        num_cpus::get().max(1)
+    } else {
+        worker_count
+    };
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build()
+        .map_err(|e| LongtailError::InvalidArgument(format!("failed to build rayon pool: {e}")))
+}
+
+/// Derive the target folder from a source URI: basename (last `/`-segment) of the
+/// normalized path, truncated at the **first** dot (cmd_downsync.go:101-108).
+fn derive_target_path(source: &str) -> Result<String, LongtailError> {
+    let normalized = source.replace('\\', "/");
+    let last = normalized.rsplit('/').next().unwrap_or("");
+    let stem = last.split('.').next().unwrap_or("");
+    if stem.is_empty() {
+        return Err(LongtailError::InvalidArgument(format!(
+            "unable to resolve target path using `{source}` as base"
+        )));
+    }
+    Ok(stem.to_string())
+}
+
+async fn read_merged_source(
+    sources: &[String],
+    s3: &S3OptionsArg,
+) -> Result<VersionIndex, LongtailError> {
+    let mut merged: Option<VersionIndex> = None;
+    for path in sources {
+        let bytes = fs_util::read_from_uri(path, s3).await?;
+        let vi = VersionIndex::from_bytes(&bytes)?;
+        merged = Some(match merged {
+            None => vi,
+            Some(base) => merge_version_index(&base, &vi)?,
+        });
+    }
+    merged.ok_or_else(|| LongtailError::InvalidArgument("no source version index".into()))
+}
+
+fn read_version_index_local(path: &Path) -> Result<VersionIndex, LongtailError> {
+    let bytes = std::fs::read(path).map_err(|e| LongtailError::io(format!("read {path:?}"), e))?;
+    Ok(VersionIndex::from_bytes(&bytes)?)
+}
+
+fn empty_version_index(hash_id: u32, target_chunk_size: u32) -> VersionIndex {
+    VersionIndex {
+        hash_identifier: hash_id,
+        target_chunk_size,
+        path_hashes: Vec::new(),
+        content_hashes: Vec::new(),
+        asset_sizes: Vec::new(),
+        asset_chunk_counts: Vec::new(),
+        asset_chunk_index_starts: Vec::new(),
+        asset_chunk_indexes: Vec::new(),
+        chunk_hashes: Vec::new(),
+        chunk_sizes: Vec::new(),
+        chunk_tags: Vec::new(),
+        name_offsets: Vec::new(),
+        permissions: Vec::new(),
+        name_data: Vec::new(),
+    }
+}
+
+/// Read + merge the version-local store index override paths; `None` on any
+/// read/merge failure (falls back to scanning the store, remotestore.go:1897).
+async fn load_store_index_override(paths: &[String], s3: &S3OptionsArg) -> Option<StoreIndex> {
+    if paths.is_empty() {
+        return None;
+    }
+    let mut acc: Option<StoreIndex> = None;
+    for p in paths {
+        let bytes = fs_util::read_from_uri(p, s3).await.ok()?;
+        let si = StoreIndex::from_bytes(&bytes).ok()?;
+        acc = Some(match acc {
+            None => si,
+            Some(a) => a.merge(&si).ok()?,
+        });
+    }
+    acc
+}
+
+/// The `--validate` rescan: re-index the target with nil tags and compare each
+/// asset's size/hash (+ permissions iff retaining) against the source index
+/// (cmd_downsync.go:380-456).
+#[allow(clippy::too_many_arguments)]
+fn validate_target<H: longtail_core::Hash + Sync + ?Sized>(
+    target_root: &Path,
+    filter: &RegexPathFilter,
+    hasher: &H,
+    target_chunk_size: u32,
+    source_version: &VersionIndex,
+    retain_permissions: bool,
+    pool: &rayon::ThreadPool,
+    cancel: &CancellationToken,
+) -> Result<(), LongtailError> {
+    let rescan = create_version_index_from_folder(
+        target_root,
+        filter,
+        hasher,
+        target_chunk_size,
+        0,
+        pool,
+        cancel,
+    )?;
+    if rescan.asset_count() != source_version.asset_count() {
+        return Err(LongtailError::ValidationMismatch(format!(
+            "asset count mismatch: rescanned {} vs source {}",
+            rescan.asset_count(),
+            source_version.asset_count()
+        )));
+    }
+    // Build source lookups keyed by path.
+    let mut size_by_path: HashMap<&[u8], u64> = HashMap::new();
+    let mut hash_by_path: HashMap<&[u8], u64> = HashMap::new();
+    let mut perm_by_path: HashMap<&[u8], u16> = HashMap::new();
+    for i in 0..source_version.asset_count() as usize {
+        let p = source_version.path_bytes(i)?;
+        size_by_path.insert(p, source_version.asset_sizes[i]);
+        hash_by_path.insert(p, source_version.content_hashes[i]);
+        perm_by_path.insert(p, source_version.permissions[i].bits());
+    }
+    for i in 0..rescan.asset_count() as usize {
+        let p = rescan.path_bytes(i)?;
+        let path_str = String::from_utf8_lossy(p);
+        match size_by_path.get(p) {
+            None => {
+                return Err(LongtailError::ValidationMismatch(format!(
+                    "asset `{path_str}` not found in source index"
+                )));
+            }
+            Some(&size) => {
+                if rescan.asset_sizes[i] != size {
+                    return Err(LongtailError::ValidationMismatch(format!(
+                        "asset `{path_str}` size mismatch: {} vs {size}",
+                        rescan.asset_sizes[i]
+                    )));
+                }
+                if rescan.content_hashes[i] != hash_by_path[p] {
+                    return Err(LongtailError::ValidationMismatch(format!(
+                        "asset `{path_str}` content hash mismatch"
+                    )));
+                }
+                if retain_permissions && rescan.permissions[i].bits() != perm_by_path[p] {
+                    return Err(LongtailError::ValidationMismatch(format!(
+                        "asset `{path_str}` permission mismatch"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A simple sequential phase timer.
+struct PhaseTimer {
+    last: Instant,
+}
+
+impl PhaseTimer {
+    fn new() -> PhaseTimer {
+        PhaseTimer {
+            last: Instant::now(),
+        }
+    }
+    fn lap(&mut self, name: &str) -> PhaseTiming {
+        let now = Instant::now();
+        let millis = now.duration_since(self.last).as_millis() as u64;
+        self.last = now;
+        PhaseTiming {
+            phase: name.to_string(),
+            millis,
+        }
+    }
+}

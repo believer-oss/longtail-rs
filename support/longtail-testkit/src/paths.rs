@@ -46,3 +46,12 @@ pub fn fixtures_dir() -> PathBuf {
 pub fn upstream_chunker_input() -> PathBuf {
     workspace_root().join("support/longtail-sys/longtail/test/testdata/chunker.input")
 }
+
+/// The pinned golongtail v0.4.5 binary cached by `xtask fetch-golongtail`
+/// (`<workspace>/target/golongtail/longtail`), if present. Returns `None` when
+/// absent so the three-way differential can skip the spawned third way cleanly.
+pub fn golongtail_binary() -> Option<PathBuf> {
+    // xtask caches the pinned binary as `longtail-linux-x64` (GOLONGTAIL_BIN).
+    let p = workspace_root().join("target/golongtail/longtail-linux-x64");
+    if p.is_file() { Some(p) } else { None }
+}

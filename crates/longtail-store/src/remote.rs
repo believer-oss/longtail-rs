@@ -108,6 +108,28 @@ impl RemoteBlockStore {
             access_type,
             worker_count,
             DEFAULT_MAX_PREFETCH_BYTES,
+            None,
+        )
+        .await
+    }
+
+    /// Construct with a pre-loaded, pre-merged **ReadOnly store-index override**
+    /// (golongtail's `optionalStoreIndexPaths` merge, remotestore.go:1897). When
+    /// `override_index` is `Some` and `access_type == ReadOnly`, the index-owner
+    /// task seeds the store index from it and never scans the store's `.lsi`
+    /// shards. Ignored for non-`ReadOnly` access types.
+    pub async fn with_store_index_override(
+        blob_store: Arc<dyn BlobStore>,
+        access_type: AccessType,
+        worker_count: usize,
+        override_index: Option<StoreIndex>,
+    ) -> Result<RemoteBlockStore, StoreError> {
+        Self::with_prefetch_budget(
+            blob_store,
+            access_type,
+            worker_count,
+            DEFAULT_MAX_PREFETCH_BYTES,
+            override_index,
         )
         .await
     }
@@ -118,16 +140,23 @@ impl RemoteBlockStore {
         access_type: AccessType,
         worker_count: usize,
         max_prefetch_bytes: usize,
+        override_index: Option<StoreIndex>,
     ) -> Result<RemoteBlockStore, StoreError> {
         let worker_count = worker_count.max(1);
         let client: Arc<dyn crate::blob::BlobClient> = Arc::from(blob_store.new_client().await?);
         let stats = Arc::new(BlockStoreStats::default());
         let (index_tx, index_rx) = mpsc::channel::<IndexCommand>(64 + worker_count * 8);
 
-        // Spawn the index-owner task with its own client.
+        // Spawn the index-owner task with its own client. A ReadOnly override
+        // pre-seeds the index (no shard scan).
         let owner_store = blob_store.clone();
+        let seed = if access_type == AccessType::ReadOnly {
+            override_index
+        } else {
+            None
+        };
         tokio::spawn(async move {
-            index_owner(owner_store, access_type, index_rx).await;
+            index_owner(owner_store, access_type, seed, index_rx).await;
         });
 
         // Semaphore permits are u32-bounded; clamp the byte budget.
@@ -417,6 +446,7 @@ fn clone_store_error(e: &StoreError) -> StoreError {
 async fn index_owner(
     blob_store: Arc<dyn BlobStore>,
     access_type: AccessType,
+    seed_index: Option<StoreIndex>,
     mut rx: mpsc::Receiver<IndexCommand>,
 ) {
     let client = match blob_store.new_client().await {
@@ -429,7 +459,8 @@ async fn index_owner(
             return;
         }
     };
-    let mut index: Option<StoreIndex> = None;
+    // A ReadOnly override pre-seeds the index so `merged_index` never scans.
+    let mut index: Option<StoreIndex> = seed_index;
     let mut added: Vec<BlockIndex> = Vec::new();
 
     loop {

@@ -11,3 +11,16 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+
+# The shipped profile, declared rather than inherited, so the decisions below are
+# visible and reviewable. This binary ships inside a desktop app, so size counts.
+[profile.release]
+# Unwinding is load-bearing, not a default we happened to keep. The rayon pools
+# install a panic handler and the apply path lets tokio catch a panicking task,
+# both so that a malformed block read out of a store fails the operation instead
+# of killing the process — inside a GUI that means the app vanishing with nothing
+# to report. `panic = "abort"` would silently undo that.
+panic = "unwind"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
