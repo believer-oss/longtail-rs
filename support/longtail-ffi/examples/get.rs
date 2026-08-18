@@ -1,11 +1,9 @@
 mod common;
 
-use std::path::Path;
-
 use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
 
 use clap::Parser;
-use longtail::*;
+use longtail_ffi::*;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -29,6 +27,5 @@ fn main() {
 
     let args = Args::parse();
     let source_path = args.source_paths[0].clone();
-    let cache = CacheControl::new(Path::new("test-cache"), 2 * 1024 * 1024 * 1024);
-    get_with_cache(&source_path, &args.target_path, None, Some(cache)).unwrap();
+    get(&source_path, &args.target_path, None).unwrap();
 }

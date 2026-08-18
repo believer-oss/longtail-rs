@@ -1,0 +1,38 @@
+[package]
+name = "longtail-ffi"
+version = "0.2.0"
+edition = "2024"
+description = "LEGACY. Safe-ish wrappers over the longtail C library (via longtail-sys). Exists solely as the reference oracle for differential regression testing of the pure-Rust workspace against the C implementation; not a default workspace member and not a dependency of anything shipped."
+
+[dev-dependencies]
+itertools = "0.14.0"
+clap = { version = "4.5.27", features = ["derive"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+lazy_static = "1.5.0"
+tempfile = "3.15.0"
+
+[dependencies]
+longtail-sys = { path = "../longtail-sys" }
+aws-config = { version = "1.5.14", features = ["behavior-version-latest"] }
+# default-features = false drops the legacy `rustls` connector (rustls 0.21 /
+# rustls-webpki 0.101.7); the modern default-https-client is kept. Same rationale
+# as longtail-store — see the note there. (This legacy crate shares the lock, so
+# it must match or it re-introduces the advisory.)
+aws-sdk-s3 = { version = "1.69.0", default-features = false, features = [
+  "sigv4a",
+  "http-1x",
+  "default-https-client",
+  "rt-tokio",
+] }
+dyn-clone = "1.0.17"
+fs4 = "0.13.1"
+http = "1.2.0"
+lazy_static = "1.5.0"
+num_cpus = "1.16.0"
+regex = "1.11.1"
+strum = { version = "0.27.2", features = ["derive"] }
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["full"] }
+tracing = { version = "0.1.41", features = ["log"] }
+serde_json = "1.0.137"
+libc = "0.2.169"

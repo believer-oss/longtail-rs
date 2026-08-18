@@ -3,6 +3,7 @@ name = "longtail-sys"
 version = "0.1.0"
 edition = "2021"
 links = "longtail"
+description = "LEGACY. Raw bindgen bindings to the longtail C library, compiled from the vendored submodule by default. Exists solely as the reference oracle for differential regression testing of the pure-Rust workspace against the C implementation; not a default workspace member and not a dependency of anything shipped."
 
 [build-dependencies]
 reqwest = { version = "0.12", default-features = false, features = [

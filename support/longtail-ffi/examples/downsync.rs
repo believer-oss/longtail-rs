@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use longtail_sys::LONGTAIL_LOG_LEVEL_DEBUG;
 
 use clap::Parser;
-use longtail::*;
+use longtail_ffi::*;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
