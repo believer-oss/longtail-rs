@@ -2,3 +2,27 @@
 name = "longtail"
 version.workspace = true
 edition.workspace = true
+
+[features]
+default = ["s3"]
+# Pass the S3 backend through to longtail-store (on by default).
+s3 = ["longtail-store/s3"]
+
+[dependencies]
+longtail-core = { path = "../longtail-core" }
+longtail-store = { path = "../longtail-store", default-features = false }
+tokio = { version = "1.49", features = ["rt", "rt-multi-thread", "sync", "macros"] }
+tokio-util = "0.7"
+rayon = "1"
+regex = "1"
+thiserror = "2"
+tracing = "0.1"
+num_cpus = "1.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+longtail-testkit = { path = "../../support/longtail-testkit" }
+tempfile = "3"
+tokio = { version = "1.49", features = ["full", "test-util"] }
+libc = "0.2"

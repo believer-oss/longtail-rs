@@ -1,0 +1,105 @@
+name: "Differential (vs the C implementation)"
+
+# Regression against the retained C implementation via longtail-sys: proves the
+# pure-Rust port still produces byte-identical output to the library it replaced.
+#
+# Triggered by dependency changes rather than by a clock. Upstream is pinned, so
+# a periodic run mostly re-proves that it has not moved; what does move is our
+# dependency graph, and the bytes we produce come out of third-party codecs and
+# hashes (lz4_flex, brotli, zstd, blake3, blake2). Running here means a
+# dependency bump proves byte-compatibility before it merges. The monthly cron is
+# a liveness check on this workflow itself — submodule fetch, prebuilt download,
+# C toolchain — not a drift check.
+on:
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/differential.yaml"
+      - "support/longtail-sys/**"
+      - "support/longtail-ffi/**"
+      - "support/longtail-testkit/**"
+  push:
+    branches:
+      - "main"
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  schedule:
+    # Monthly liveness canary — the 1st at 06:00 UTC.
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs the whole workspace plus the self-validation suite that proves the C
+  # library reproduces every committed golden, and the codec/chunker/hash
+  # differentials.
+  #
+  # The `differential` feature also compiles a small C shim
+  # (support/longtail-testkit/shim/hpcdc_discriminator_shim.c) via `cc` in
+  # longtail-testkit's build.rs, so this job requires a **host C compiler**
+  # (present on the GitHub ubuntu/windows runners); the golden `d` table +
+  # boundary-table equality fallback covers environments without a C compiler.
+  differential-linux:
+    name: differential - linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `longtail-sys` runs bindgen over headers from the submodule, so this
+          # job cannot build without it. Every other job sets `submodules: false`
+          # for the same reason inverted — they must never need it.
+          submodules: true
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      - run: |
+          pushd test-data
+          ./mkdata.sh
+
+      # Fetch the pinned golongtail binary so the three-way e2e
+      # differential runs its spawned third way (Rust vs ffi vs golongtail). The
+      # test skips this third way cleanly if the fetch is unavailable.
+      - run: cargo run -p xtask -- fetch-golongtail
+
+      - run: cargo test --workspace
+      - run: cargo test -p longtail-testkit --features differential
+
+      # The legacy C crates are excluded from the per-PR clippy gate, so they
+      # are linted here, where the native build is already being paid for.
+      - name: Clippy (including the legacy C crates)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Bench-crate compile-check with the C column. The `differential`
+      # feature pulls longtail-ffi (cannot compile without a C toolchain) and builds
+      # the e2e + ffi-driver bins. Never RUN in CI.
+      - run: cargo bench --no-run -p longtail-bench --features differential
+
+  differential-windows:
+    name: differential - windows
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `longtail-sys` runs bindgen over headers from the submodule, so this
+          # job cannot build without it. Every other job sets `submodules: false`
+          # for the same reason inverted — they must never need it.
+          submodules: true
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      - run: |
+          pushd test-data
+          ./mkdata.ps1
+
+      # No `fetch-golongtail` here: xtask pins the Linux binary for its URL,
+      # filename and sha256, so the three-way e2e self-skips its third way on
+      # Windows.
+      - run: cargo test --workspace
+      - run: cargo test -p longtail-testkit --features differential
