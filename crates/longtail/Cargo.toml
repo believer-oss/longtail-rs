@@ -30,3 +30,6 @@ longtail-testkit = { path = "../../support/longtail-testkit" }
 tempfile = "3"
 tokio = { version = "1.49", features = ["full", "test-util"] }
 libc = "0.2"
+# Capture-and-assert on the library's own events: an operation that falls back
+# to a slow path must say so, and that is only testable with a subscriber.
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

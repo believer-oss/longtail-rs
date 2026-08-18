@@ -85,6 +85,16 @@ pub(crate) async fn read_blob_with_retry(
                 if retry_count as usize == READ_RETRY_DELAYS.len() {
                     return Err(e);
                 }
+                // The ladder sleeps for seconds in total. Without an event the
+                // caller sees a stalled transfer and cannot tell a slow store
+                // from a hang.
+                tracing::debug!(
+                    key,
+                    attempt = retry_count + 1,
+                    delay_ms = READ_RETRY_DELAYS[retry_count as usize].as_millis() as u64,
+                    error = %e,
+                    "blob read failed; retrying"
+                );
                 sleep(READ_RETRY_DELAYS[retry_count as usize]).await;
                 retry_count += 1;
             }
@@ -140,13 +150,13 @@ async fn get_store_store_indexes(client: &dyn BlobClient) -> Result<Vec<String>,
 /// `readStoreStoreIndexFromPath` (remotestore.go:1637): read + parse one shard.
 ///
 /// The parse is **inside** the retry ladder, unlike [`read_blob_with_retry`]'s
-/// callers elsewhere. golongtail replaces `store.lsi` in place (`ioutil.WriteFile`,
-/// fsstore.go:266 — no temp+rename), and a Rust `ReadOnly` reader has locking
-/// disabled (`uri.rs:166-168`), so a half-written index is observable and is
-/// valid again a millisecond later. Treating that `FormatError` as terminal
-/// turns a routine mixed-writer race into a failed download that succeeds on
-/// the next invocation — indistinguishable from a flake. A genuinely corrupt
-/// index still fails, after the same ladder, with the same error.
+/// callers elsewhere. golongtail replaces `store.lsi` in place
+/// (`ioutil.WriteFile`, fsstore.go:266 — no temp+rename) and a `ReadOnly` reader
+/// has locking disabled, so a half-written index is observable and is valid
+/// again a moment later. Treating that `FormatError` as terminal turns a routine
+/// mixed-writer race into a failed download that succeeds on the next
+/// invocation. A genuinely corrupt index still fails, after the same ladder,
+/// with the same error.
 async fn read_store_index_from_path(
     client: &dyn BlobClient,
     key: &str,
@@ -298,8 +308,13 @@ async fn try_write_shard(
         if item == &key {
             continue;
         }
-        if let Ok(mut old) = client.new_object(item).await {
-            let _ = old.delete().await;
+        if let Ok(mut old) = client.new_object(item).await
+            && let Err(e) = old.delete().await
+        {
+            // Surviving shards stay visible to readers and keep referencing
+            // blocks a later prune may remove, so a swallowed failure here is
+            // how an index and its blocks drift apart.
+            tracing::warn!(shard = %item, error = %e, "superseded store-index shard was not deleted");
         }
     }
     Ok(true)
@@ -352,7 +367,7 @@ pub async fn add_to_remote_store_index(
 }
 
 /// Read the current merged store index (canonical `store.lsi` + all shards).
-/// Public convenience over [`read_store_store_index_with_items`] for the
+/// Public convenience over `read_store_store_index_with_items` for the
 /// download/upload paths
 /// and the chaos test's convergence check.
 pub async fn read_merged_store_index(client: &dyn BlobClient) -> Result<StoreIndex, StoreError> {
@@ -394,7 +409,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     Ok(true)
 }
 
-/// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry [`try_overwrite`]
+/// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry `try_overwrite`
 /// on a lost CAS; hard errors tolerated up to 3 times. Public: the prune path
 /// calls this to overwrite the store index BEFORE deleting blocks.
 pub async fn overwrite_remote_store_index(
@@ -483,7 +498,13 @@ pub(crate) async fn read_remote_store_index(
         match add_to_remote_store_index(client, &rebuilt).await {
             Ok(Some(persisted)) => return Ok(persisted),
             Ok(None) => return Ok(rebuilt),
-            Err(_) => return Ok(rebuilt), // persist failure is non-fatal (Go logs)
+            // Non-fatal, but the next run rebuilds from scratch again, so the
+            // cost is repeated silently until someone notices the store index
+            // never appears.
+            Err(e) => {
+                tracing::warn!(error = %e, "rebuilt store index could not be persisted");
+                return Ok(rebuilt);
+            }
         }
     }
     match read_store_store_index_with_items(client).await {

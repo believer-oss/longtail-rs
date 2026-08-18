@@ -27,6 +27,16 @@ const CACHE_INDEX_NAME: &str = ".longtail.index.cache.lvi";
 
 /// Downsync one or more source versions into a target folder. See
 /// [`DownsyncOptions`]. Runs on the caller's ambient tokio runtime.
+#[tracing::instrument(
+    name = "downsync",
+    skip_all,
+    fields(
+        storage_uri = %opts.storage_uri,
+        sources = opts.source_paths.len(),
+        worker_count = opts.worker_count,
+        remote_worker_count = opts.remote_worker_count,
+    )
+)]
 pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailError> {
     if opts.use_legacy_write {
         return Err(LongtailError::LegacyWriteUnsupported);
@@ -130,13 +140,23 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     phases.push(phase.lap("build_target_index"));
 
     // Build the ReadOnly store-index override from version-local-store-index
-    // paths (remotestore.go:1897; on any failure → None → scan the store).
-    // Opening the store + scanning its index (below) is another remote step, so
-    // label it rather than leaving the stale "Indexing version" phase up.
+    // paths (remotestore.go:1897; on any failure → None → the store reads its
+    // own index instead). Reading the override is itself a (possibly remote)
+    // step, so label it rather than leaving the stale "Indexing version" up.
     check_cancel(&cancel)?;
     progress.phase("Reading store index");
     let override_index =
         load_store_index_override(&opts.version_local_store_index_paths, &s3).await;
+
+    // Without an override the store reads its own index — a list of `store*.lsi`
+    // and a merge of every shard — on the first block query below, and this phase
+    // is still the one on screen when that happens. Re-label so the slow branch
+    // is named rather than hiding behind a label that also covers the cheap one.
+    // Fires whether the override failed or was never supplied: the work, and so
+    // the honest label, is the same either way.
+    if override_index.is_none() {
+        progress.phase("Reading full store index");
+    }
 
     // Compose the block store (Compress(Cache(Remote))), ReadOnly. The apply
     // loop's block-task concurrency shares the store's resolved worker count
@@ -149,6 +169,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         cache_dir: opts.cache_path.clone(),
         pool: pool.clone(),
         version_local_store_index: override_index,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
@@ -301,18 +322,54 @@ fn empty_version_index(hash_id: u32, target_chunk_size: u32) -> VersionIndex {
 }
 
 /// Read + merge the version-local store index override paths; `None` on any
-/// read/merge failure (falls back to scanning the store, remotestore.go:1897).
+/// read/merge failure (falls back to the store's own index, remotestore.go:1897).
 async fn load_store_index_override(paths: &[String], s3: &S3OptionsArg) -> Option<StoreIndex> {
     if paths.is_empty() {
         return None;
     }
+    // Any failure here falls back to reading the store's own index — a list of
+    // `store*.lsi` plus a merge of every shard, covering the whole store rather
+    // than just this version's blocks. That produces no progress of its own, so
+    // the download simply appears to stall. Warn with the URI that caused it,
+    // otherwise the difference between "slow store" and "your override path is
+    // wrong" is invisible from the outside.
     let mut acc: Option<StoreIndex> = None;
     for p in paths {
-        let bytes = fs_util::read_from_uri(p, s3).await.ok()?;
-        let si = StoreIndex::from_bytes(&bytes).ok()?;
+        let bytes = match fs_util::read_from_uri(p, s3).await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    uri = %p,
+                    error = %e,
+                    "could not read version-local store index; falling back to reading the whole store index"
+                );
+                return None;
+            }
+        };
+        let si = match StoreIndex::from_bytes(&bytes) {
+            Ok(si) => si,
+            Err(e) => {
+                tracing::warn!(
+                    uri = %p,
+                    error = %e,
+                    "version-local store index did not parse; falling back to reading the whole store index"
+                );
+                return None;
+            }
+        };
         acc = Some(match acc {
             None => si,
-            Some(a) => a.merge(&si).ok()?,
+            Some(a) => match a.merge(&si) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(
+                        uri = %p,
+                        error = %e,
+                        "version-local store indexes did not merge; falling back to reading the whole store index"
+                    );
+                    return None;
+                }
+            },
         });
     }
     acc
