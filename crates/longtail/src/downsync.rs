@@ -78,7 +78,8 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         cache_target_index = false;
     }
     let cache_index_path = target_root.join(CACHE_INDEX_NAME);
-    // Effective target index: explicit path, or the cache file if it exists.
+    // Effective target index: explicit path, or the cache file if it exists. The
+    // two are not equally trusted — see `read_target_index` below.
     let effective_target_index: Option<String> = if let Some(t) = &explicit_target_index {
         Some(t.clone())
     } else if cache_target_index && fs_util::file_exists(&cache_index_path) {
@@ -86,18 +87,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     } else {
         None
     };
-
-    // A repair that reads a cached target index cannot repair anything: the cache
-    // is trusted as the target's state, so the diff is empty and the run exits 0
-    // having written nothing. The two options are orthogonal and the combination
-    // is legal — a no-delete upgrade wants exactly this — but it is also the shape
-    // a "repair" button gets wired as by accident, and the failure is silent.
-    if !opts.delete_removed && effective_target_index.is_some() {
-        tracing::warn!(
-            "delete_removed is off while a cached or explicit target index is in use; damage on \
-             disk will not be detected — set cache_target_index = false to scan the target"
-        );
-    }
+    let target_index_is_cache = explicit_target_index.is_none();
 
     let progress: Arc<dyn ProgressSink> = opts
         .progress
@@ -132,8 +122,10 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
 
     // Build the current target index (explicit/cached file, scan, or empty).
     progress.phase("Indexing version");
-    let target_index = if let Some(path) = &effective_target_index {
-        read_version_index_local(Path::new(path))?
+    let preloaded = read_target_index(effective_target_index.as_deref(), target_index_is_cache)?;
+    let used_preloaded = preloaded.is_some();
+    let target_index = if let Some(vi) = preloaded {
+        vi
     } else if opts.scan_target {
         let on_scan = crate::version::scan_progress_forwarder(progress.clone());
         create_version_index_from_folder(
@@ -150,6 +142,20 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         empty_version_index(hash_id, target_chunk_size)
     };
     phases.push(phase.lap("build_target_index"));
+
+    // A repair that reads a cached target index cannot repair anything: the cache
+    // is trusted as the target's state, so the diff is empty and the run exits 0
+    // having written nothing. The two options are orthogonal and the combination
+    // is legal — a no-delete upgrade wants exactly this — but it is also the shape
+    // a "repair" button gets wired as by accident, and the failure is silent.
+    // Keyed on the index actually being used, so a cache that was rejected above
+    // does not draw a warning about a trust that is no longer being placed.
+    if !opts.delete_removed && used_preloaded {
+        tracing::warn!(
+            "delete_removed is off while a cached or explicit target index is in use; damage on \
+             disk will not be detected — set cache_target_index = false to scan the target"
+        );
+    }
 
     // Build the ReadOnly store-index override from version-local-store-index
     // paths (remotestore.go:1897; on any failure → None → the store reads its
@@ -323,6 +329,52 @@ async fn read_merged_source(
 fn read_version_index_local(path: &Path) -> Result<VersionIndex, LongtailError> {
     let bytes = std::fs::read(path).map_err(|e| LongtailError::io(format!("read {path:?}"), e))?;
     Ok(VersionIndex::from_bytes(&bytes)?)
+}
+
+/// Load the target index named by `path`, if any.
+///
+/// An explicitly supplied `--target-index-path` is a hard error when it will not
+/// read: the caller named that file and silently substituting a scan would give
+/// them a different operation than the one they asked for.
+///
+/// `.longtail.index.cache.lvi` is the opposite. It is an optimisation this code
+/// wrote for itself, and its worst case has to be "slower", never "the download
+/// stops". A rejected cache returns `None` so the caller scans the target, which
+/// is exactly what would have happened had the file never existed.
+///
+/// It reaches an unreadable state by ordinary means, no crash required. The file
+/// lives inside the target, so a folder that has been downsynced once and then
+/// upsynced carries it into the version index as an asset — golongtail v0.4.5
+/// indexes it the same way, so existing stores already hold such versions. Apply
+/// then re-materialises it like any other asset: pre-created at its final size by
+/// `create_file_sized`, hence zero-filled until its blocks land. A run that fails
+/// or is cancelled in between leaves those zeros, and the post-apply cache write
+/// that would have replaced them never happens. Before this, the next run read
+/// `0x00000000` as a format version and refused a target that was merely stale.
+///
+/// A rejected file is left alone rather than deleted: the run deletes it before
+/// mutating the target anyway, and a successful run replaces it.
+fn read_target_index(
+    path: Option<&str>,
+    is_cache: bool,
+) -> Result<Option<VersionIndex>, LongtailError> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let path = Path::new(path);
+    match read_version_index_local(path) {
+        Ok(vi) => Ok(Some(vi)),
+        Err(e) if is_cache => {
+            tracing::warn!(
+                cache = %path.display(),
+                error = %e,
+                "the cached target index could not be read and is being ignored; scanning the \
+                 target instead — this run is slower, not wrong"
+            );
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn empty_version_index(hash_id: u32, target_chunk_size: u32) -> VersionIndex {

@@ -370,10 +370,15 @@ fn downsync_missing_index() {
     );
 }
 
-/// Regression: a corrupt target-index cache
-/// (`.longtail.index.cache.lvi`) is a hard parse error, not silently ignored.
-/// (When `--cache-target-index` is on — the default — the cache file is read as
-/// the target index; a malformed one must fail cleanly.)
+/// A corrupt target-index cache (`.longtail.index.cache.lvi`) costs a scan, not
+/// the download. Deliberate divergence: golongtail v0.4.5 exits fatal here
+/// ("Cant parse version index from ..."), leaving a user whose only cure is
+/// deleting a hidden file they were never told about. The cache is an
+/// optimisation this code wrote for itself, so its worst case is "slower".
+///
+/// Nothing about store bytes changes — see `docs/rust-port.md` §Deliberate
+/// divergences. The library-level test that the fallback still produces the
+/// right tree is `longtail/tests/smoke.rs`.
 #[test]
 fn downsync_corrupt_target_index_cache() {
     pin_umask();
@@ -400,8 +405,14 @@ fn downsync_corrupt_target_index_cache() {
         None,
     );
     assert!(
-        !out.status.success(),
-        "downsync should fail hard on a corrupt target-index cache"
+        out.status.success(),
+        "a corrupt target-index cache must fall back to scanning, not fail the \
+         download; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        target.join("zoo").exists() || target.read_dir().unwrap().count() > 1,
+        "the fallback run must actually materialise the version"
     );
 }
 
