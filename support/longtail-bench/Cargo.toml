@@ -36,7 +36,7 @@ longtail-ffi = { path = "../longtail-ffi", optional = true }
 # `cargo_bench_support` lets the harness=false benches run under `cargo bench`;
 # default features (plotters/gnuplot) are dropped so no external plotting tool
 # is required to build or run.
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [features]
 # FastCDC chunker variant (benchmarking-only; no compat gates). Pulls the
