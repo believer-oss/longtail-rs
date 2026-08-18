@@ -49,6 +49,11 @@ pub struct BlockStoreOpts {
     /// shards. The facade reads the `.lvi`/`.lsi` URIs and merges them (falling
     /// back to `None` on any read/merge failure, matching Go's break-and-scan).
     pub version_local_store_index: Option<StoreIndex>,
+    /// Ceiling on a single blob read; `None` uses
+    /// [`crate::blob::DEFAULT_MAX_BLOB_BYTES`]. Raise it only for a store that
+    /// genuinely writes blocks larger than the default — it exists so a store
+    /// cannot choose this process's memory use.
+    pub max_block_bytes: Option<u64>,
     /// S3 credential/endpoint options (feature `s3`).
     #[cfg(feature = "s3")]
     pub s3_options: S3Options,
@@ -63,6 +68,7 @@ impl BlockStoreOpts {
             cache_dir: None,
             pool,
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: S3Options::default(),
         }
@@ -166,17 +172,20 @@ fn resolve_backend(
     // CAS, and an enabled read-lock scatters never-unlinked `._lck` files into
     // customer stores. Only writing access types lock.
     let fs_locking = opts.access_type != AccessType::ReadOnly;
+    let max_blob_bytes = opts
+        .max_block_bytes
+        .unwrap_or(crate::blob::DEFAULT_MAX_BLOB_BYTES);
 
     // fsblob:// and UNC/network paths → fs blob store (local worker count).
     if let Some(rest) = uri.strip_prefix("fsblob://") {
         return Ok((
-            Arc::new(FsBlobStore::new(rest, fs_locking)),
+            Arc::new(FsBlobStore::new(rest, fs_locking).with_max_read_bytes(max_blob_bytes)),
             local_worker_count(opts.worker_count),
         ));
     }
     if uri.starts_with("\\\\?\\") || uri.starts_with('\\') {
         return Ok((
-            Arc::new(FsBlobStore::new(uri, fs_locking)),
+            Arc::new(FsBlobStore::new(uri, fs_locking).with_max_read_bytes(max_blob_bytes)),
             local_worker_count(opts.worker_count),
         ));
     }
@@ -195,14 +204,23 @@ fn resolve_backend(
             }
             "file" => {
                 return Ok((
-                    Arc::new(FsBlobStore::new(rest, fs_locking)),
+                    Arc::new(
+                        FsBlobStore::new(rest, fs_locking).with_max_read_bytes(max_blob_bytes),
+                    ),
                     local_worker_count(opts.worker_count),
                 ));
             }
             "s3" => {
                 #[cfg(feature = "s3")]
                 {
-                    let store = S3BlobStore::from_uri_with_options(uri, opts.s3_options.clone())?;
+                    // `BlockStoreOpts::max_block_bytes` wins when set, so one
+                    // knob governs both backends; otherwise the S3 options keep
+                    // their own default.
+                    let mut s3_options = opts.s3_options.clone();
+                    if let Some(limit) = opts.max_block_bytes {
+                        s3_options.max_read_bytes = limit;
+                    }
+                    let store = S3BlobStore::from_uri_with_options(uri, s3_options)?;
                     return Ok((Arc::new(store), networked_worker_count(opts.worker_count)));
                 }
                 #[cfg(not(feature = "s3"))]
@@ -216,7 +234,9 @@ fn resolve_backend(
                 if scheme.len() == 1 {
                     // Windows drive letter `c:\...` — a path.
                     return Ok((
-                        Arc::new(FsBlobStore::new(uri, fs_locking)),
+                        Arc::new(
+                            FsBlobStore::new(uri, fs_locking).with_max_read_bytes(max_blob_bytes),
+                        ),
                         local_worker_count(opts.worker_count),
                     ));
                 }
@@ -230,7 +250,7 @@ fn resolve_backend(
 
     // No scheme → filesystem path (fs blob store, local worker count).
     Ok((
-        Arc::new(FsBlobStore::new(uri, fs_locking)),
+        Arc::new(FsBlobStore::new(uri, fs_locking).with_max_read_bytes(max_blob_bytes)),
         local_worker_count(opts.worker_count),
     ))
 }

@@ -34,6 +34,20 @@ pub struct BlobProperties {
     pub name: String,
 }
 
+/// Default ceiling on a single blob read.
+///
+/// A blob's length is whatever the store says it is, and both backends read one
+/// into memory in a single allocation, so without a ceiling a hostile or
+/// corrupted store picks the process's memory use — multiplied by the number of
+/// blocks in flight. The prefetch byte budget does not help: it is computed from
+/// the *store index's* declared chunk sizes, which have no relationship to the
+/// object actually served.
+///
+/// 256 MiB is two orders of magnitude above the 8 MiB default block size, so it
+/// refuses nothing a normal store contains. A deployment that genuinely writes
+/// larger blocks can raise it — see `BlockStoreOpts::max_block_bytes`.
+pub const DEFAULT_MAX_BLOB_BYTES: u64 = 256 << 20;
+
 /// A blob store: a factory for [`BlobClient`]s. Cheap to clone/share (`Arc`ed by
 /// the block store).
 #[async_trait]
