@@ -252,3 +252,65 @@ async fn downsync_read_path_compress_cache_remote() {
 
     store.close().await.unwrap();
 }
+
+/// A compressed block whose decoded payload is shorter than the chunks its own
+/// index claims must be rejected by the decompression decorator.
+///
+/// `decode_block_payload` only compares the decoded length against the frame's
+/// *self-declared* `uncompressed_size` — both numbers come from the same
+/// attacker-controlled bytes, so they agree happily. Nothing tied either to the
+/// block index until this check, and the apply path slices the decoded buffer
+/// using `chunk_sizes`. Review finding FMT-002, compressed arm.
+#[tokio::test]
+async fn compressed_block_shorter_than_its_chunk_sizes_is_rejected() {
+    use longtail_core::compress::{LZ4_ID, encode_block_payload};
+    use longtail_core::{BlockIndex, StoredBlock};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store_dir = tmp.path().join("store");
+
+    // Index claims one 4096-byte chunk; the frame carries 8 bytes.
+    let block_hash = 0x0123_4567_89ab_cdefu64;
+    let block_index = BlockIndex {
+        block_hash,
+        hash_identifier: BLAKE3_ID,
+        tag: LZ4_ID,
+        chunk_hashes: vec![0xfeed_face_dead_beef],
+        chunk_sizes: vec![4096],
+    };
+    let framed = encode_block_payload(LZ4_ID, &[0u8; 8]).unwrap();
+    let lsb = StoredBlock {
+        block_index,
+        payload: framed,
+    }
+    .to_bytes();
+
+    let rel = block_path("chunks", block_hash);
+    let path = store_dir.join(&rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, &lsb).unwrap();
+
+    let blob_store = Arc::new(FsBlobStore::new(store_dir, false));
+    let remote: Arc<dyn BlockStore> = Arc::new(
+        RemoteBlockStore::new(blob_store, AccessType::ReadOnly, 2)
+            .await
+            .unwrap(),
+    );
+    let pool = Arc::new(
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap(),
+    );
+    let compressed = CompressBlockStore::new(remote, pool);
+
+    let err = compressed
+        .get_stored_block(block_hash)
+        .await
+        .expect_err("a block decoding shorter than its chunk_sizes must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("claims"),
+        "expected the block-index mismatch error, got: {msg}"
+    );
+}

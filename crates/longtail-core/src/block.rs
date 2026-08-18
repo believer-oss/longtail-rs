@@ -25,6 +25,22 @@ pub struct BlockIndex {
 }
 
 impl BlockIndex {
+    /// Total **uncompressed** byte length of the chunks this block claims —
+    /// `Σ m_ChunkSizes` (format-spec §3).
+    ///
+    /// This is the invariant every consumer of a decoded block relies on: the
+    /// apply path builds `(offset, size)` pairs straight from `chunk_sizes` and
+    /// slices the payload with them, so a buffer shorter than this panics.
+    /// Checked in [`StoredBlock::from_bytes`] for `tag == 0`, and after
+    /// decompression for `tag != 0` (where the frame declares its own size,
+    /// which says nothing about the block index).
+    ///
+    /// Cannot overflow: at most `u32::MAX` chunks of at most `u32::MAX` bytes
+    /// stays below `u64::MAX`.
+    pub fn uncompressed_len(&self) -> u64 {
+        self.chunk_sizes.iter().map(|&s| u64::from(s)).sum()
+    }
+
     /// Number of chunks packed in this block (`n`).
     pub fn chunk_count(&self) -> u32 {
         self.chunk_hashes.len() as u32
@@ -132,6 +148,24 @@ impl StoredBlock {
     pub fn from_bytes(data: &[u8]) -> Result<StoredBlock, FormatError> {
         let (block_index, consumed) = BlockIndex::read_prefix(data)?;
         let payload = data[consumed..].to_vec();
+        // For an uncompressed block the payload *is* the concatenated chunks, so
+        // it must be long enough to cover them: the apply path builds
+        // `(offset, size)` pairs straight from `chunk_sizes` and slices the
+        // payload with them, which panics on a short block (format-spec §3,
+        // "m_Tag == 0 → payload length is Σ m_ChunkSizes").
+        //
+        // Deliberately `<`, not `!=`: C derives the payload size from the file
+        // length and ignores a longer tail, so rejecting an oversize payload
+        // would refuse blocks a real store may contain.
+        if block_index.tag == 0 {
+            let required = block_index.uncompressed_len();
+            if (payload.len() as u64) < required {
+                return Err(FormatError::Truncated {
+                    expected: consumed.saturating_add(required as usize),
+                    actual: data.len(),
+                });
+            }
+        }
         Ok(StoredBlock {
             block_index,
             payload,

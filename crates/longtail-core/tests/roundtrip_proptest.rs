@@ -1,4 +1,4 @@
-//! Proptest round-trip fixpoint (pure lane): for every format, arbitrary valid
+//! Proptest round-trip fixpoint, no C library needed: for every format, arbitrary valid
 //! structs satisfy `from_bytes(to_bytes(x)) == x` and `to_bytes(from_bytes(b))
 //! == b`. Strategies deliberately include empty (all counts 0), odd counts
 //! (which force `u64` arrays onto 4-byte boundaries), mixed dirs/files, and
@@ -60,14 +60,44 @@ fn vi_strategy() -> impl Strategy<Value = VersionIndex> {
                     (asset_chunk_indexes, chunk_hashes, chunk_sizes, chunk_tags),
                     (name_offsets, permissions_raw, name_data),
                 )| {
+                    // Constrain the asset→chunk map to be structurally valid:
+                    // `from_bytes` rejects an out-of-range map, so the fixpoint
+                    // is stated over indexes a real writer could emit.
+                    // Everything else stays arbitrary — the codec is verbatim
+                    // about values it does not constrain.
+                    let c = chunk_hashes.len();
+                    let asset_chunk_indexes: Vec<u32> = if c == 0 {
+                        // With no chunks the only valid map is the empty one.
+                        Vec::new()
+                    } else {
+                        asset_chunk_indexes
+                            .into_iter()
+                            .map(|i| i % c as u32)
+                            .collect()
+                    };
+                    let aci = asset_chunk_indexes.len();
+                    let (starts, counts): (Vec<u32>, Vec<u32>) = asset_chunk_index_starts
+                        .iter()
+                        .zip(asset_chunk_counts.iter())
+                        .map(|(&s, &n)| {
+                            let start = if aci == 0 { 0 } else { s as usize % (aci + 1) };
+                            let headroom = aci - start;
+                            let count = if headroom == 0 {
+                                0
+                            } else {
+                                n as usize % (headroom + 1)
+                            };
+                            (start as u32, count as u32)
+                        })
+                        .unzip();
                     VersionIndex {
                         hash_identifier,
                         target_chunk_size,
                         path_hashes,
                         content_hashes,
                         asset_sizes,
-                        asset_chunk_counts,
-                        asset_chunk_index_starts,
+                        asset_chunk_counts: counts,
+                        asset_chunk_index_starts: starts,
                         asset_chunk_indexes,
                         chunk_hashes,
                         chunk_sizes,
@@ -151,9 +181,26 @@ fn bi_strategy() -> impl Strategy<Value = BlockIndex> {
 }
 
 fn sb_strategy() -> impl Strategy<Value = StoredBlock> {
-    (bi_strategy(), vec(any::<u8>(), 0usize..40)).prop_map(|(block_index, payload)| StoredBlock {
-        block_index,
-        payload,
+    (bi_strategy(), vec(any::<u8>(), 0usize..40)).prop_map(|(mut block_index, payload)| {
+        // An uncompressed block's payload *is* its chunks, and `from_bytes`
+        // rejects one too short to cover them, so distribute the payload across
+        // the chunk sizes rather than leaving them arbitrary (arbitrary `u32`s
+        // would claim gigabytes for a 40-byte payload). Compressed blocks keep
+        // arbitrary sizes: there the payload is an opaque frame.
+        if block_index.tag == 0 {
+            let n = block_index.chunk_sizes.len();
+            if let (Some(each), Some(remainder)) =
+                (payload.len().checked_div(n), payload.len().checked_rem(n))
+            {
+                for (i, size) in block_index.chunk_sizes.iter_mut().enumerate() {
+                    *size = (each + usize::from(i == n - 1) * remainder) as u32;
+                }
+            }
+        }
+        StoredBlock {
+            block_index,
+            payload,
+        }
     })
 }
 
