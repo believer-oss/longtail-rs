@@ -19,6 +19,7 @@ use crate::error::LongtailError;
 use crate::fs_util::{self, S3OptionsArg};
 use crate::hash_util::make_hasher;
 use crate::options::DownsyncOptions;
+use crate::progress::{NullProgress, ProgressSink, RateLimited};
 use crate::upsync::write_content;
 
 /// Options for [`clone_store`].
@@ -44,6 +45,8 @@ pub struct CloneStoreOptions {
     pub use_legacy_write: bool,
     pub remote_worker_count: usize,
     pub worker_count: usize,
+    /// Optional progress sink (drives both the materialize and re-upload halves).
+    pub progress: Option<Arc<dyn ProgressSink>>,
     #[cfg(feature = "s3")]
     pub source_s3_options: S3OptionsArg,
     #[cfg(feature = "s3")]
@@ -76,6 +79,7 @@ impl CloneStoreOptions {
             use_legacy_write: false,
             remote_worker_count: 0,
             worker_count: 0,
+            progress: None,
             #[cfg(feature = "s3")]
             source_s3_options: S3OptionsArg::default(),
             #[cfg(feature = "s3")]
@@ -102,6 +106,16 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
 
     let cancel = CancellationToken::new();
     let mut cloned = 0u32;
+
+    // The re-upload half's rate-limited sink (same pattern as downsync/upsync).
+    // The materialize half is downsync, which wraps `opts.progress` in its own
+    // RateLimited internally (see `materialize`).
+    let raw_progress: Arc<dyn ProgressSink> = opts
+        .progress
+        .clone()
+        .unwrap_or_else(|| Arc::new(NullProgress));
+    let progress = Arc::new(RateLimited::new(raw_progress));
+    let version_total = opts.source_paths.len();
 
     for (i, source_lvi) in opts.source_paths.iter().enumerate() {
         if source_lvi.is_empty() {
@@ -131,6 +145,7 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
 
         // 1. Materialize into target_path via downsync (reuses source .lvi).
         materialize(&opts, source_lvi).await?;
+        progress.phase(&format!("Cloning version {}/{version_total}", i + 1));
 
         // 2. Re-upload from the materialized folder into the target store.
         let store: Arc<dyn BlockStore> = create_block_store_for_uri(
@@ -164,6 +179,7 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
                 Path::new(&opts.target_path),
                 &source_version,
                 &missing,
+                &progress,
                 &cancel,
             )
             .await?;
@@ -243,6 +259,9 @@ async fn materialize(opts: &CloneStoreOptions, source_lvi: &str) -> Result<(), L
     ds.enable_file_mapping = opts.enable_file_mapping;
     ds.worker_count = opts.worker_count;
     ds.remote_worker_count = opts.remote_worker_count;
+    // downsync wraps this raw sink in its own RateLimited (downsync.rs); the
+    // clone-store re-upload half uses a separate RateLimited over the same sink.
+    ds.progress = opts.progress.clone();
     #[cfg(feature = "s3")]
     {
         ds.s3_options = opts.source_s3_options.clone();

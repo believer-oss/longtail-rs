@@ -197,6 +197,7 @@ fn lvi_byte_gate_all_cells() {
             tag,
             &pool,
             &cancel,
+            None,
         )
         .unwrap_or_else(|e| panic!("create version index for {}: {e:?}", cell.lvi));
 

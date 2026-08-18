@@ -7,9 +7,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-use longtail::{DownsyncOptions, LongtailError, ProgressSink, downsync, downsync_blocking};
+use longtail::{
+    DownsyncOptions, LongtailError, Progress, ProgressSink, downsync, downsync_blocking,
+};
 use longtail_testkit::paths::fixtures_dir;
 use longtail_testkit::tree_manifest::TreeManifest;
 use tokio_util::sync::CancellationToken;
@@ -44,16 +46,16 @@ fn base_opts(target: &Path) -> DownsyncOptions {
 /// Records every progress update and asserts non-decreasing `done`.
 #[derive(Default)]
 struct MonotonicProgress {
-    last: AtomicU32,
+    last: AtomicU64,
     violations: AtomicU32,
     updates: AtomicU32,
 }
 
 impl ProgressSink for MonotonicProgress {
-    fn on_progress(&self, done: u32, _total: u32) {
+    fn on_progress(&self, p: Progress) {
         self.updates.fetch_add(1, Ordering::Relaxed);
-        let prev = self.last.swap(done, Ordering::Relaxed);
-        if done < prev {
+        let prev = self.last.swap(p.done_items, Ordering::Relaxed);
+        if p.done_items < prev {
             self.violations.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -172,8 +174,8 @@ fn cancel_mid_transfer_then_resume() {
         fired: Mutex<bool>,
     }
     impl ProgressSink for CancelAfterFirst {
-        fn on_progress(&self, done: u32, _total: u32) {
-            if done >= 1 {
+        fn on_progress(&self, p: Progress) {
+            if p.done_items >= 1 {
                 let mut f = self.fired.lock().unwrap();
                 if !*f {
                     *f = true;

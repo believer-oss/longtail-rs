@@ -23,6 +23,7 @@ use crate::fs_util::{self, S3OptionsArg};
 use crate::hash_util::make_hasher;
 use crate::options::{UpsyncOptions, UpsyncReport};
 use crate::path_filter::RegexPathFilter;
+use crate::progress::{NullProgress, Progress, ProgressSink, RateLimited};
 use crate::version::create_version_index_from_folder;
 
 /// The default upsync block-packing parameters (golongtail `options.go`).
@@ -57,6 +58,14 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
     };
     let cancel = opts.cancel.clone().unwrap_or_default();
 
+    // Same rate-limited-sink pattern as downsync (downsync.rs): wrap the caller's
+    // sink (or a no-op) once; `phase`/`report` coalesce emissions.
+    let progress: Arc<dyn ProgressSink> = opts
+        .progress
+        .clone()
+        .unwrap_or_else(|| Arc::new(NullProgress));
+    let progress = Arc::new(RateLimited::new(progress));
+
     let mut phases = Vec::new();
     let mut timer = Instant::now();
     let mut lap = |name: &str, t: &mut Instant| {
@@ -78,6 +87,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
             ))
         })?;
 
+    progress.phase("Indexing version");
     let version_index =
         if let Some(src_index) = opts.source_index_path.as_deref().filter(|s| !s.is_empty()) {
             // Pre-built index: scanning is skipped; hasher comes from the index.
@@ -86,6 +96,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
         } else {
             let hash_id = crate::hash_util::hash_identifier_for_name(&opts.hash_algorithm)?;
             let hasher = make_hasher(hash_id)?;
+            let on_scan = crate::version::scan_progress_forwarder(progress.clone());
             create_version_index_from_folder(
                 &source_folder,
                 &filter,
@@ -94,6 +105,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
                 compression_tag,
                 &pool,
                 &cancel,
+                Some(&on_scan),
             )?
         };
     lap("index_version", &mut timer);
@@ -133,7 +145,16 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
     // 5. Write content ONLY when there are missing blocks (cmd_upsync.go:145).
     let mut wc = WriteContentStats::default();
     if missing.block_count() > 0 {
-        wc = write_content(&store, &source_folder, &version_index, &missing, &cancel).await?;
+        progress.phase("Writing content");
+        wc = write_content(
+            &store,
+            &source_folder,
+            &version_index,
+            &missing,
+            &progress,
+            &cancel,
+        )
+        .await?;
     }
     store.flush().await?;
     store.close().await?;
@@ -180,11 +201,17 @@ pub(crate) struct WriteContentStats {
 /// The block index (hash/tag/chunk arrays) comes straight from `missing`
 /// (`StoreIndex::block_index_at`); the compression happens in the store's
 /// `CompressBlockStore` on put.
+///
+/// `progress` reports completed-block count against `missing.block_count()`; the
+/// loop is serial (one sequential `put_stored_block` per block), so a plain
+/// counter suffices — no lock, unlike apply.rs's concurrent path. The caller
+/// sets the phase label before calling.
 pub(crate) async fn write_content(
     store: &Arc<dyn BlockStore>,
     source_folder: &Path,
     version_index: &VersionIndex,
     missing: &StoreIndex,
+    progress: &RateLimited,
     cancel: &CancellationToken,
 ) -> Result<WriteContentStats, LongtailError> {
     // Asset-part lookup: chunk_hash → (asset_index, byte offset within asset),
@@ -203,11 +230,17 @@ pub(crate) async fn write_content(
         }
     }
 
+    // Byte dimension: total decompressed payload = Σ all missing chunk sizes
+    // (every block is written); `done_bytes` accrues each block's payload length.
+    let total_bytes: u64 = missing.chunk_sizes.iter().map(|&s| s as u64).sum();
+    let mut done_bytes = 0u64;
+
     let mut stats = WriteContentStats::default();
     // Single-asset read cache (chunks within a block are asset-order-grouped, so
     // the asset changes monotonically — one open per asset per block, as in C).
     let mut cached: Option<(usize, Vec<u8>)> = None;
 
+    let total_blocks = missing.block_count();
     for b in 0..missing.block_count() as usize {
         if cancel.is_cancelled() {
             return Err(LongtailError::Cancelled);
@@ -247,12 +280,20 @@ pub(crate) async fn write_content(
         let block_index = missing.block_index_at(b).ok_or_else(|| {
             LongtailError::InvalidArgument(format!("missing store index block {b} is malformed"))
         })?;
+        let payload_len = payload.len() as u64;
         store
             .put_stored_block(StoredBlock {
                 block_index,
                 payload,
             })
             .await?;
+        done_bytes += payload_len;
+        progress.report(Progress {
+            done_items: b as u64 + 1,
+            total_items: total_blocks as u64,
+            done_bytes,
+            total_bytes,
+        });
     }
     Ok(stats)
 }

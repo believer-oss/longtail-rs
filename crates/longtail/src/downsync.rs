@@ -11,7 +11,7 @@ use longtail_core::{
 };
 use longtail_store::AccessType;
 use longtail_store::block_store::BlockStore;
-use longtail_store::uri::{BlockStoreOpts, create_block_store_for_uri};
+use longtail_store::uri::{BlockStoreOpts, create_block_store_for_uri_with_budget};
 use tokio_util::sync::CancellationToken;
 
 use crate::apply::change_version2;
@@ -81,7 +81,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         .progress
         .clone()
         .unwrap_or_else(|| Arc::new(NullProgress));
-    let progress = RateLimited::new(progress);
+    let progress = Arc::new(RateLimited::new(progress));
     let cancel = opts.cancel.clone().unwrap_or_default();
 
     let pool = match &opts.pool {
@@ -97,8 +97,11 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     let mut phases: Vec<PhaseTiming> = Vec::new();
     let mut phase = PhaseTimer::new();
 
-    // Read + merge source version index(es) (cmd_downsync.go:142-164).
+    // Read + merge source version index(es) (cmd_downsync.go:142-164). This is
+    // the first (often remote) fetch, so label it — otherwise the run appears to
+    // hang here with no phase shown.
     check_cancel(&cancel)?;
+    progress.phase("Reading version index");
     let source_version = read_merged_source(&sources, &s3).await?;
     let hash_id = source_version.hash_identifier;
     let target_chunk_size = source_version.target_chunk_size;
@@ -110,6 +113,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     let target_index = if let Some(path) = &effective_target_index {
         read_version_index_local(Path::new(path))?
     } else if opts.scan_target {
+        let on_scan = crate::version::scan_progress_forwarder(progress.clone());
         create_version_index_from_folder(
             &target_root,
             &filter,
@@ -118,6 +122,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
             0, // NoCompressionType for target scanning (cmd_downsync.go:176)
             &pool,
             &cancel,
+            Some(&on_scan),
         )?
     } else {
         empty_version_index(hash_id, target_chunk_size)
@@ -126,11 +131,18 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
 
     // Build the ReadOnly store-index override from version-local-store-index
     // paths (remotestore.go:1897; on any failure → None → scan the store).
+    // Opening the store + scanning its index (below) is another remote step, so
+    // label it rather than leaving the stale "Indexing version" phase up.
     check_cancel(&cancel)?;
+    progress.phase("Reading store index");
     let override_index =
         load_store_index_override(&opts.version_local_store_index_paths, &s3).await;
 
-    // Compose the block store (Compress(Cache(Remote))), ReadOnly.
+    // Compose the block store (Compress(Cache(Remote))), ReadOnly. The apply
+    // loop's block-task concurrency shares the store's resolved worker count
+    // (one knob — no separate apply setting).
+    let apply_concurrency =
+        longtail_store::resolved_worker_count(&opts.storage_uri, opts.remote_worker_count);
     let opts_store = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
@@ -140,8 +152,15 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
-    let store: Arc<dyn BlockStore> =
-        create_block_store_for_uri(&opts.storage_uri, opts_store).await?;
+    // `max_prefetch_bytes` is the deadlock-regression test knob (None in
+    // production → the 512 MiB default). Liveness must never depend on it.
+    let store: Arc<dyn BlockStore> = create_block_store_for_uri_with_budget(
+        &opts.storage_uri,
+        opts_store,
+        opts.max_prefetch_bytes,
+        opts.cache_size_limit,
+    )
+    .await?;
     phases.push(phase.lap("open_store"));
 
     // Diff (from = current target, to = desired source), required chunks,
@@ -165,6 +184,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         &diff,
         &store_index,
         opts.retain_permissions,
+        apply_concurrency,
         &progress,
         &cancel,
     )
@@ -312,6 +332,7 @@ fn validate_target<H: longtail_core::Hash + Sync + ?Sized>(
         0,
         pool,
         cancel,
+        None, // validate rescan: no progress readout
     )?;
     if rescan.asset_count() != source_version.asset_count() {
         return Err(LongtailError::ValidationMismatch(format!(
