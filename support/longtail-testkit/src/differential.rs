@@ -2,7 +2,7 @@
 //!
 //! Everything here drives the reference C library through `longtail-ffi`. It is
 //! used both to GENERATE the committed goldens (boundary tables) and to
-//! REPRODUCE them in the Stage 1 self-validation suite — proving the C library
+//! REPRODUCE them in the self-validation suite — proving the C library
 //! deterministically reproduces every golden before any pure-Rust port exists.
 
 use std::path::Path;
@@ -23,6 +23,25 @@ pub fn blake3_hash() -> (HashRegistry, HashAPI) {
         .get_hash_api(HashType::Blake3)
         .expect("blake3 hash api");
     (registry, hash)
+}
+
+/// Whether the reference C library can supply a blake2s hash API on this build.
+///
+/// `lib/blake2/longtail_blake2.c` gates its implementation on
+/// `__SSE2__ || __x86_64__ || __amd64__` — all GCC/Clang predefined macros. MSVC
+/// defines `_M_X64` and none of those, so an MSVC build of the C library
+/// compiles the `return 0` stub instead and the registry answers `ENOTSUP`
+/// (errno 129 there). Upstream's own vendored blake3 and brotli write
+/// `__x86_64__ || _M_X64`, so this is a one-macro oversight rather than a
+/// deliberate exclusion.
+///
+/// Only the C side is affected: our blake2s is pure Rust, the ordinary tests check
+/// it against frozen KATs and committed fixtures on every platform, and the
+/// differential tests still compare it against C on Linux. Probed at runtime rather
+/// than keyed to `cfg!(windows)`, so a fixed upstream library re-enables these
+/// comparisons without a code change here.
+pub fn c_has_blake2() -> bool {
+    HashRegistry::new().get_hash_api(HashType::Blake2).is_ok()
 }
 
 /// The 64-bit longtail hash of `data` computed by the reference C library for a
@@ -145,6 +164,34 @@ pub fn store_index_block_hashes_sorted(bytes: &[u8]) -> Result<Vec<u64>, i32> {
     hashes.sort_unstable();
     Ok(hashes)
 }
+
+/// Per-block `(block_hash, tag, chunk_hashes, chunk_sizes)` tuples, sorted by
+/// block hash (advisory A1). Extends [`store_index_block_hashes_sorted`] so a
+/// regression that alters a block's compression tag or chunk sizes — without
+/// changing the block-hash set — cannot hide behind matching hashes. Block
+/// ordering is golongtail's Go-map nondeterminism, but each block's chunk order
+/// is deterministic, so sorting the tuples by block hash gives an
+/// ordering-independent semantic identity.
+///
+/// Parsed with the pure-Rust reader (proven byte-identical to C), so
+/// this compares the actual on-disk semantics of the regenerated vs committed
+/// `.lsi`.
+pub fn store_index_block_tuples_sorted(bytes: &[u8]) -> Result<Vec<StoreIndexBlockTuple>, String> {
+    let si = longtail_core::StoreIndex::from_bytes(bytes).map_err(|e| e.to_string())?;
+    let mut tuples = Vec::with_capacity(si.block_hashes.len());
+    for b in 0..si.block_hashes.len() {
+        let bi = si
+            .block_index_at(b)
+            .ok_or_else(|| format!("wild block {b} in store index"))?;
+        tuples.push((bi.block_hash, bi.tag, bi.chunk_hashes, bi.chunk_sizes));
+    }
+    tuples.sort_by_key(|t| t.0);
+    Ok(tuples)
+}
+
+/// A store-index block's semantic identity: `(block_hash, tag, chunk_hashes,
+/// chunk_sizes)`. See [`store_index_block_tuples_sorted`].
+pub type StoreIndexBlockTuple = (u64, u32, Vec<u64>, Vec<u32>);
 
 /// Read a `.lvi` file and parse it into a [`VersionIndex`] via the C reader.
 pub fn read_version_index(path: &Path) -> VersionIndex {

@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 
+use crate::block::BlockIndex;
 use crate::cursor::{Reader, Writer, checked_add, checked_mul};
 use crate::error::FormatError;
 
@@ -261,5 +262,215 @@ impl StoreIndex {
         }
 
         Ok(out)
+    }
+
+    /// Concatenate a set of [`BlockIndex`] into a store index, matching
+    /// `Longtail_CreateStoreIndexFromBlocks` (longtail.c:9064) **byte-for-byte**.
+    ///
+    /// Semantics (source-cited):
+    /// - **Hash identifier** (longtail.c:9078-9086): the first block whose
+    ///   identifier is non-zero wins; `hash_identifier` starts at `0` and is only
+    ///   overwritten while still `0`, so an all-zero-id (or empty) input yields
+    ///   `0`. (Exactly `hash_identifier = (hash_identifier == 0) ? block.id : hash_identifier`.)
+    /// - **No dedup, no sort** (longtail.c:9110-9121): blocks are copied in the
+    ///   *given order*; each block's chunk hashes/sizes are appended contiguously
+    ///   and `block_chunks_offsets` is a running cumulative counter.
+    /// - **Version** forced to [`VERSION`] (longtail.c:9104).
+    ///
+    /// The caller owns the ordering: golongtail's `contentIndexWorker` feeds
+    /// blocks in Go-map (nondeterministic) order, so there is no Go order to
+    /// match; where the Rust store layer assembles the list itself it must first
+    /// sort by block hash for determinism (`rust-port-4.md` binding decisions),
+    /// then round-trip / merge byte-identity carries the rest.
+    ///
+    /// (Accepted adversarial divergence: the cumulative chunk offset is a
+    /// `u32::try_from` — a pathological set summing beyond `u32::MAX` chunks
+    /// returns [`FormatError::SizeOverflow`] where C's `uint32_t` counter wraps.)
+    pub fn from_block_indexes(blocks: &[BlockIndex]) -> Result<StoreIndex, FormatError> {
+        let mut hash_identifier = 0u32;
+        for block in blocks {
+            if hash_identifier == 0 {
+                hash_identifier = block.hash_identifier;
+            }
+        }
+        let mut out = StoreIndex::empty(hash_identifier);
+        for block in blocks {
+            let n = block.chunk_hashes.len();
+            // C `memcpy`s `block_chunk_count` entries from each array; the two
+            // parallel arrays are validated to agree here (a malformed BlockIndex
+            // is impossible to construct from `from_bytes`, but callers may build
+            // one directly).
+            if block.chunk_sizes.len() != n {
+                return Err(FormatError::ChunkRangeOutOfBounds {
+                    block: out.block_hashes.len(),
+                    offset: 0,
+                    count: n,
+                    len: block.chunk_sizes.len(),
+                });
+            }
+            let out_offset =
+                u32::try_from(out.chunk_hashes.len()).map_err(|_| FormatError::SizeOverflow)?;
+            out.block_hashes.push(block.block_hash);
+            out.block_tags.push(block.tag);
+            out.block_chunk_counts.push(n as u32);
+            out.block_chunks_offsets.push(out_offset);
+            out.chunk_hashes.extend_from_slice(&block.chunk_hashes);
+            out.chunk_sizes.extend_from_slice(&block.chunk_sizes);
+        }
+        Ok(out)
+    }
+
+    /// Reconstruct the [`BlockIndex`] for store block `b` (the inverse of
+    /// [`StoreIndex::from_block_indexes`]; = `Longtail_MakeBlockIndex`,
+    /// longtail.c:9127). Returns `None` if `b` is out of range or the block's
+    /// chunk range runs off the arrays.
+    pub fn block_index_at(&self, b: usize) -> Option<BlockIndex> {
+        if b >= self.block_hashes.len() {
+            return None;
+        }
+        let count = *self.block_chunk_counts.get(b)? as usize;
+        let offset = *self.block_chunks_offsets.get(b)? as usize;
+        let end = offset.checked_add(count)?;
+        if end > self.chunk_hashes.len() || end > self.chunk_sizes.len() {
+            return None;
+        }
+        Some(BlockIndex {
+            block_hash: self.block_hashes[b],
+            hash_identifier: self.hash_identifier,
+            tag: self.block_tags[b],
+            chunk_hashes: self.chunk_hashes[offset..end].to_vec(),
+            chunk_sizes: self.chunk_sizes[offset..end].to_vec(),
+        })
+    }
+
+    /// Select the subset of blocks that cover the requested `chunk_hashes`,
+    /// matching `Longtail_GetExistingStoreIndex` (longtail.c:7087).
+    ///
+    /// Greedy usage-percent selection (source-cited):
+    /// - Build the unique requested-chunk set (longtail.c:7155-7165).
+    /// - When `min_block_usage_percent <= 100` (longtail.c:7169): for every store
+    ///   block compute `block_use` (Σ sizes of its chunks that are requested) and
+    ///   `block_size` (Σ all its chunk sizes); a block is a *potential* if
+    ///   `block_use > 0` and (when `min_block_usage_percent > 0`) its usage
+    ///   percent `block_use*100/block_size` is `>= min_block_usage_percent`
+    ///   (longtail.c:7190-7203).
+    /// - Sort potentials usage-high-to-low, tie-broken by ascending potential
+    ///   index — a total order, so the result is deterministic
+    ///   (`SortBlockUsageHighToLow`, longtail.c:7059-7085 / QSORT :7220).
+    /// - Greedily walk potentials; a block is kept only if it claims at least one
+    ///   not-yet-claimed requested chunk (longtail.c:7222-7257). Output block
+    ///   order = the order blocks first claim a chunk.
+    /// - Empty result (no potentials / no found blocks) → an empty store index
+    ///   with identifier `0` (`CreateStoreIndexFromBlocks(0,0)`,
+    ///   longtail.c:7209/:7263).
+    ///
+    /// **Deliberate divergence from C, documented (`rust-port-4-results.md`):**
+    /// the kept block's `tag` is taken from the block's own `block_tags[b]` (the
+    /// correct value, matching `Longtail_MakeBlockIndex`, longtail.c:9145).
+    /// `Longtail_GetExistingStoreIndex` instead indexes `m_BlockTags` with the
+    /// *chunk* offset (longtail.c:7307) — a latent C bug that reads the wrong
+    /// slot (or out of bounds) whenever a kept block's chunk offset differs from
+    /// its block index. We reproduce every other output byte exactly and mirror
+    /// the (correct) `MakeBlockIndex` tag.
+    ///
+    /// Never panics on a wild store index (bounds-checked via
+    /// [`StoreIndex::block_index_at`]); such blocks are simply skipped.
+    pub fn get_existing_store_index(
+        &self,
+        chunk_hashes: &[u64],
+        min_block_usage_percent: u32,
+    ) -> StoreIndex {
+        let requested: HashSet<u64> = chunk_hashes.iter().copied().collect();
+        let unique_chunk_count = requested.len();
+
+        let block_count = self.block_hashes.len();
+        let mut found_block_hashes: Vec<u64> = Vec::new();
+
+        if min_block_usage_percent <= 100 {
+            // (block_index, usage_percent) potentials, built in ascending block
+            // order (so the vector index doubles as C's tie-break key).
+            let mut potentials: Vec<(usize, u32)> = Vec::new();
+            for b in 0..block_count {
+                let count = self.block_chunk_counts[b] as usize;
+                let offset = self.block_chunks_offsets[b] as usize;
+                let end = match offset.checked_add(count) {
+                    Some(e) if e <= self.chunk_hashes.len() && e <= self.chunk_sizes.len() => e,
+                    _ => continue, // wild block — skip (C would read OOB)
+                };
+                let mut block_use: u32 = 0;
+                let mut block_size: u32 = 0;
+                for idx in offset..end {
+                    let cs = self.chunk_sizes[idx];
+                    block_size = block_size.wrapping_add(cs);
+                    if requested.contains(&self.chunk_hashes[idx]) {
+                        block_use = block_use.wrapping_add(cs);
+                    }
+                }
+                if block_use > 0 {
+                    let pct = if block_size == 0 {
+                        0
+                    } else {
+                        ((block_use as u64 * 100) / block_size as u64) as u32
+                    };
+                    if min_block_usage_percent > 0 && pct < min_block_usage_percent {
+                        continue;
+                    }
+                    potentials.push((b, pct));
+                }
+            }
+
+            if !potentials.is_empty() {
+                // usage high-to-low, tie-break ascending potential index.
+                let mut order: Vec<usize> = (0..potentials.len()).collect();
+                order.sort_by(|&a, &b| potentials[b].1.cmp(&potentials[a].1).then(a.cmp(&b)));
+
+                let mut claimed: HashSet<u64> = HashSet::new();
+                let mut block_added: HashSet<u64> = HashSet::new();
+                let mut found_chunk_count = 0usize;
+                for &po in &order {
+                    if found_chunk_count >= unique_chunk_count {
+                        break;
+                    }
+                    let b = potentials[po].0;
+                    let count = self.block_chunk_counts[b] as usize;
+                    let offset = self.block_chunks_offsets[b] as usize;
+                    for idx in offset..(offset + count) {
+                        let ch = self.chunk_hashes[idx];
+                        if !requested.contains(&ch) {
+                            continue;
+                        }
+                        if !claimed.insert(ch) {
+                            continue; // already claimed by a higher-usage block
+                        }
+                        found_chunk_count += 1;
+                        let bh = self.block_hashes[b];
+                        if block_added.insert(bh) {
+                            found_block_hashes.push(bh);
+                        }
+                    }
+                }
+            }
+        }
+
+        if found_block_hashes.is_empty() {
+            return StoreIndex::empty(0);
+        }
+
+        // Map each found block hash to its (first) store block index and rebuild.
+        let mut by_hash: std::collections::HashMap<u64, usize> =
+            std::collections::HashMap::with_capacity(block_count);
+        for b in 0..block_count {
+            by_hash.entry(self.block_hashes[b]).or_insert(b);
+        }
+        let mut blocks: Vec<BlockIndex> = Vec::with_capacity(found_block_hashes.len());
+        for bh in &found_block_hashes {
+            if let Some(&b) = by_hash.get(bh)
+                && let Some(bi) = self.block_index_at(b)
+            {
+                blocks.push(bi);
+            }
+        }
+        // `from_block_indexes` on validated slices cannot fail here.
+        StoreIndex::from_block_indexes(&blocks).unwrap_or_else(|_| StoreIndex::empty(0))
     }
 }

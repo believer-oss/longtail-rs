@@ -1,123 +1,371 @@
-//! Stage 4 checklist: `RemoteBlockStore` semantics ported from golongtail's
-//! `remotestore/remotestore_test.go` (the mem/fs subset, plus the S3 shard-sync
-//! test which is core to the merge-on-read gate).
+//! Stage 4: `RemoteBlockStore` + store-index-sync semantics ported from
+//! golongtail's `remotestore/remotestore_test.go` (the mem/fs subset).
 //!
-//! Bodies are `todo!()` until Stage 4 implements the async `RemoteBlockStore`
-//! actor, the optimistic index-sync (fs lock + S3 shard merge), and the retry
-//! ladder. GCS index-sync tests are omitted (GCS deferred,
-//! `rust-port-planning.md` §6).
+//! The S3 shard-sync test is env-gated in `s3_spec.rs`. The two prune tests are
+//! deferred to Stage 7 (`prune_blocks` is a typed `NotSupported` stub). GCS
+//! index-sync tests are omitted (planning §6).
 
-/// Source: remotestore_test.go::TestCreateRemoteBlobStore — a remote block store
-/// can be constructed over a (mem) blob backend and disposed cleanly.
-#[test]
-#[ignore = "Stage 4"]
-fn create_remote_blob_store() {
-    todo!()
+use std::sync::Arc;
+
+use longtail_core::{BlockIndex, StoreIndex, StoredBlock};
+use longtail_store::blob::{BlobClient, BlobStore, FsBlobStore, MemBlobStore};
+use longtail_store::{
+    AccessType, BlockStore, RemoteBlockStore, add_to_remote_store_index, block_path,
+    read_merged_store_index,
+};
+
+// --- block generators (port of remotestore_test.go helpers) ---
+
+/// `generateStoredBlock` (remotestore_test.go:368).
+fn generate_stored_block(seed: u8) -> StoredBlock {
+    let s = seed as u64;
+    let chunk_hashes = vec![s + 1, s + 2, s + 3];
+    let chunk_sizes = vec![seed as u32 + 10, seed as u32 + 20, seed as u32 + 30];
+    let len: usize = chunk_sizes.iter().map(|&x| x as usize).sum();
+    StoredBlock {
+        block_index: BlockIndex {
+            block_hash: s + 21412151,
+            hash_identifier: 997,
+            tag: 2,
+            chunk_hashes,
+            chunk_sizes,
+        },
+        payload: vec![seed; len],
+    }
 }
 
-/// Source: remotestore_test.go::TestEmptyGetExistingContent — `GetExistingContent`
-/// against an empty store returns a valid, empty store index (no blocks), not an
-/// error.
-#[test]
-#[ignore = "Stage 4"]
-fn empty_get_existing_content() {
-    todo!()
+/// `generateUniqueStoredBlock` (remotestore_test.go:388).
+fn generate_unique_stored_block(seed: u8) -> StoredBlock {
+    let s = seed as u64;
+    let chunk_hashes = vec![(s << 8) + 1, (s << 8) + 2, (s << 8) + 3];
+    let chunk_sizes = vec![
+        (seed as u32) << 8 | 10,
+        (seed as u32) << 8 | 20,
+        (seed as u32) << 8 | 30,
+    ];
+    let len: usize = chunk_sizes.iter().map(|&x| x as usize).sum();
+    StoredBlock {
+        block_index: BlockIndex {
+            block_hash: (s << 16) + 21412151,
+            hash_identifier: 997,
+            tag: 2,
+            chunk_hashes,
+            chunk_sizes,
+        },
+        payload: vec![seed; len],
+    }
 }
 
-/// Source: remotestore_test.go::TestPutGetStoredBlock — a stored block put into
-/// the remote store is retrievable by block hash with identical bytes; the block
-/// path follows the `chunks/<top4>/0x<hash>.lsb` scheme.
-#[test]
-#[ignore = "Stage 4"]
-fn put_get_stored_block() {
-    todo!()
+/// `storeBlock` (remotestore_test.go:354): write a block's bytes directly to the
+/// backend at a path derived from `block_hash + offset`, optionally under
+/// `parent`.
+async fn store_block_raw(
+    client: &dyn BlobClient,
+    block: &StoredBlock,
+    hash_offset: u64,
+    parent: &str,
+) -> u64 {
+    let stored_hash = block.block_index.block_hash + hash_offset;
+    let mut path = block_path("chunks", stored_hash);
+    if !parent.is_empty() {
+        path = format!("{parent}/{path}");
+    }
+    let mut obj = client.new_object(&path).await.unwrap();
+    obj.write(&block.to_bytes()).await.unwrap();
+    stored_hash
 }
 
-/// Source: remotestore_test.go::TestGetExistingContent — after putting blocks,
-/// `GetExistingContent(chunk_hashes, min_block_usage_percent)` returns a store
-/// index covering exactly the blocks that hold the requested chunks, honoring
-/// the block-usage threshold.
-#[test]
-#[ignore = "Stage 4"]
-fn get_existing_content() {
-    todo!()
+async fn put(store: &dyn BlockStore, seed: u8) -> StoredBlock {
+    let block = generate_stored_block(seed);
+    store.put_stored_block(block.clone()).await.unwrap();
+    block
 }
 
-/// Source: remotestore_test.go::TestRestoreStore — a store index can be rebuilt
-/// from the set of block files present in the backend (Init access type).
-#[test]
-#[ignore = "Stage 4"]
-fn restore_store() {
-    todo!()
+// --- tests ---
+
+/// Source: remotestore_test.go::TestCreateRemoteBlobStore — construct + dispose
+/// cleanly.
+#[tokio::test]
+async fn create_remote_blob_store() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("the_path", true));
+    let store = RemoteBlockStore::new(blob_store, AccessType::ReadOnly, 4)
+        .await
+        .unwrap();
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestBlockScanning — scanning the backend for
-/// `.lsb` blocks discovers every block and reconstructs a coherent store index.
-#[test]
-#[ignore = "Stage 4"]
-fn block_scanning() {
-    todo!()
+/// Source: remotestore_test.go::TestEmptyGetExistingContent — empty store yields
+/// a valid, empty store index.
+#[tokio::test]
+async fn empty_get_existing_content() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("the_path", true));
+    let store = RemoteBlockStore::new(blob_store, AccessType::ReadOnly, 4)
+        .await
+        .unwrap();
+    let index = store.get_existing_content(&[1, 2, 3, 4], 0).await.unwrap();
+    assert_eq!(index.block_count(), 0);
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithLocking — pruning removes
-/// blocks not referenced by the kept set, coordinated via the optimistic lock.
-#[test]
-#[ignore = "Stage 4"]
-fn prune_store_with_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestPutGetStoredBlock — a put block round-trips
+/// by hash, and the block path follows `chunks/<top4>/0x<hash>.lsb`.
+#[tokio::test]
+async fn put_get_stored_block() {
+    let mem = MemBlobStore::new("the_path", true);
+    let blob_store: Arc<dyn BlobStore> = Arc::new(mem.clone());
+    let store = RemoteBlockStore::new(blob_store, AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    let block = put(&store, 0).await;
+    let hash = block.block_index.block_hash;
+
+    let got = store.get_stored_block(hash).await.unwrap();
+    assert_eq!(got.block_index.block_hash, hash);
+    assert_eq!(got.block_index.chunk_count(), 3);
+    assert_eq!(got, block);
+
+    // Path scheme assertion.
+    let client = mem.new_client().await.unwrap();
+    let objs = client.get_objects("chunks").await.unwrap();
+    let expected = block_path("chunks", hash);
+    assert!(
+        objs.iter().any(|o| o.name == expected),
+        "expected {expected} among {objs:?}"
+    );
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithoutLocking — pruning against a
-/// non-locking backend (shard-merge model) removes unreferenced blocks.
-#[test]
-#[ignore = "Stage 4"]
-fn prune_store_without_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestGetExistingContent — 6 blocks, query touches
+/// all → 6 blocks / 18 chunks.
+#[tokio::test]
+async fn get_existing_content() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("the_path", true));
+    let store = RemoteBlockStore::new(blob_store, AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    for seed in [0u8, 10, 20, 30, 40, 50] {
+        put(&store, seed).await;
+    }
+    let chunk_hashes = [1u64, 2, 11, 13, 21, 22, 32, 33, 41, 43, 51];
+    store.flush().await.unwrap();
+
+    let index = store.get_existing_content(&chunk_hashes, 0).await.unwrap();
+    assert_eq!(index.block_count(), 6);
+    assert_eq!(index.chunk_count(), 18);
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestStoreIndexSyncWithLocking — many concurrent
-/// writers merge into the canonical `store.lsi` via lock→read→merge→write→retry;
-/// the final index is the union of all writers' blocks with no lost updates.
-#[test]
-#[ignore = "Stage 4"]
-fn store_index_sync_with_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestRestoreStore — index survives a close/reopen
+/// through the persisted `store.lsi`.
+#[tokio::test]
+async fn restore_store() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("the_path", true));
+
+    let store = RemoteBlockStore::new(blob_store.clone(), AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    put(&store, 0).await;
+    put(&store, 10).await;
+    put(&store, 20).await;
+    store.close().await.unwrap();
+
+    let store = RemoteBlockStore::new(blob_store.clone(), AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    let idx = store
+        .get_existing_content(&[1, 2, 11, 13], 0)
+        .await
+        .unwrap();
+    assert_eq!(idx.block_count(), 2);
+    assert_eq!(idx.chunk_count(), 6);
+
+    let idx = store
+        .get_existing_content(&[1, 2, 11, 13, 31], 0)
+        .await
+        .unwrap();
+    assert_eq!(idx.block_count(), 2);
+    assert_eq!(idx.chunk_count(), 6);
+    put(&store, 30).await;
+    store.close().await.unwrap();
+
+    let store = RemoteBlockStore::new(blob_store.clone(), AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    let idx = store
+        .get_existing_content(&[1, 2, 11, 13, 31], 0)
+        .await
+        .unwrap();
+    assert_eq!(idx.block_count(), 3);
+    assert_eq!(idx.chunk_count(), 9);
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestStoreIndexSyncWithoutLocking — concurrent
-/// writers each write a `store_<sha256>.lsi` shard; a reader merges all shards
-/// (merge-on-read) into the union index. Byte-exact shard naming
-/// (`store_<sha256-of-serialized-bytes>.lsi`) is asserted.
-#[test]
-#[ignore = "Stage 4"]
-fn store_index_sync_without_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestBlockScanning — Init rebuild only trusts
+/// blocks whose stored hash matches their path.
+#[tokio::test]
+async fn block_scanning() {
+    let mem = MemBlobStore::new("", true);
+    let blob_store: Arc<dyn BlobStore> = Arc::new(mem.clone());
+    let client = mem.new_client().await.unwrap();
+
+    let good_correct = generate_stored_block(7);
+    let good_correct_hash = store_block_raw(&*client, &good_correct, 0, "").await;
+    let bad_correct = generate_stored_block(14);
+    let bad_correct_hash = store_block_raw(&*client, &bad_correct, 1, "").await;
+    let good_bad = generate_stored_block(21);
+    let good_bad_hash = store_block_raw(&*client, &good_bad, 0, "chunks").await;
+    let bad_bad = generate_stored_block(33);
+    let bad_bad_hash = store_block_raw(&*client, &bad_bad, 2, "chunks").await;
+
+    let store = RemoteBlockStore::new(blob_store, AccessType::Init, 4)
+        .await
+        .unwrap();
+
+    // Good block in the correct path → fetchable.
+    let b = store.get_stored_block(good_correct_hash).await.unwrap();
+    assert_eq!(b.block_index.block_hash, good_correct_hash);
+
+    // Bad block in the correct path → hash/path mismatch → BadFormat.
+    let err = store.get_stored_block(bad_correct_hash).await.unwrap_err();
+    assert!(
+        matches!(err, longtail_store::StoreError::BadFormat(_)),
+        "expected BadFormat, got {err:?}"
+    );
+
+    // Good/bad blocks in the wrong path → not found at the canonical location.
+    assert!(
+        store
+            .get_stored_block(good_bad_hash)
+            .await
+            .unwrap_err()
+            .is_not_found()
+    );
+    assert!(
+        store
+            .get_stored_block(bad_bad_hash)
+            .await
+            .unwrap_err()
+            .is_not_found()
+    );
+
+    // Rebuilt index contains only the one good, correctly-placed block.
+    let mut chunks = good_correct.block_index.chunk_hashes.clone();
+    chunks.extend_from_slice(&bad_correct.block_index.chunk_hashes);
+    chunks.extend_from_slice(&good_bad.block_index.chunk_hashes);
+    chunks.extend_from_slice(&bad_bad.block_index.chunk_hashes);
+    let index = store.get_existing_content(&chunks, 0).await.unwrap();
+    assert_eq!(
+        index.chunk_count() as usize,
+        good_correct.block_index.chunk_hashes.len()
+    );
+    store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestFSStoreIndexSyncWithLocking — the fs backend
-/// coordinates concurrent store-index writers through `store.lsi.sync` flock,
-/// converging to the union index.
-#[test]
-#[ignore = "Stage 4"]
-fn fs_store_index_sync_with_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestPruneStoreWithLocking — Stage 7.
+#[tokio::test]
+#[ignore = "Stage 7 (prune_blocks is a typed NotSupported stub until then)"]
+async fn prune_store_with_locking() {
+    unimplemented!("prune deferred to Stage 7")
 }
 
-/// Source: remotestore_test.go::TestFSStoreIndexSyncWithoutLocking — the fs
-/// backend with locking disabled uses the shard-merge model, converging to the
-/// union index on read.
-#[test]
-#[ignore = "Stage 4"]
-fn fs_store_index_sync_without_locking() {
-    todo!()
+/// Source: remotestore_test.go::TestPruneStoreWithoutLocking — Stage 7.
+#[tokio::test]
+#[ignore = "Stage 7 (prune_blocks is a typed NotSupported stub until then)"]
+async fn prune_store_without_locking() {
+    unimplemented!("prune deferred to Stage 7")
 }
 
-/// Source: remotestore_test.go::TestS3StoreIndexSync — S3 shard-merge under
-/// concurrent writers: each writes a `store_<sha256>.lsi`, readers merge all
-/// shards; validates the lockless coherence scheme our production stores rely
-/// on. (Gated behind a live/minio S3 backend at Stage 4.)
-#[test]
-#[ignore = "Stage 4"]
-fn s3_store_index_sync() {
-    todo!()
+// --- store-index sync / concurrent-writer convergence ---
+
+/// The `testStoreIndexSync` chaos body (remotestore_test.go:679), adapted:
+/// `worker_count` tasks each merge `blocks_per_worker` distinct blocks into one
+/// store via [`add_to_remote_store_index`]; the merged index must converge to
+/// exactly the union, each block present once.
+async fn run_store_index_sync(
+    blob_store: Arc<dyn BlobStore>,
+    worker_count: u8,
+    blocks_per_worker: u8,
+) {
+    let mut handles = Vec::new();
+    for n in 0..worker_count {
+        let blob_store = blob_store.clone();
+        let seed_base = blocks_per_worker * n;
+        handles.push(tokio::spawn(async move {
+            let client = blob_store.new_client().await.unwrap();
+            let mut blocks: Vec<BlockIndex> = Vec::new();
+            // First batch: all but the last block.
+            for i in 0..blocks_per_worker.saturating_sub(1) {
+                blocks.push(generate_unique_stored_block(seed_base + i).block_index);
+            }
+            if !blocks.is_empty() {
+                let add = StoreIndex::from_block_indexes(&blocks).unwrap();
+                add_to_remote_store_index(&*client, &add).await.unwrap();
+            }
+            // Read (exercises merge-on-read under contention).
+            let _ = read_merged_store_index(&*client).await.unwrap();
+            // Second batch: the full set.
+            for i in blocks_per_worker.saturating_sub(1)..blocks_per_worker {
+                blocks.push(generate_unique_stored_block(seed_base + i).block_index);
+            }
+            let full = StoreIndex::from_block_indexes(&blocks).unwrap();
+            add_to_remote_store_index(&*client, &full).await.unwrap();
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    let client = blob_store.new_client().await.unwrap();
+    if !client.supports_locking() {
+        // Consolidate shards into one (Go's post-loop step for lockless stores).
+        let empty = StoreIndex::empty(0);
+        add_to_remote_store_index(&*client, &empty).await.unwrap();
+    }
+
+    let index = read_merged_store_index(&*client).await.unwrap();
+    let expected = worker_count as usize * blocks_per_worker as usize;
+    let hashes = &index.block_hashes;
+    assert_eq!(
+        hashes.len(),
+        expected,
+        "expected {expected} blocks, got {}",
+        hashes.len()
+    );
+    let unique: std::collections::HashSet<u64> = hashes.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        expected,
+        "duplicate block hashes in merged index"
+    );
+}
+
+/// Source: remotestore_test.go::TestStoreIndexSyncWithLocking.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn store_index_sync_with_locking() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("locking_store", true));
+    run_store_index_sync(blob_store, 21, 4).await;
+}
+
+/// Source: remotestore_test.go::TestStoreIndexSyncWithoutLocking.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn store_index_sync_without_locking() {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("locking_store", false));
+    run_store_index_sync(blob_store, 21, 4).await;
+}
+
+/// Source: remotestore_test.go::TestFSStoreIndexSyncWithLocking.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fs_store_index_sync_with_locking() {
+    let dir = tempfile::tempdir().unwrap();
+    let blob_store: Arc<dyn BlobStore> = Arc::new(FsBlobStore::new(dir.path(), true));
+    run_store_index_sync(blob_store, 21, 4).await;
+}
+
+/// Source: remotestore_test.go::TestFSStoreIndexSyncWithoutLocking (the shard
+/// merge-on-read flavor on fs, locking disabled).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fs_store_index_sync_without_locking() {
+    let dir = tempfile::tempdir().unwrap();
+    let blob_store: Arc<dyn BlobStore> = Arc::new(FsBlobStore::new(dir.path(), false));
+    run_store_index_sync(blob_store, 21, 4).await;
 }
