@@ -199,10 +199,10 @@ async fn sharded_store_merge_on_read() {
 /// golongtail offers) but the library rejects it.
 ///
 /// Both versions record the *same* `0444`, so the asset is content-modified and
-/// not permissions-modified (`diff.rs:75-82` tests those independently). Step 7
-/// therefore never visits it, and the mode below is the one apply put back rather
-/// than one it reassigned — which is the half of the fix a fixture with differing
-/// modes would not reach.
+/// not permissions-modified (`create_version_diff` tests those independently).
+/// Step 7 therefore never visits it, and the mode below is the one apply put
+/// back rather than one it reassigned — which is the half of the fix a fixture
+/// with differing modes would not reach.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_read_only_asset_can_be_rewritten_and_keeps_its_mode() {
@@ -489,4 +489,106 @@ async fn a_repair_run_fixes_the_version_without_deleting_anything_else() {
         !saved.join("player.sav").exists() && !target.join("settings.ini").exists(),
         "the default must still remove what the version does not contain"
     );
+}
+
+/// The gap `verify_chunks` closes, demonstrated in both directions.
+///
+/// A block's `block_hash` covers only its chunk-hash array (`pack.rs`), and the
+/// read-side check compares the block's *self-declared* hash field against the one
+/// requested — so a block whose payload bytes were replaced, with `chunk_hashes`
+/// and `chunk_sizes` left intact, passes every check the download normally makes.
+/// `--validate` does not help either: it compares the result against the same
+/// index the attacker would have supplied.
+///
+/// The first half asserts the substitution lands silently, which is the property
+/// this option exists to change and which no other test states. The second half
+/// asserts it becomes a `Corrupt`-class error. Compression is off so the payload
+/// is the concatenated chunk bytes and a flipped byte is a chunk byte.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn verify_chunks_catches_a_substituted_payload_that_is_otherwise_accepted() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let (store, src) = (tmp.path().join("store"), tmp.path().join("src"));
+    let lvi = tmp.path().join("v.lvi");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("asset.bin"), vec![0xAB; 200_000]).unwrap();
+
+    let mut up = longtail::UpsyncOptions::new(
+        src.to_string_lossy().into_owned(),
+        store.to_string_lossy().into_owned(),
+        lvi.to_string_lossy().into_owned(),
+    );
+    up.compression_algorithm = "none".to_string();
+    longtail::upsync(up).await.expect("upsync");
+
+    // Substitute payload bytes in place. The tail of the file is payload, so the
+    // block index — hash, chunk hashes, chunk sizes — is untouched.
+    let block = walk_files(&store)
+        .into_iter()
+        .find(|p| p.extension().is_some_and(|e| e == "lsb"))
+        .expect("a stored block");
+    let mut bytes = std::fs::read(&block).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xFF;
+    std::fs::write(&block, &bytes).unwrap();
+
+    let opts = |verify: bool, target: &std::path::Path| {
+        let mut o = DownsyncOptions::new(
+            vec![lvi.to_string_lossy().into_owned()],
+            store.to_string_lossy().into_owned(),
+            target.to_string_lossy().into_owned(),
+        );
+        o.cache_target_index = false;
+        o.verify_chunks = verify;
+        o
+    };
+
+    // Default: the substituted bytes are written and the run reports success.
+    let plain_target = tmp.path().join("plain");
+    downsync(opts(false, &plain_target))
+        .await
+        .expect("the substitution is accepted today");
+    let landed = std::fs::read(plain_target.join("asset.bin")).unwrap();
+    assert_ne!(
+        landed,
+        vec![0xAB; 200_000],
+        "the tampered bytes must actually have reached the target"
+    );
+
+    // Opt in: a hard error instead, classified so a caller can act on it.
+    let checked_target = tmp.path().join("checked");
+    let err = downsync(opts(true, &checked_target))
+        .await
+        .expect_err("verify_chunks must refuse a substituted payload");
+    assert_eq!(
+        err.class(),
+        longtail::ErrorClass::Corrupt,
+        "a substitution is corruption, not an io or transient failure: {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("does not match its index"),
+        "the error should say what failed: {err}"
+    );
+}
+
+/// Recursive file list, for locating a block inside the store's `chunks/` tree.
+#[cfg(unix)]
+fn walk_files(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    out
 }
