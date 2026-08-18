@@ -27,12 +27,8 @@ fn default_s3() -> S3OptionsArg {
 fn default_s3() -> S3OptionsArg {}
 
 fn pool() -> Result<Arc<rayon::ThreadPool>, LongtailError> {
-    Ok(Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    ))
+    // Via `build_pool` for the shared panic handler.
+    Ok(Arc::new(crate::version::build_pool(1)?))
 }
 
 /// Common versions-driven prune options shared by `prune-store` and
@@ -112,6 +108,7 @@ where
 }
 
 /// Options for [`prune_store`].
+#[non_exhaustive]
 pub struct PruneStoreOptions {
     pub storage_uri: String,
     pub source_version_index_paths: Vec<String>,
@@ -121,6 +118,9 @@ pub struct PruneStoreOptions {
     pub skip_invalid_versions: bool,
     pub write_version_local_store_index: bool,
     pub remote_worker_count: usize,
+    /// Proceed even when the resolved keep-set is empty. See
+    /// `guard_empty_keep_set`.
+    pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,
 }
@@ -136,6 +136,7 @@ impl PruneStoreOptions {
             skip_invalid_versions: false,
             write_version_local_store_index: false,
             remote_worker_count: 0,
+            allow_empty_keep_set: false,
             #[cfg(feature = "s3")]
             s3_options: default_s3(),
         }
@@ -144,12 +145,42 @@ impl PruneStoreOptions {
 
 /// The outcome of [`prune_store`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreResult {
     pub dry_run: bool,
     /// Blocks the retained versions need (the keep-set size).
     pub keep_blocks: usize,
     /// Blocks actually deleted (0 in dry-run).
     pub pruned_blocks: u32,
+}
+
+/// Refuse a prune whose keep-set resolved to nothing.
+///
+/// Every prune command deletes what the keep-set does not name, so an empty
+/// keep-set means "delete everything" — and the usual way to get one is an
+/// input mistake rather than an intent: a `--source-paths` file that is empty
+/// or all blank lines, which is what a failed listing command redirected to a
+/// file produces. Left unguarded the result is silent, total and irreversible.
+///
+/// Checked in dry-run too. A dry run is the safety surface here, so it is the
+/// place the mistake should surface, not the one place it is tolerated.
+///
+/// golongtail is equally unguarded, so this is a deliberate behaviour
+/// divergence on a destructive command; `allow_empty_keep_set` is the way to ask
+/// for the old behaviour.
+fn guard_empty_keep_set(
+    keep_len: usize,
+    source_count: usize,
+    allow: bool,
+) -> Result<(), LongtailError> {
+    if keep_len > 0 || allow {
+        return Ok(());
+    }
+    Err(LongtailError::InvalidArgument(format!(
+        "refusing to prune: the keep-set resolved to zero blocks from {source_count} source \
+         path(s), which would delete every block in the store. If that is intended, pass \
+         --allow-empty-keep-set"
+    )))
 }
 
 /// `prune-store`: gather the keep-set from the retained versions, then (unless
@@ -179,6 +210,7 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
             cache_dir: None,
             pool: pool()?,
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: opts.s3_options.clone(),
         },
@@ -186,25 +218,36 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
     .await?;
 
     let mut keep: HashSet<u64> = HashSet::new();
-    for (i, path) in opts.source_version_index_paths.iter().enumerate() {
-        if path.is_empty() {
-            continue;
+    // The gather loop reads one index per retained version and any of them can
+    // fail; closing inside the block would leave the store open on that path.
+    let gathered = async {
+        for (i, path) in opts.source_version_index_paths.iter().enumerate() {
+            if path.is_empty() {
+                continue;
+            }
+            let vi = read_version_index(path, &s3).await?;
+            let store = &gather_store;
+            let blocks = keep_for_version(
+                &g,
+                i,
+                &vi,
+                |chunks| async move { Ok(store.get_existing_content(&chunks, 0).await?) },
+                &s3,
+            )
+            .await?;
+            if let Some(bs) = blocks {
+                keep.extend(bs);
+            }
         }
-        let vi = read_version_index(path, &s3).await?;
-        let store = &gather_store;
-        let blocks = keep_for_version(
-            &g,
-            i,
-            &vi,
-            |chunks| async move { Ok(store.get_existing_content(&chunks, 0).await?) },
-            &s3,
-        )
-        .await?;
-        if let Some(bs) = blocks {
-            keep.extend(bs);
-        }
+        Ok::<_, LongtailError>(())
     }
-    gather_store.close().await?;
+    .await;
+    crate::store_lifecycle::finish_store(&gather_store, gathered).await?;
+    guard_empty_keep_set(
+        keep.len(),
+        opts.source_version_index_paths.len(),
+        opts.allow_empty_keep_set,
+    )?;
 
     if opts.dry_run {
         return Ok(PruneStoreResult {
@@ -223,15 +266,18 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
             cache_dir: None,
             pool: pool()?,
             version_local_store_index: None,
+            max_block_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: opts.s3_options.clone(),
         },
     )
     .await?;
     let keep_vec: Vec<u64> = keep.iter().copied().collect();
-    let pruned = store.prune_blocks(&keep_vec).await?;
-    store.flush().await?;
-    store.close().await?;
+    let pruned = store
+        .prune_blocks(&keep_vec)
+        .await
+        .map_err(LongtailError::from);
+    let pruned = crate::store_lifecycle::finish_store(&store, pruned).await?;
 
     Ok(PruneStoreResult {
         dry_run: false,
@@ -241,6 +287,7 @@ pub async fn prune_store(opts: PruneStoreOptions) -> Result<PruneStoreResult, Lo
 }
 
 /// Options for [`prune_store_index`].
+#[non_exhaustive]
 pub struct PruneStoreIndexOptions {
     pub store_index_path: String,
     pub source_version_index_paths: Vec<String>,
@@ -249,6 +296,9 @@ pub struct PruneStoreIndexOptions {
     pub validate_versions: bool,
     pub skip_invalid_versions: bool,
     pub write_version_local_store_index: bool,
+    /// Proceed even when the resolved keep-set is empty. See
+    /// `guard_empty_keep_set`.
+    pub allow_empty_keep_set: bool,
     #[cfg(feature = "s3")]
     pub s3_options: S3OptionsArg,
 }
@@ -266,6 +316,7 @@ impl PruneStoreIndexOptions {
             validate_versions: false,
             skip_invalid_versions: false,
             write_version_local_store_index: false,
+            allow_empty_keep_set: false,
             #[cfg(feature = "s3")]
             s3_options: default_s3(),
         }
@@ -274,6 +325,7 @@ impl PruneStoreIndexOptions {
 
 /// The outcome of [`prune_store_index`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreIndexResult {
     pub dry_run: bool,
     pub old_block_count: u32,
@@ -324,6 +376,12 @@ pub async fn prune_store_index(
         }
     }
 
+    guard_empty_keep_set(
+        keep.len(),
+        opts.source_version_index_paths.len(),
+        opts.allow_empty_keep_set,
+    )?;
+
     let keep_vec: Vec<u64> = keep.iter().copied().collect();
     let pruned = store_index.prune(&keep_vec);
     let old_block_count = store_index.block_count();
@@ -341,6 +399,7 @@ pub async fn prune_store_index(
 }
 
 /// Options for [`prune_store_blocks`].
+#[non_exhaustive]
 pub struct PruneStoreBlocksOptions {
     pub store_index_path: String,
     pub blocks_root_path: String,
@@ -365,6 +424,7 @@ impl PruneStoreBlocksOptions {
 
 /// The outcome of [`prune_store_blocks`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PruneStoreBlocksResult {
     pub dry_run: bool,
     pub found_blocks: usize,

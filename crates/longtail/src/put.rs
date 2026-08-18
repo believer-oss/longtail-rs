@@ -10,6 +10,7 @@ use crate::progress::ProgressSink;
 use crate::upsync::upsync;
 
 /// Options for [`crate::put`].
+#[non_exhaustive]
 pub struct PutOptions {
     /// The get-config JSON URI (`--target-path`). Defaults for storage/`.lvi`/
     /// `.lsi` are derived from its parent dir + basename-without-extension.
@@ -165,6 +166,13 @@ pub async fn put(opts: PutOptions) -> Result<UpsyncReport, LongtailError> {
     // Write the get-config JSON (cmd_put.go:115-146). Only on success.
     let mut map = serde_json::Map::new();
     map.insert("storage-uri".to_string(), storage_uri.clone().into());
+    // Write-only, by design on both sides: `get` does not read this key back,
+    // and should not start. The endpoint is deployment config — how *this*
+    // machine reaches the store — not part of the version's identity, and the
+    // same version legitimately needs a different endpoint from a different
+    // network (a provider's public endpoint from a workstation, a VPC endpoint
+    // from a build host). Written only so a get-config matches golongtail's
+    // byte for byte; nothing consumes it there either.
     if let Some(ep) = opts
         .s3_endpoint_resolver_uri
         .as_deref()

@@ -22,12 +22,20 @@ fn default_s3() -> S3OptionsArg {
 fn default_s3() -> S3OptionsArg {}
 
 /// Read + parse a version index from a URI (local path, `file://`, or `s3://`).
-pub async fn read_version_index_from_uri(uri: &str) -> Result<VersionIndex, LongtailError> {
-    let bytes = fs_util::read_from_uri(uri, &default_s3()).await?;
+///
+/// Takes the S3 options rather than defaulting them: a URI is not enough to
+/// reach a store behind a custom endpoint, and defaulting here silently ignored
+/// the caller's endpoint while the same command honoured it for block I/O.
+pub async fn read_version_index_from_uri(
+    uri: &str,
+    s3_options: &S3OptionsArg,
+) -> Result<VersionIndex, LongtailError> {
+    let bytes = fs_util::read_from_uri(uri, s3_options).await?;
     Ok(VersionIndex::from_bytes(&bytes)?)
 }
 
 /// Options for [`validate_version`].
+#[non_exhaustive]
 pub struct ValidateVersionOptions {
     pub storage_uri: String,
     pub version_index_path: String,
@@ -52,46 +60,48 @@ impl ValidateVersionOptions {
 /// (`GetExistingStoreIndex(all chunks, min-usage 0)` + `ValidateStore`,
 /// cmd_validateversion.go:61-74).
 pub async fn validate_version(opts: ValidateVersionOptions) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path).await?;
-    let pool = Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    );
+    let vi = read_version_index_from_uri(&opts.version_index_path, &crate::s3_arg!(opts)).await?;
+    let pool = Arc::new(crate::version::build_pool(1)?);
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
         cache_dir: None,
         pool,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options,
     };
     let store: Arc<dyn BlockStore> =
         create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let store_index = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let store_index = crate::store_lifecycle::finish_store(&store, fetched).await?;
     validate_store(&store_index, &vi).map_err(LongtailError::from)
 }
 
 fn single_thread_pool() -> Result<Arc<rayon::ThreadPool>, LongtailError> {
-    Ok(Arc::new(
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .map_err(|e| LongtailError::InvalidArgument(format!("rayon pool: {e}")))?,
-    ))
+    // Via `build_pool` so this pool gets the same panic handler as every other:
+    // a panicking codec job must not abort the process.
+    Ok(Arc::new(crate::version::build_pool(1)?))
 }
 
 /// Read + parse a store index (`.lsi`) from a URI (local / `file://` / `s3://`).
-pub async fn read_store_index_from_uri(uri: &str) -> Result<StoreIndex, LongtailError> {
-    let bytes = fs_util::read_from_uri(uri, &default_s3()).await?;
+///
+/// Takes the S3 options for the same reason as [`read_version_index_from_uri`].
+pub async fn read_store_index_from_uri(
+    uri: &str,
+    s3_options: &S3OptionsArg,
+) -> Result<StoreIndex, LongtailError> {
+    let bytes = fs_util::read_from_uri(uri, s3_options).await?;
     Ok(StoreIndex::from_bytes(&bytes)?)
 }
 
 /// Summary numbers for `print-store` (cmd_printstore.go).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct StoreIndexStats {
     pub version: u32,
     pub hash_identifier: u32,
@@ -123,6 +133,7 @@ pub fn store_index_stats(si: &StoreIndex) -> StoreIndexStats {
 }
 
 /// Options for [`init_remote_store`].
+#[non_exhaustive]
 pub struct InitRemoteStoreOptions {
     pub storage_uri: String,
     pub remote_worker_count: usize,
@@ -151,6 +162,7 @@ pub async fn init_remote_store(opts: InitRemoteStoreOptions) -> Result<u32, Long
         cache_dir: None,
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options,
     };
@@ -158,16 +170,22 @@ pub async fn init_remote_store(opts: InitRemoteStoreOptions) -> Result<u32, Long
     // Forcing the index load triggers the Init rebuild + write-back; the empty
     // chunk request returns an empty retargetted index (block count via a
     // full-store retarget below would double-scan, so we report from the flush).
-    let _ = store.get_existing_content(&[], 0).await?;
-    store.flush().await?;
+    let loaded = store
+        .get_existing_content(&[], 0)
+        .await
+        .map(|_| ())
+        .map_err(LongtailError::from);
     let stats = store.stats();
-    store.close().await?;
+    // `Init` rebuilds and persists the index on close, so a failed load must
+    // still reach it rather than abandoning a half-initialised store.
+    crate::store_lifecycle::finish_store(&store, loaded).await?;
     // The rebuilt store index is now persisted; report gets as a rough progress
     // signal (Go logs the block count from the rebuild — not surfaced here).
     Ok(stats.get_count as u32)
 }
 
 /// Options for [`create_version_store_index`].
+#[non_exhaustive]
 pub struct CreateVersionStoreIndexOptions {
     /// A **version-index** URI (`--source-path`) — NOT a source folder.
     pub source_path: String,
@@ -202,19 +220,23 @@ impl CreateVersionStoreIndexOptions {
 pub async fn create_version_store_index(
     opts: CreateVersionStoreIndexOptions,
 ) -> Result<(), LongtailError> {
-    let vi = read_version_index_from_uri(&opts.source_path).await?;
+    let vi = read_version_index_from_uri(&opts.source_path, &crate::s3_arg!(opts)).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
         cache_dir: None,
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
     let store = create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let retargetted = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let retargetted = crate::store_lifecycle::finish_store(&store, fetched).await?;
     #[cfg(feature = "s3")]
     let s3: S3OptionsArg = opts.s3_options;
     #[cfg(not(feature = "s3"))]
@@ -228,6 +250,7 @@ pub async fn create_version_store_index(
 }
 
 /// Options for [`print_version_usage_stats`].
+#[non_exhaustive]
 pub struct PrintVersionUsageOptions {
     pub storage_uri: String,
     pub version_index_path: String,
@@ -252,6 +275,7 @@ impl PrintVersionUsageOptions {
 
 /// `print-version-usage` numbers (cmd_printVersionUsage.go:145-181).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VersionUsageStats {
     pub block_usage_percent: u32,
     pub asset_fragmentation_percent: u32,
@@ -266,19 +290,23 @@ pub struct VersionUsageStats {
 pub async fn print_version_usage_stats(
     opts: PrintVersionUsageOptions,
 ) -> Result<VersionUsageStats, LongtailError> {
-    let vi = read_version_index_from_uri(&opts.version_index_path).await?;
+    let vi = read_version_index_from_uri(&opts.version_index_path, &crate::s3_arg!(opts)).await?;
     let store_opts = BlockStoreOpts {
         access_type: AccessType::ReadOnly,
         worker_count: opts.remote_worker_count,
         cache_dir: opts.cache_path.clone(),
         pool: single_thread_pool()?,
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
     let store = create_block_store_for_uri(&opts.storage_uri, store_opts).await?;
-    let existing = store.get_existing_content(&vi.chunk_hashes, 0).await?;
-    store.close().await?;
+    let fetched = store
+        .get_existing_content(&vi.chunk_hashes, 0)
+        .await
+        .map_err(LongtailError::from);
+    let existing = crate::store_lifecycle::finish_store(&store, fetched).await?;
 
     // chunk_hash → block_hash from the retargetted store index.
     let mut block_lookup: HashMap<u64, u64> = HashMap::new();
