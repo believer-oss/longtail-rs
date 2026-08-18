@@ -19,11 +19,9 @@ use crate::error::LongtailError;
 use crate::fs_util::{self, S3OptionsArg};
 use crate::hash_util::make_hasher;
 use crate::options::{DownsyncOptions, DownsyncReport, PhaseTiming};
-use crate::path_filter::RegexPathFilter;
+use crate::path_filter::{RegexPathFilter, TARGET_INDEX_CACHE_NAME, relative_within};
 use crate::progress::{NullProgress, ProgressSink, RateLimited};
 use crate::version::create_version_index_from_folder;
-
-const CACHE_INDEX_NAME: &str = ".longtail.index.cache.lvi";
 
 /// Downsync one or more source versions into a target folder. See
 /// [`DownsyncOptions`]. Runs on the caller's ambient tokio runtime.
@@ -55,11 +53,6 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         ));
     }
 
-    let filter = RegexPathFilter::new(
-        opts.include_filter_regex.as_deref(),
-        opts.exclude_filter_regex.as_deref(),
-    )?;
-
     // Resolve the target folder (cmd_downsync.go:101).
     let target_string = match opts.target_path.as_deref() {
         Some(t) if !t.is_empty() => t.to_string(),
@@ -77,7 +70,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     if explicit_target_index.is_some() {
         cache_target_index = false;
     }
-    let cache_index_path = target_root.join(CACHE_INDEX_NAME);
+    let cache_index_path = target_root.join(TARGET_INDEX_CACHE_NAME);
     // Effective target index: explicit path, or the cache file if it exists. The
     // two are not equally trusted — see `read_target_index` below.
     let effective_target_index: Option<String> = if let Some(t) = &explicit_target_index {
@@ -88,6 +81,21 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         None
     };
     let target_index_is_cache = explicit_target_index.is_none();
+
+    // A target index is a description of the target, so it is never part of it —
+    // neither scanned into one nor written out of one. That covers the cache and
+    // an explicitly supplied path that happens to live inside the target.
+    let mut never_content = vec![TARGET_INDEX_CACHE_NAME.to_string()];
+    if let Some(t) = &explicit_target_index
+        && let Some(rel) = relative_within(&target_root, t)
+    {
+        never_content.push(rel);
+    }
+    let filter = RegexPathFilter::new(
+        opts.include_filter_regex.as_deref(),
+        opts.exclude_filter_regex.as_deref(),
+    )?
+    .never_paths(never_content.clone());
 
     let progress: Arc<dyn ProgressSink> = opts
         .progress
@@ -219,7 +227,21 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
         // Diff (from = current target, to = desired source), required chunks,
         // retargetted store index (min_block_usage_percent = 0,
         // cmd_downsync.go:266).
-        let diff = create_version_diff(&target_index, &source_version);
+        let mut diff = create_version_diff(&target_index, &source_version);
+        // Existing stores already hold versions that name a target index as an
+        // asset — golongtail indexes it too, so upsyncing a downsynced folder has
+        // always propagated one. Keeping it out of the scan stops new ones; this
+        // stops the ones already out there from being written into a target,
+        // where a run that fails after it lands leaves a valid-looking index that
+        // the next run trusts and diffs against, writing nothing and reporting
+        // success over an incomplete tree.
+        let dropped = strip_never_content(&mut diff, &source_version, &filter);
+        if dropped > 0 {
+            tracing::warn!(
+                count = dropped,
+                "the source version names a target index as content; not writing it to the target"
+            );
+        }
         let required = get_required_chunk_hashes(&source_version, &diff);
         let store_index = store.get_existing_content(&required, 0).await?;
         phases.push(phase.lap("diff_and_retarget"));
@@ -324,6 +346,61 @@ async fn read_merged_source(
         });
     }
     merged.ok_or_else(|| LongtailError::InvalidArgument("no source version index".into()))
+}
+
+/// Drop every write and permissions entry naming a path the filter treats as a
+/// target index rather than content. Returns how many were dropped.
+///
+/// The two content and two permissions lists are parallel — entry `k` of each
+/// side describes the same asset — so they are filtered by position, not value.
+/// Removals are left alone: deleting a target index that is no longer named is
+/// harmless, and `downsync` removes the cache explicitly before apply anyway.
+fn strip_never_content(
+    diff: &mut longtail_core::VersionDiff,
+    desired: &VersionIndex,
+    filter: &RegexPathFilter,
+) -> usize {
+    let is_never = |&idx: &u32| {
+        desired
+            .path(idx as usize)
+            .is_ok_and(|p| filter.is_never_content(p))
+    };
+    let before = diff.target_added_asset_indexes.len()
+        + diff.target_content_modified_asset_indexes.len()
+        + diff.target_permissions_modified_asset_indexes.len();
+
+    diff.target_added_asset_indexes.retain(|i| !is_never(i));
+
+    let keep: Vec<bool> = diff
+        .target_content_modified_asset_indexes
+        .iter()
+        .map(|i| !is_never(i))
+        .collect();
+    retain_by_mask(&mut diff.target_content_modified_asset_indexes, &keep);
+    retain_by_mask(&mut diff.source_content_modified_asset_indexes, &keep);
+
+    let keep: Vec<bool> = diff
+        .target_permissions_modified_asset_indexes
+        .iter()
+        .map(|i| !is_never(i))
+        .collect();
+    retain_by_mask(&mut diff.target_permissions_modified_asset_indexes, &keep);
+    retain_by_mask(&mut diff.source_permissions_modified_asset_indexes, &keep);
+
+    before
+        - (diff.target_added_asset_indexes.len()
+            + diff.target_content_modified_asset_indexes.len()
+            + diff.target_permissions_modified_asset_indexes.len())
+}
+
+/// Keep the elements of `v` whose position is `true` in `mask`. A shorter `mask`
+/// than `v` would silently truncate, so mismatched lengths leave `v` untouched.
+fn retain_by_mask(v: &mut Vec<u32>, mask: &[bool]) {
+    if v.len() != mask.len() {
+        return;
+    }
+    let mut it = mask.iter();
+    v.retain(|_| *it.next().unwrap_or(&true));
 }
 
 fn read_version_index_local(path: &Path) -> Result<VersionIndex, LongtailError> {
@@ -573,7 +650,108 @@ impl PhaseTimer {
 
 #[cfg(test)]
 mod tests {
-    use super::permissions_disagree;
+    use longtail_core::{Permissions, VersionDiff, VersionIndex};
+
+    use super::{permissions_disagree, retain_by_mask, strip_never_content};
+    use crate::path_filter::{RegexPathFilter, TARGET_INDEX_CACHE_NAME};
+
+    /// Three assets, the middle one being a target index.
+    fn index_with_cache_in_the_middle() -> VersionIndex {
+        let names = ["a.bin", TARGET_INDEX_CACHE_NAME, "b.bin"];
+        let mut name_data = Vec::new();
+        let mut offsets = Vec::new();
+        for n in names {
+            offsets.push(name_data.len() as u32);
+            name_data.extend_from_slice(n.as_bytes());
+            name_data.push(0);
+        }
+        VersionIndex {
+            hash_identifier: 0,
+            target_chunk_size: 32768,
+            path_hashes: vec![1, 2, 3],
+            content_hashes: vec![10, 20, 30],
+            asset_sizes: vec![1, 2, 3],
+            asset_chunk_counts: vec![0, 0, 0],
+            asset_chunk_index_starts: vec![0, 0, 0],
+            asset_chunk_indexes: Vec::new(),
+            chunk_hashes: Vec::new(),
+            chunk_sizes: Vec::new(),
+            chunk_tags: Vec::new(),
+            permissions: vec![Permissions(0o644); 3],
+            name_offsets: offsets,
+            name_data,
+        }
+    }
+
+    fn cache_filter() -> RegexPathFilter {
+        RegexPathFilter::new(None, None)
+            .unwrap()
+            .never_paths([TARGET_INDEX_CACHE_NAME.to_string()])
+    }
+
+    /// The content and permissions lists are parallel: entry `k` of the target
+    /// side and entry `k` of the source side describe the same asset. Filtering
+    /// one by value and the other not at all would silently pair asset `k` with
+    /// asset `k+1` — writing the right bytes to the wrong file.
+    #[test]
+    fn stripping_keeps_the_parallel_arrays_aligned() {
+        let desired = index_with_cache_in_the_middle();
+        let mut diff = VersionDiff {
+            source_removed_asset_indexes: vec![],
+            target_added_asset_indexes: vec![0, 1, 2],
+            // asset 1 (the cache) sits in the middle of both parallel pairs.
+            source_content_modified_asset_indexes: vec![7, 8, 9],
+            target_content_modified_asset_indexes: vec![0, 1, 2],
+            source_permissions_modified_asset_indexes: vec![4, 5, 6],
+            target_permissions_modified_asset_indexes: vec![0, 1, 2],
+        };
+
+        let dropped = strip_never_content(&mut diff, &desired, &cache_filter());
+
+        assert_eq!(dropped, 3, "one entry from each of the three lists");
+        assert_eq!(diff.target_added_asset_indexes, vec![0, 2]);
+        // The cache's slot is gone from BOTH sides of each pair, so the surviving
+        // entries still line up: target 0 with source 7, target 2 with source 9.
+        assert_eq!(diff.target_content_modified_asset_indexes, vec![0, 2]);
+        assert_eq!(diff.source_content_modified_asset_indexes, vec![7, 9]);
+        assert_eq!(diff.target_permissions_modified_asset_indexes, vec![0, 2]);
+        assert_eq!(diff.source_permissions_modified_asset_indexes, vec![4, 6]);
+        // Removals are deliberately untouched.
+        assert!(diff.source_removed_asset_indexes.is_empty());
+    }
+
+    /// An index naming no target index must come through unchanged, so the strip
+    /// cannot be the reason a normal download writes nothing.
+    #[test]
+    fn stripping_leaves_ordinary_versions_alone() {
+        let desired = index_with_cache_in_the_middle();
+        let mut diff = VersionDiff {
+            source_removed_asset_indexes: vec![],
+            target_added_asset_indexes: vec![0, 2],
+            source_content_modified_asset_indexes: vec![7],
+            target_content_modified_asset_indexes: vec![2],
+            source_permissions_modified_asset_indexes: vec![],
+            target_permissions_modified_asset_indexes: vec![],
+        };
+        let before = diff.clone();
+        assert_eq!(strip_never_content(&mut diff, &desired, &cache_filter()), 0);
+        assert_eq!(
+            diff.target_added_asset_indexes,
+            before.target_added_asset_indexes
+        );
+        assert_eq!(
+            diff.target_content_modified_asset_indexes,
+            before.target_content_modified_asset_indexes
+        );
+    }
+
+    /// A mask that does not describe the vector must not truncate it.
+    #[test]
+    fn retain_by_mask_refuses_a_mismatched_mask() {
+        let mut v = vec![1, 2, 3];
+        retain_by_mask(&mut v, &[true, false]);
+        assert_eq!(v, vec![1, 2, 3]);
+    }
 
     /// Both branches, from either host — the Windows one cannot be reached by
     /// running the suite on Linux, and it is the branch that was wrong.

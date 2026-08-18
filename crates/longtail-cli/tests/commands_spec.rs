@@ -416,6 +416,70 @@ fn downsync_corrupt_target_index_cache() {
     );
 }
 
+/// A downsynced folder does not publish its target-index cache when upsynced.
+///
+/// This is the round trip that made the cache dangerous: downsync leaves
+/// `.longtail.index.cache.lvi` inside the target, upsync indexed it as content,
+/// and every consumer of that version then had one machine's cache written into
+/// their target. golongtail indexes it, so this is a deliberate divergence — see
+/// `docs/rust-port.md` §Deliberate divergences.
+#[test]
+fn upsync_never_publishes_the_target_index_cache() {
+    pin_umask();
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("out");
+
+    // Default cache-target-index, so a successful downsync leaves the cache.
+    let out = run(
+        &[
+            "downsync",
+            "--storage-uri",
+            store().to_str().unwrap(),
+            "--source-path",
+            lvi("zoo.lvi").to_str().unwrap(),
+            "--target-path",
+            target.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(out.status.success(), "downsync should succeed");
+    assert!(
+        target.join(".longtail.index.cache.lvi").exists(),
+        "the cache must exist, or this test proves nothing"
+    );
+
+    // Upsync that folder into a fresh store and read back what got indexed.
+    let up_store = tmp.path().join("upstore");
+    let up_lvi = tmp.path().join("round-trip.lvi");
+    let out = run(
+        &[
+            "upsync",
+            "--storage-uri",
+            up_store.to_str().unwrap(),
+            "--source-path",
+            target.to_str().unwrap(),
+            "--target-path",
+            up_lvi.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(out.status.success(), "upsync should succeed");
+
+    let out = run(
+        &["ls", "--version-index-path", up_lvi.to_str().unwrap()],
+        None,
+    );
+    let listing = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !listing.contains(".longtail.index.cache.lvi"),
+        "the target-index cache must not be indexed as content; listing:\n{listing}"
+    );
+    assert!(
+        listing.contains("zoo") || listing.lines().count() > 1,
+        "the round trip must still index the real content; listing:\n{listing}"
+    );
+}
+
 /// cmd_downsync_test.go::TestMultiVersionDownsync — downsync of multiple merged
 /// source versions produces the union tree. (Full three-way tree agreement is in
 /// the testkit's differential tests; here we assert the union superset semantics.)

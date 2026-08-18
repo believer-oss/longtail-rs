@@ -23,7 +23,7 @@ use crate::error::LongtailError;
 use crate::fs_util::{self, S3OptionsArg};
 use crate::hash_util::make_hasher;
 use crate::options::{UpsyncOptions, UpsyncReport};
-use crate::path_filter::RegexPathFilter;
+use crate::path_filter::{RegexPathFilter, TARGET_INDEX_CACHE_NAME, relative_within};
 use crate::progress::{NullProgress, Progress, ProgressSink, RateLimited};
 use crate::version::create_version_index_from_folder;
 
@@ -53,10 +53,22 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
     }
     let source_folder = PathBuf::from(&opts.source_path);
 
+    // A version index is a description of a folder, so a folder never carries one
+    // as content. The target-index cache is the case that matters: it lives inside
+    // a downsynced folder, so upsyncing that folder used to publish one machine's
+    // cache to every consumer of the version. A supplied `source_index_path` gets
+    // the same treatment when it sits inside the folder it describes.
+    let mut never_content = vec![TARGET_INDEX_CACHE_NAME.to_string()];
+    if let Some(src_index) = opts.source_index_path.as_deref().filter(|s| !s.is_empty())
+        && let Some(rel) = relative_within(&source_folder, src_index)
+    {
+        never_content.push(rel);
+    }
     let filter = RegexPathFilter::new(
         opts.include_filter_regex.as_deref(),
         opts.exclude_filter_regex.as_deref(),
-    )?;
+    )?
+    .never_paths(never_content);
 
     #[cfg(feature = "s3")]
     let s3: S3OptionsArg = opts.s3_options.clone();

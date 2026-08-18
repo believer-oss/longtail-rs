@@ -67,7 +67,7 @@ pub use options::{
     DownsyncOptions, DownsyncReport, DownsyncStoreStats, GetOptions, PhaseTiming, UpsyncOptions,
     UpsyncReport,
 };
-pub use path_filter::RegexPathFilter;
+pub use path_filter::{RegexPathFilter, TARGET_INDEX_CACHE_NAME};
 pub use progress::{NullProgress, Progress, ProgressSink};
 // Re-exported so a caller can construct/trigger cancellation without a direct
 // `tokio-util` dependency (or a version-coupling to it). Put a clone in
