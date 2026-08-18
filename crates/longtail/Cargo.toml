@@ -13,6 +13,10 @@ longtail-core = { path = "../longtail-core" }
 longtail-store = { path = "../longtail-store", default-features = false }
 tokio = { version = "1.49", features = ["rt", "rt-multi-thread", "sync", "macros"] }
 tokio-util = "0.7"
+# Owned byte buffers for the blob write path (`write_to_uri` hands `Bytes`
+# straight to the S3 body with no copy — matters for the ~GB version-local
+# `.lsi` and prune store-index writes).
+bytes = "1"
 rayon = "1"
 regex = "1"
 thiserror = "2"

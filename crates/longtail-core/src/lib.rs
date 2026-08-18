@@ -1,14 +1,14 @@
 //! Core on-disk formats and algorithms (chunking, hashing, compression) for the
 //! pure-Rust longtail port. Sync, no tokio.
 //!
-//! Stage 2 provides the **format layer**: byte-cursor unaligned little-endian
+//! The **format layer** provides byte-cursor unaligned little-endian
 //! codecs for [`VersionIndex`], [`StoreIndex`], [`BlockIndex`], and
 //! [`StoredBlock`], the in-memory [`FileInfos`] structure (sort + name-blob
 //! building), a [`Permissions`] type, [`StoreIndex::merge`], and the
 //! [`FormatError`] type. The layer is `bytes in → structs out → bytes out`:
 //! there is no file or storage I/O in the public API.
 //!
-//! Stage 3 adds the **algorithm layer**:
+//! The **algorithm layer** adds:
 //! - [`hash`] — the [`Hash`] trait + [`Blake3`]/[`Blake2s`] + meow
 //!   parse-without-verify + the ID registry ([`hash::hasher`]).
 //! - [`compress`] — the [`Compressor`] trait + zstd/lz4/brotli codecs + the
@@ -24,9 +24,11 @@
 //! - **PERF (owned structs).** Every format parses into owned Rust structs
 //!   (`Vec<u64>`/`Vec<u32>`/`Vec<u16>`/`Vec<u8>`) and serialization is a pure
 //!   function of the parsed content. This owned-struct representation was chosen
-//!   for correctness and simplicity; revisit zero-copy views only if Stage 6
-//!   benchmarking/profiling shows format parse/serialize as a genuine hot spot —
-//!   do not pre-optimize now.
+//!   for correctness and simplicity. Benchmarking settled the revisit
+//!   trigger: the codecs run at 4–26 GiB/s, so realistic `.lvi`/`.lsi`
+//!   parse+serialize is tens of microseconds (~0.02 % of an e2e downsync wall) —
+//!   not a hot spot. Verdict: keep owned structs, do not adopt zero-copy views
+//!   (measured: parse/serialize is not a hot spot — see `docs/rust-port.md` §Performance).
 //! - **Round-trip fidelity beats normalization.** Structs preserve exactly what
 //!   was parsed (raw `name_data` blob + offsets verbatim, all 16 permission
 //!   bits, no sorting/dedup on read), so every committed fixture re-serializes

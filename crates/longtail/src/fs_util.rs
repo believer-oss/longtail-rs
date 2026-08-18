@@ -1,12 +1,13 @@
 //! Narrow internal local-fs helpers over `std::fs` (+ positional
-//! `FileExt::write_at`/`seek_write`) — NOT a port of the 26-fn StorageAPI vtable
-//! (planning §6). The recursive walker, permission mapping, and the
+//! `FileExt::write_at`/`seek_write`) — NOT a port of the 26-fn StorageAPI vtable.
+//! The recursive walker, permission mapping, and the
 //! concurrent-chunk-write equivalent all live here with the facade; `longtail-core`
 //! stays I/O-free.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use longtail_core::{FileEntry, Permissions};
 
 use crate::error::LongtailError;
@@ -96,13 +97,12 @@ fn scan_dir(
     Ok(())
 }
 
-/// Read an asset's bytes (empty for a directory).
-pub fn read_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<Vec<u8>, LongtailError> {
-    if is_dir {
-        return Ok(Vec::new());
-    }
+/// Open a source asset read-only for ranged reads (the upload pack path reads
+/// each chunk's byte range positionally rather than slurping the whole file, so
+/// a multi-GB asset never resides in memory).
+pub fn open_asset(root: &Path, rel_path: &str) -> Result<fs::File, LongtailError> {
     let path = root.join(rel_path);
-    fs::read(&path).map_err(|e| LongtailError::io(format!("read {path:?}"), e))
+    fs::File::open(&path).map_err(|e| LongtailError::io(format!("open {path:?}"), e))
 }
 
 /// `mkdir -p` for a directory asset.
@@ -357,14 +357,14 @@ async fn read_s3(uri: &str, options: &longtail_store::S3Options) -> Result<Vec<u
 /// store. Used by upsync/put/clone-store to write `.lvi`/`.lsi`/get-config.
 pub async fn write_to_uri(
     uri: &str,
-    bytes: &[u8],
+    bytes: Bytes,
     #[allow(unused)] s3_options: &S3OptionsArg,
 ) -> Result<(), LongtailError> {
     if let Some(rest) = uri.strip_prefix("file://") {
-        return write_local(Path::new(rest), bytes);
+        return write_local(Path::new(rest), &bytes);
     }
     if let Some(rest) = uri.strip_prefix("fsblob://") {
-        return write_local(Path::new(rest), bytes);
+        return write_local(Path::new(rest), &bytes);
     }
     if uri.starts_with("s3://") {
         #[cfg(feature = "s3")]
@@ -387,13 +387,13 @@ pub async fn write_to_uri(
             reason: format!("unsupported uri scheme `{scheme}`"),
         });
     }
-    write_local(Path::new(uri), bytes)
+    write_local(Path::new(uri), &bytes)
 }
 
 #[cfg(feature = "s3")]
 async fn write_s3(
     uri: &str,
-    bytes: &[u8],
+    bytes: Bytes,
     options: &longtail_store::S3Options,
 ) -> Result<(), LongtailError> {
     use longtail_store::{BlobStore, S3BlobStore};

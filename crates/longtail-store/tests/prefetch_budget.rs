@@ -1,4 +1,4 @@
-//! Stage 7a Fix 1: the prefetch budget gates BACKGROUND PREFETCH only — demand
+//! The prefetch budget gates BACKGROUND PREFETCH only — demand
 //! fetches always proceed (golongtail's model: enqueue touches no budget,
 //! remotestore.go:613-614/:1038-1041; workers pull prefetches only while under
 //! budget, :516-517/:535-536; demand `fetchBlock` has no budget check,
@@ -21,7 +21,7 @@ use longtail_core::{BlockIndex, StoredBlock};
 use longtail_store::blob::{BlobClient, BlobObject, BlobProperties, BlobStore, MemBlobStore};
 use longtail_store::{AccessType, BlockStore, RemoteBlockStore, StoreError, block_path};
 
-/// Same shape as the Stage 4 actor tests: three chunks of 10+20+30 = 60 bytes.
+/// Same shape as the actor tests: three chunks of 10+20+30 = 60 bytes.
 fn make_block(seed: u8) -> StoredBlock {
     let s = seed as u64;
     let sizes = vec![10u32, 20, 30];
@@ -43,7 +43,7 @@ async fn seed_block(store: &MemBlobStore, block: &StoredBlock) {
     let client = store.new_client().await.unwrap();
     let key = block_path("chunks", block.block_index.block_hash);
     let mut obj = client.new_object(&key).await.unwrap();
-    obj.write(&block.to_bytes()).await.unwrap();
+    obj.write(block.to_bytes().into()).await.unwrap();
 }
 
 /// A ReadWrite store over `mem` with an explicit prefetch budget.
@@ -147,7 +147,7 @@ async fn any_working_set_completes_with_one_permit_budget() {
 }
 
 /// An oversize block (estimate > whole budget) clamps to the budget and still
-/// dispatches — the Stage 4 clamp rule that keeps single blocks acquirable.
+/// dispatches — the clamp rule that keeps single blocks acquirable.
 #[tokio::test(start_paused = true)]
 async fn oversize_block_clamps_to_budget_and_dispatches() {
     let mem = MemBlobStore::new("", true);
@@ -371,7 +371,7 @@ impl BlobObject for GatedObject {
         }
         self.inner.read().await
     }
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: bytes::Bytes) -> Result<bool, StoreError> {
         self.inner.write(data).await
     }
     async fn delete(&mut self) -> Result<(), StoreError> {

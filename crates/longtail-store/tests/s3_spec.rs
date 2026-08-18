@@ -1,11 +1,11 @@
-//! Stage 4: S3-backed blob/sync behavioral tests + the credential-refresh proof.
+//! S3-backed blob/sync behavioral tests + the credential-refresh proof.
 //!
 //! - [`fake_expiry_credentials_refresh`] runs **always** (no network): it wires
 //!   a custom, always-expired credentials provider into an S3 client whose HTTP
 //!   layer is `aws-smithy-http-client`'s `StaticReplayClient`, and asserts the
 //!   provider is re-consulted after expiry across requests *without rebuilding
 //!   the client* — the launcher's mid-operation refresh requirement, made
-//!   testable (`rust-port-planning.md` decision 4 / risk register).
+//!   testable (the mid-operation credential-refresh requirement).
 //!   `StaticReplayClient` keeps the full orchestrator + SigV4 signing on-path
 //!   (preferred over operation-level mocks that can short-circuit before
 //!   identity resolution).
@@ -17,6 +17,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
+
+use bytes::Bytes;
 
 use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
@@ -150,7 +152,7 @@ fn unique_prefix(tag: &str) -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("longtail-stage4/{tag}-{nanos}")
+    format!("longtail-s3test/{tag}-{nanos}")
 }
 
 #[tokio::test]
@@ -165,7 +167,7 @@ async fn s3_blob_round_trip() {
 
     let mut obj = client.new_object("hello.txt").await.unwrap();
     assert!(!obj.exists().await.unwrap());
-    assert!(obj.write(b"hello s3").await.unwrap());
+    assert!(obj.write(Bytes::from_static(b"hello s3")).await.unwrap());
     assert!(obj.exists().await.unwrap());
     assert_eq!(obj.read().await.unwrap(), b"hello s3");
 

@@ -18,6 +18,11 @@
 //! not a theorem for multi-worker-accumulated production stores; a chain-only
 //! failure here still means "check accumulation order first".
 
+// Unix-only for the same reason as `lvi_byte_gate`: gate 1 asserts a
+// byte-identical `.lvi`, and a `.lvi` embeds the POSIX permission bits read
+// off the filesystem. Elsewhere those bits are synthesized rather than stored
+// (format-spec §7), so the bytes cannot match fixtures generated under a
+// umask. The upsync path itself is portable; only this byte equality is not.
 #![cfg(unix)]
 
 use std::collections::BTreeSet;
@@ -75,13 +80,16 @@ fn lsi_block_names(lsi_path: &Path) -> BTreeSet<String> {
         .collect()
 }
 
-/// Order-independent content view of a store index: one tuple per block
-/// `(block_hash, tag, [(chunk_hash, chunk_size)…] in block order)`, sorted by
-/// block hash. Two indexes holding the same blocks in a different **block**
-/// order compare equal — that is exactly the port-vs-golongtail semantic-equality
-/// relation for a flushed `store.lsi` (block content is identical; only the
-/// accumulation order differs).
-fn store_index_block_tuples(si: &StoreIndex) -> Vec<(u64, u32, Vec<(u64, u32)>)> {
+/// One block's order-independent content: `(block_hash, tag, [(chunk_hash,
+/// chunk_size)…] in block order)`.
+type BlockTuple = (u64, u32, Vec<(u64, u32)>);
+
+/// Order-independent content view of a store index: one [`BlockTuple`] per block,
+/// sorted by block hash. Two indexes holding the same blocks in a different
+/// **block** order compare equal — that is exactly the port-vs-golongtail
+/// semantic-equality relation for a flushed `store.lsi` (block content is
+/// identical; only the accumulation order differs).
+fn store_index_block_tuples(si: &StoreIndex) -> Vec<BlockTuple> {
     let mut out = Vec::with_capacity(si.block_hashes.len());
     for b in 0..si.block_hashes.len() {
         let off = si.block_chunks_offsets[b] as usize;

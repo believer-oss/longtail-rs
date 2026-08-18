@@ -4,7 +4,7 @@
 //! `InitStoreIndexFromData` (longtail.c:8979), and `Longtail_MergeStoreIndex`
 //! (longtail.c:9151).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::block::BlockIndex;
 use crate::cursor::{Reader, Writer, checked_add, checked_mul};
@@ -19,7 +19,7 @@ const HEADER_SIZE: usize = 4 * 4;
 /// A parsed `.lsi` store index.
 ///
 /// Blocks are described in some order (not canonical — golongtail emits them in
-/// Go-map order, `rust-port-1-results.md` §4); [`StoreIndex::from_bytes`] /
+/// Go-map order); [`StoreIndex::from_bytes`] /
 /// [`StoreIndex::to_bytes`] preserve whatever order was parsed, so the
 /// round-trip is byte-identical regardless. Each block `i`'s chunks occupy
 /// `chunk_hashes[block_chunks_offsets[i] .. + block_chunk_counts[i]]` (and the
@@ -187,8 +187,9 @@ impl StoreIndex {
     }
 
     /// Merge two store indexes, matching `Longtail_MergeStoreIndex`
-    /// (longtail.c:9151) **byte-for-byte on the success path** (Stage 4 shard
-    /// naming hashes these bytes).
+    /// (longtail.c:9151 @96241fe) **byte-for-byte on the success path** (the S3
+    /// store-index shard name is the sha256 of these bytes, so byte-identity is
+    /// load-bearing).
     ///
     /// Semantics (derived from source, cited by line):
     /// - **Hash identifier** (longtail.c:9166-9188): local's if local is
@@ -213,6 +214,18 @@ impl StoreIndex {
     /// chunk offset would exceed `u32` returns [`FormatError::SizeOverflow`]
     /// where C's `uint32_t` accumulation silently wraps — accepted, adversarial
     /// only.)
+    /// Reserve capacity in all six parallel arrays ahead of a bulk build
+    /// (`blocks` block entries, `chunks` chunk entries) so they don't
+    /// grow-by-double. Purely an allocation hint — never changes contents.
+    fn reserve_capacity(&mut self, blocks: usize, chunks: usize) {
+        self.block_hashes.reserve(blocks);
+        self.block_chunks_offsets.reserve(blocks);
+        self.block_chunk_counts.reserve(blocks);
+        self.block_tags.reserve(blocks);
+        self.chunk_hashes.reserve(chunks);
+        self.chunk_sizes.reserve(chunks);
+    }
+
     pub fn merge(&self, other: &StoreIndex) -> Result<StoreIndex, FormatError> {
         let local = self;
         let remote = other;
@@ -237,6 +250,13 @@ impl StoreIndex {
         };
 
         let mut out = StoreIndex::empty(hash_identifier);
+        // Pre-size the output arrays to the union upper bound (dedup only ever
+        // removes), killing the doubling-realloc overshoot — at GB scale the
+        // grow-by-doubling transiently allocated up to ~2× the final buffers.
+        out.reserve_capacity(
+            local_block_count + remote_block_count,
+            local.chunk_hashes.len() + remote.chunk_hashes.len(),
+        );
 
         // Pass 1: local's unique blocks, in local order (first occurrence wins).
         let mut local_seen: HashSet<u64> = HashSet::with_capacity(local_block_count);
@@ -264,6 +284,104 @@ impl StoreIndex {
         Ok(out)
     }
 
+    /// Whether the block/chunk arrays are in **canonical layout**: the six
+    /// parallel arrays have consistent lengths and `block_chunks_offsets` is
+    /// exactly cumulative from `0` (block `i` starts at `Σ counts[0..i]`), with
+    /// the final block's range ending precisely at `chunk_hashes.len()`. Any
+    /// store index parsed from a valid `.lsi` or produced by [`Self::merge`] /
+    /// [`Self::from_block_indexes`] is canonical — the writers always emit this
+    /// form. This is the precondition under which [`Self::merge_consuming`] may
+    /// reuse `self` verbatim as merge Pass 1's output (see there).
+    fn is_canonical(&self) -> bool {
+        let b = self.block_hashes.len();
+        if self.block_chunk_counts.len() != b
+            || self.block_chunks_offsets.len() != b
+            || self.block_tags.len() != b
+            || self.chunk_hashes.len() != self.chunk_sizes.len()
+        {
+            return false;
+        }
+        let mut expected: u64 = 0;
+        for i in 0..b {
+            if u64::from(self.block_chunks_offsets[i]) != expected {
+                return false;
+            }
+            expected += u64::from(self.block_chunk_counts[i]);
+        }
+        expected == self.chunk_hashes.len() as u64
+    }
+
+    /// [`Self::merge`] that **consumes `self`** and, in the common case, reuses
+    /// its allocations as the union instead of building a fresh output alongside
+    /// both inputs. **Byte-identical to `self.merge(other)` in every case** (the
+    /// S3 shard name is the sha256 of these bytes, so this is load-bearing).
+    ///
+    /// Why `self` can be reused: merge Pass 1 copies `local`'s unique blocks, in
+    /// order, re-deriving cumulative chunk offsets. When `local` is already
+    /// canonical (see `is_canonical`) and has no internal duplicate block
+    /// hashes, that Pass-1 output is **bit-identical to `local` itself** — so we
+    /// keep `self` as-is and only append Pass 2 (the remote-only blocks). That
+    /// drops the merge high-water mark from `local + remote + output` (~3 shards
+    /// at the two-file steady state) to `output + remote` (~2 shards): roughly
+    /// one whole `store_*.lsi` off the read/union peak that dominates a big
+    /// `validate-version` / `downsync` / `upsync` against a month-end store.
+    ///
+    /// When `local` is non-canonical or carries internal duplicate block hashes
+    /// (rare — no writer here produces either), it falls back to the allocating
+    /// [`Self::merge`] so the result is still exact.
+    pub fn merge_consuming(mut self, other: &StoreIndex) -> Result<StoreIndex, FormatError> {
+        let local_block_count = self.block_hashes.len();
+        let remote_block_count = other.block_hashes.len();
+
+        // Hash-identifier + conflict rules — identical to `merge`.
+        let hash_identifier = if local_block_count == 0 {
+            if remote_block_count == 0 {
+                return Ok(StoreIndex::empty(0));
+            }
+            other.hash_identifier
+        } else {
+            let id = self.hash_identifier;
+            if remote_block_count != 0 && id != other.hash_identifier {
+                return Err(FormatError::ConflictingHashIdentifier {
+                    local: id,
+                    remote: other.hash_identifier,
+                });
+            }
+            id
+        };
+
+        // Pass 2 needs the local block-hash set regardless. If it comes up short,
+        // `local` has internal duplicate block hashes that Pass 1 would dedup
+        // away — so `self` would NOT equal Pass 1's output; likewise if `local`
+        // is not canonical. Either way, fall back to the allocating merge for an
+        // exact result.
+        let mut local_seen: HashSet<u64> = HashSet::with_capacity(local_block_count);
+        for i in 0..local_block_count {
+            local_seen.insert(self.block_hashes[i]);
+        }
+        if local_seen.len() != local_block_count || !self.is_canonical() {
+            return self.merge(other);
+        }
+
+        // Fast path: `self` already equals Pass 1's output. Set the identifier
+        // (a no-op when `local` is non-empty), reserve for the appended tail, and
+        // append Pass 2 in remote order — exactly `merge`'s Pass 2.
+        self.hash_identifier = hash_identifier;
+        self.reserve_capacity(remote_block_count, other.chunk_hashes.len());
+        let mut remote_seen: HashSet<u64> = HashSet::with_capacity(remote_block_count);
+        for i in 0..remote_block_count {
+            let bh = other.block_hashes[i];
+            if local_seen.contains(&bh) {
+                continue; // present in local — local wins the tie
+            }
+            if !remote_seen.insert(bh) {
+                continue; // internal duplicate — skip
+            }
+            Self::push_block(&mut self, other, i)?;
+        }
+        Ok(self)
+    }
+
     /// Concatenate a set of [`BlockIndex`] into a store index, matching
     /// `Longtail_CreateStoreIndexFromBlocks` (longtail.c:9064) **byte-for-byte**.
     ///
@@ -280,7 +398,7 @@ impl StoreIndex {
     /// The caller owns the ordering: golongtail's `contentIndexWorker` feeds
     /// blocks in Go-map (nondeterministic) order, so there is no Go order to
     /// match; where the Rust store layer assembles the list itself it must first
-    /// sort by block hash for determinism (`rust-port-4.md` binding decisions),
+    /// sort by block hash for determinism,
     /// then round-trip / merge byte-identity carries the rest.
     ///
     /// (Accepted adversarial divergence: the cumulative chunk offset is a
@@ -294,6 +412,9 @@ impl StoreIndex {
             }
         }
         let mut out = StoreIndex::empty(hash_identifier);
+        // Exact pre-size: one block each, Σ chunk counts total (no dedup here).
+        let total_chunks: usize = blocks.iter().map(|b| b.chunk_hashes.len()).sum();
+        out.reserve_capacity(blocks.len(), total_chunks);
         for block in blocks {
             let n = block.chunk_hashes.len();
             // C `memcpy`s `block_chunk_count` entries from each array; the two
@@ -343,6 +464,45 @@ impl StoreIndex {
         })
     }
 
+    /// Total decompressed payload size (Σ chunk sizes) for each block whose hash
+    /// is in `wanted`, computed straight from the packed arrays without
+    /// materializing a [`BlockIndex`] per block. Used by the download prefetch to
+    /// size permits for just the requested working set — the alternative
+    /// (cloning the whole union index and mapping every block) allocates a full
+    /// copy of a multi-GB store index per `preflight_get`. First occurrence of a
+    /// block hash wins; blocks whose chunk range runs off the arrays are skipped
+    /// (they contribute no size, mirroring [`Self::block_index_at`]'s bounds
+    /// check).
+    pub fn block_payload_sizes(&self, wanted: &[u64]) -> HashMap<u64, u64> {
+        let want: HashSet<u64> = wanted.iter().copied().collect();
+        let mut out: HashMap<u64, u64> = HashMap::with_capacity(want.len());
+        for b in 0..self.block_hashes.len() {
+            let block_hash = self.block_hashes[b];
+            if !want.contains(&block_hash) || out.contains_key(&block_hash) {
+                continue;
+            }
+            let (Some(&count), Some(&offset)) = (
+                self.block_chunk_counts.get(b),
+                self.block_chunks_offsets.get(b),
+            ) else {
+                continue;
+            };
+            let (count, offset) = (count as usize, offset as usize);
+            let Some(end) = offset.checked_add(count) else {
+                continue;
+            };
+            if end > self.chunk_sizes.len() {
+                continue;
+            }
+            let size: u64 = self.chunk_sizes[offset..end]
+                .iter()
+                .map(|&s| s as u64)
+                .sum();
+            out.insert(block_hash, size);
+        }
+        out
+    }
+
     /// Keep only the blocks whose hash is in `keep_block_hashes`, matching
     /// `Longtail_PruneStoreIndex` (longtail.c:9287). Source block **order is
     /// preserved** and chunk offsets are rebuilt cumulatively; the
@@ -388,9 +548,9 @@ impl StoreIndex {
     ///   with identifier `0` (`CreateStoreIndexFromBlocks(0,0)`,
     ///   longtail.c:7209/:7263).
     ///
-    /// **Deliberate divergence from C, documented (`rust-port-4-results.md`):**
-    /// the kept block's `tag` is taken from the block's own `block_tags[b]` (the
-    /// correct value, matching `Longtail_MakeBlockIndex`, longtail.c:9145).
+    /// **Deliberate divergence from C:** the kept block's `tag` is taken from
+    /// the block's own `block_tags[b]` (the correct value, matching
+    /// `Longtail_MakeBlockIndex`, longtail.c:9145 @96241fe).
     /// `Longtail_GetExistingStoreIndex` instead indexes `m_BlockTags` with the
     /// *chunk* offset (longtail.c:7307) — a latent C bug that reads the wrong
     /// slot (or out of bounds) whenever a kept block's chunk offset differs from
