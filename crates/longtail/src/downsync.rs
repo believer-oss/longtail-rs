@@ -196,6 +196,15 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     .await?;
     phases.push(phase.lap("open_store"));
 
+    // A second hasher instance for the opt-in chunk verification: the apply tasks
+    // are spawned, so it has to be shared rather than borrowed. Constructing one is
+    // trivial (a unit struct), so this is cheaper than reshaping the scan's hasher.
+    let verify_hasher: Option<Arc<dyn longtail_core::Hash + Send + Sync>> = if opts.verify_chunks {
+        Some(Arc::from(make_hasher(hash_id)?))
+    } else {
+        None
+    };
+
     // Everything that can fail between opening the store and closing it runs
     // inside this block, so the flush + close below happen on a cancel or a
     // failure too — the store's write-backs and the cache-budget sweep both hang
@@ -224,6 +233,7 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
             &store_index,
             opts.retain_permissions,
             opts.delete_removed,
+            verify_hasher,
             apply_concurrency,
             &progress,
             &cancel,
@@ -450,7 +460,13 @@ fn validate_target<H: longtail_core::Hash + Sync + ?Sized>(
                         "asset `{path_str}` content hash mismatch"
                     )));
                 }
-                if retain_permissions && rescan.permissions[i].bits() != perm_by_path[p] {
+                if retain_permissions
+                    && permissions_disagree(
+                        rescan.permissions[i].bits(),
+                        perm_by_path[p],
+                        cfg!(windows),
+                    )
+                {
                     return Err(LongtailError::ValidationMismatch(format!(
                         "asset `{path_str}` permission mismatch"
                     )));
@@ -459,6 +475,26 @@ fn validate_target<H: longtail_core::Hash + Sync + ?Sized>(
         }
     }
     Ok(())
+}
+
+/// Whether a rescanned permission set contradicts the one the version recorded.
+///
+/// Windows carries only a read-only flag; [`fs_util::mode_of`] synthesizes the
+/// rest (format-spec §7), so a `.lvi` written on unix records POSIX bits a
+/// Windows rescan cannot reproduce — `0o644` comes back as `0o666`. Comparing
+/// every bit there fails `--validate` on every store authored anywhere else,
+/// which is the normal case for a Windows consumer of a Linux-built store.
+///
+/// The writable bit is what the platform actually stores and what
+/// [`fs_util::set_permissions`] writes from a recorded mode, so it is the part
+/// that can honestly be checked. Taking `windows` as an argument rather than
+/// reading `cfg!` keeps both branches testable from either host.
+fn permissions_disagree(rescanned: u16, recorded: u16, windows: bool) -> bool {
+    if windows {
+        (rescanned & 0o222 != 0) != (recorded & 0o222 != 0)
+    } else {
+        rescanned != recorded
+    }
 }
 
 /// A simple sequential phase timer.
@@ -480,5 +516,34 @@ impl PhaseTimer {
             phase: name.to_string(),
             millis,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::permissions_disagree;
+
+    /// Both branches, from either host — the Windows one cannot be reached by
+    /// running the suite on Linux, and it is the branch that was wrong.
+    #[test]
+    fn windows_validate_compares_only_the_bit_windows_can_store() {
+        // Unix: an exact comparison, because every bit round-trips.
+        assert!(!permissions_disagree(0o644, 0o644, false));
+        assert!(permissions_disagree(0o666, 0o644, false));
+        assert!(permissions_disagree(0o444, 0o644, false));
+
+        // Windows: a rescan synthesizes 0o666 for any writable file, so a store
+        // authored on unix records 0o644 and must still validate. Reading a
+        // unix-authored store on Windows is the ordinary case, not a corner one.
+        assert!(!permissions_disagree(0o666, 0o644, true));
+        assert!(!permissions_disagree(0o666, 0o664, true));
+        // Directories come back with the execute bits set; still writable.
+        assert!(!permissions_disagree(0o777, 0o755, true));
+        // A read-only file matches a read-only record...
+        assert!(!permissions_disagree(0o444, 0o444, true));
+        // ...and read-only versus writable is a real disagreement even there,
+        // because `set_permissions` does write that bit.
+        assert!(permissions_disagree(0o444, 0o644, true));
+        assert!(permissions_disagree(0o666, 0o444, true));
     }
 }

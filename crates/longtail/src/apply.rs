@@ -71,6 +71,7 @@ pub(crate) async fn change_version2(
     store_index: &StoreIndex,
     retain_permissions: bool,
     delete_removed: bool,
+    verify: Option<Arc<dyn longtail_core::Hash + Send + Sync>>,
     apply_concurrency: usize,
     progress: &Arc<RateLimited>,
     cancel: &CancellationToken,
@@ -93,7 +94,7 @@ pub(crate) async fn change_version2(
     //    checked and rewritten, and everything else is left where it is. Safe to
     //    skip because the removed set is disjoint from the write set by
     //    construction — a path present in both versions is content- or
-    //    permissions-modified, never "removed" (diff.rs:72-91).
+    //    permissions-modified, never "removed" (`create_version_diff`).
     stats.assets_removed = if delete_removed {
         delete_assets(target_root, current, diff, cancel)?
     } else {
@@ -143,8 +144,9 @@ pub(crate) async fn change_version2(
     // Modes relaxed below so a write could land, to be put back before step 7.
     // An asset whose content changed but whose permissions did not is in
     // `target_content_modified_asset_indexes` and in neither list step 7 walks
-    // (diff.rs:75-82 tests the two independently), so step 7 will not restore it
-    // for us — and under `retain_permissions == false` step 7 does not run at all.
+    // (`create_version_diff` tests the two independently), so step 7 will not
+    // restore it for us — and under `retain_permissions == false` step 7 does
+    // not run at all.
     let mut relaxed = RelaxedModes::new(target_root);
 
     // 5a. Zero-size job: create dirs + empty files (longtail.c:8292).
@@ -240,6 +242,7 @@ pub(crate) async fn change_version2(
         let done_bytes = done_bytes.clone();
         let bytes_written = bytes_written.clone();
         let report_lock = report_lock.clone();
+        let verify = verify.clone();
         tasks.spawn(async move {
             let _permit = permit;
             let block = store.get_stored_block(block_hash).await?;
@@ -249,7 +252,7 @@ pub(crate) async fn change_version2(
             // The sync positional writes run on the blocking pool — N tasks
             // doing sync file I/O on the tokio workers is a known footgun.
             let n = tokio::task::spawn_blocking(move || {
-                write_block_chunks(&target_root, block_hash, &block, &writes)
+                write_block_chunks(&target_root, block_hash, &block, &writes, verify.as_deref())
             })
             .await
             .map_err(|e| {
@@ -416,7 +419,9 @@ fn write_block_chunks(
     block_hash: u64,
     block: &StoredBlock,
     writes: &[BlockWrite],
+    verify: Option<&(dyn longtail_core::Hash + Send + Sync)>,
 ) -> Result<u64, LongtailError> {
+    let mut verified: std::collections::HashSet<u64> = std::collections::HashSet::new();
     // chunk_hash -> (offset_in_block, size) over the decoded payload.
     let mut in_block: HashMap<u64, (usize, u32)> = HashMap::new();
     let mut off = 0usize;
@@ -434,6 +439,33 @@ fn write_block_chunks(
                 w.chunk_hash
             )))
         })?;
+        // Opt-in content authentication. The block hash covers only the block's
+        // chunk-hash array (pack.rs), and nothing else on the read path re-hashes a
+        // payload, so a block carrying substituted bytes under intact chunk hashes
+        // is otherwise accepted. Hashing here, before the write loop below, means a
+        // block that fails leaves the target untouched rather than half-rewritten.
+        // Each distinct chunk is hashed once even when it fans out to many assets.
+        if let Some(hasher) = verify
+            && verified.insert(w.chunk_hash)
+        {
+            let end = bo
+                .checked_add(bsz as usize)
+                .filter(|e| *e <= block.payload.len())
+                .ok_or_else(|| {
+                    LongtailError::Store(longtail_store::StoreError::BadFormat(format!(
+                        "block {block_hash:#018x} is shorter than the range it gives chunk {:#018x}",
+                        w.chunk_hash
+                    )))
+                })?;
+            let actual = hasher.hash(&block.payload[bo..end]);
+            if actual != w.chunk_hash {
+                return Err(LongtailError::ValidationMismatch(format!(
+                    "block {block_hash:#018x} carries chunk {:#018x} whose bytes hash to \
+                     {actual:#018x}; the store's content does not match its index",
+                    w.chunk_hash
+                )));
+            }
+        }
         // The block's own index and the version index disagreeing about a chunk's
         // size is a corrupt or hostile store, not a bug in this process, so it has
         // to be checked in the profile that ships. As a `debug_assert` it was
@@ -925,6 +957,7 @@ mod tests {
             &sc.store_index,
             false, // retain_permissions
             true,  // delete_removed
+            None,  // verify
             concurrency,
             &progress,
             &cancel,
@@ -1103,7 +1136,7 @@ mod tests {
             chunk_size: 64,
         }];
 
-        let err = write_block_chunks(root, 0xABCD, &block, &writes)
+        let err = write_block_chunks(root, 0xABCD, &block, &writes, None)
             .expect_err("a size disagreement must not be written through");
         assert!(
             format!("{err:?}").contains("sizes chunk"),
