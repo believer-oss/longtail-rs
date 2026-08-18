@@ -19,9 +19,56 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::SharedCredentialsProvider;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::StalledStreamProtectionConfig;
+use aws_sdk_s3::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
 
 use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
 use crate::error::StoreError;
+
+/// S3/STS error codes that mean "the store rejected our credentials". Matched
+/// case-sensitively against `ProvideErrorMetadata::code`.
+fn is_auth_code(code: Option<&str>) -> bool {
+    matches!(
+        code,
+        Some(
+            "AccessDenied"
+                | "AccessDeniedException"
+                | "InvalidAccessKeyId"
+                | "SignatureDoesNotMatch"
+                | "ExpiredToken"
+                | "InvalidToken"
+                | "TokenRefreshRequired"
+                | "AuthorizationHeaderMalformed"
+                | "InvalidSecurity"
+                | "AccountProblem"
+        )
+    )
+}
+
+/// Classify an `aws-sdk-s3` `SdkError` into the appropriate [`StoreError`],
+/// preserving the full SDK cause chain via [`DisplayErrorContext`] (the bare
+/// `Display` is terse — e.g. `"service error"` / `"dispatch failure"` — and
+/// drops the S3 error code). `op` labels the operation (e.g. `"get_object …"`).
+///
+/// A credentials rejection (S3 auth error code) → [`StoreError::NotAuthorized`];
+/// a transport/timeout failure (dispatch/timeout/response) →
+/// [`StoreError::Network`]; anything else → [`StoreError::Backend`]. This lets a
+/// consumer branch on the failure class without string-matching.
+fn map_sdk_err<E, R>(op: impl std::fmt::Display, e: SdkError<E, R>) -> StoreError
+where
+    E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
+    R: std::fmt::Debug + Send + Sync + 'static,
+{
+    let detail = format!("{op}: {}", DisplayErrorContext(&e));
+    match &e {
+        SdkError::ServiceError(ctx) if is_auth_code(ctx.err().code()) => {
+            StoreError::NotAuthorized(detail)
+        }
+        SdkError::TimeoutError(_) | SdkError::DispatchFailure(_) | SdkError::ResponseError(_) => {
+            StoreError::Network(detail)
+        }
+        _ => StoreError::Backend(detail),
+    }
+}
 
 /// How to obtain an S3 client. Highest precedence first: an explicit `client`,
 /// then a `sdk_config`, then piecewise `credentials_provider`/`region`, each
@@ -39,7 +86,10 @@ pub struct S3Options {
     pub region: Option<String>,
     /// Custom endpoint (S3-compatible stores, minio).
     pub endpoint_url: Option<String>,
-    /// S3 Transfer Acceleration.
+    /// S3 Transfer Acceleration. **Defaults to `false`** — a deliberate
+    /// divergence from the legacy FFI `get_with_cache` path, which hardcoded it
+    /// on. `false` is the safer default (acceleration needs the bucket opted in
+    /// and adds cost); callers that want the old throughput set it explicitly.
     pub transfer_acceleration: bool,
     /// Force path-style addressing (required by minio and most S3-compatibles).
     pub force_path_style: bool,
@@ -208,7 +258,7 @@ impl BlobClient for S3BlobClient {
             let resp = req
                 .send()
                 .await
-                .map_err(|e| StoreError::Backend(format!("list_objects_v2: {e}")))?;
+                .map_err(|e| map_sdk_err("list_objects_v2", e))?;
             for object in resp.contents() {
                 let key = object.key().unwrap_or_default();
                 let name = key.strip_prefix(&self.prefix).unwrap_or(key).to_string();
@@ -263,10 +313,7 @@ impl BlobObject for S3BlobObject {
                 {
                     return Ok(false);
                 }
-                Err(StoreError::Backend(format!(
-                    "head_object {}: {e}",
-                    self.key
-                )))
+                Err(map_sdk_err(format_args!("head_object {}", self.key), e))
             }
         }
     }
@@ -292,14 +339,23 @@ impl BlobObject for S3BlobObject {
                 {
                     return Err(StoreError::NotFound(self.key.clone()));
                 }
-                return Err(StoreError::Backend(format!("get_object {}: {e}", self.key)));
+                return Err(map_sdk_err(format_args!("get_object {}", self.key), e));
             }
         };
         let data = resp
             .body
             .collect()
             .await
-            .map_err(|e| StoreError::Backend(format!("read body {}: {e}", self.key)))?;
+            // A body-stream read failure is a transport interruption mid-download
+            // (not an SdkError, so `map_sdk_err` doesn't apply) — classify as
+            // Network and keep the full cause via DisplayErrorContext.
+            .map_err(|e| {
+                StoreError::Network(format!(
+                    "read body {}: {}",
+                    self.key,
+                    DisplayErrorContext(&e)
+                ))
+            })?;
         Ok(data.into_bytes().to_vec())
     }
 
@@ -311,7 +367,7 @@ impl BlobObject for S3BlobObject {
             .body(data.to_vec().into())
             .send()
             .await
-            .map_err(|e| StoreError::Backend(format!("put_object {}: {e}", self.key)))?;
+            .map_err(|e| map_sdk_err(format_args!("put_object {}", self.key), e))?;
         Ok(true)
     }
 
@@ -322,7 +378,7 @@ impl BlobObject for S3BlobObject {
             .key(&self.key)
             .send()
             .await
-            .map_err(|e| StoreError::Backend(format!("delete_object {}: {e}", self.key)))?;
+            .map_err(|e| map_sdk_err(format_args!("delete_object {}", self.key), e))?;
         Ok(())
     }
 

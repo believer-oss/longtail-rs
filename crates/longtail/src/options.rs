@@ -27,6 +27,10 @@ pub struct DownsyncOptions {
     pub storage_uri: String,
     /// Optional local cache directory (`.lrb` blocks).
     pub cache_path: Option<PathBuf>,
+    /// Optional cache byte budget. When set (and `cache_path` is set), the local
+    /// block cache tracks per-block access time and LRU-evicts down to this many
+    /// bytes after the operation completes. `None` = unbounded.
+    pub cache_size_limit: Option<u64>,
     /// Version-local store index URIs (`.lsi`) — the ReadOnly store-index
     /// override (speeds reads, must yield the same tree).
     pub version_local_store_index_paths: Vec<String>,
@@ -51,7 +55,7 @@ pub struct DownsyncOptions {
     pub worker_count: usize,
     /// Remote block-I/O worker count; `0` = the scheme default.
     pub remote_worker_count: usize,
-    /// Accepted **no-op** (boundaries are identical by design; planning §6).
+    /// Accepted **no-op** (boundaries are identical by design).
     pub enable_file_mapping: bool,
     /// Requesting the legacy write path yields a typed
     /// [`crate::LongtailError::LegacyWriteUnsupported`].
@@ -62,6 +66,13 @@ pub struct DownsyncOptions {
     pub cancel: Option<CancellationToken>,
     /// Optional caller-supplied rayon pool (else one is built per operation).
     pub pool: Option<Arc<rayon::ThreadPool>>,
+    /// Test-oriented override of the remote store's prefetch byte budget
+    /// (`None` → the 512 MiB default). Exists for the deadlock
+    /// regression suite — correctness must never depend on this value (the
+    /// budget bounds memory held by unconsumed background prefetches, never
+    /// progress). Deliberately not exposed as a CLI flag.
+    #[doc(hidden)]
+    pub max_prefetch_bytes: Option<usize>,
     /// S3 credential/endpoint injection (feature `s3`).
     #[cfg(feature = "s3")]
     pub s3_options: S3Options,
@@ -79,6 +90,7 @@ impl DownsyncOptions {
             target_path: Some(target_path.into()),
             storage_uri: storage_uri.into(),
             cache_path: None,
+            cache_size_limit: None,
             version_local_store_index_paths: Vec::new(),
             include_filter_regex: None,
             exclude_filter_regex: None,
@@ -94,6 +106,7 @@ impl DownsyncOptions {
             progress: None,
             cancel: None,
             pool: None,
+            max_prefetch_bytes: None,
             #[cfg(feature = "s3")]
             s3_options: S3Options::default(),
         }
@@ -170,6 +183,9 @@ pub struct GetOptions {
     pub target_path: Option<String>,
     /// Optional local cache directory.
     pub cache_path: Option<PathBuf>,
+    /// Optional cache byte budget (LRU eviction after the operation); `None` =
+    /// unbounded. See [`DownsyncOptions::cache_size_limit`].
+    pub cache_size_limit: Option<u64>,
     pub retain_permissions: bool,
     pub validate: bool,
     pub scan_target: bool,
@@ -215,6 +231,8 @@ pub struct UpsyncOptions {
     pub remote_worker_count: usize,
     pub enable_file_mapping: bool,
     pub use_legacy_write: bool,
+    /// Optional progress sink.
+    pub progress: Option<Arc<dyn ProgressSink>>,
     pub cancel: Option<CancellationToken>,
     pub pool: Option<Arc<rayon::ThreadPool>>,
     #[cfg(feature = "s3")]
@@ -246,6 +264,7 @@ impl UpsyncOptions {
             remote_worker_count: 0,
             enable_file_mapping: false,
             use_legacy_write: false,
+            progress: None,
             cancel: None,
             pool: None,
             #[cfg(feature = "s3")]
@@ -279,6 +298,7 @@ impl GetOptions {
             get_config_paths,
             target_path: Some(target_path.into()),
             cache_path: None,
+            cache_size_limit: None,
             retain_permissions: true,
             validate: false,
             scan_target: true,

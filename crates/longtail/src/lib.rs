@@ -67,7 +67,29 @@ pub use options::{
     UpsyncReport,
 };
 pub use path_filter::RegexPathFilter;
-pub use progress::{NullProgress, ProgressSink};
+pub use progress::{NullProgress, Progress, ProgressSink};
+// Re-exported so a caller can construct/trigger cancellation without a direct
+// `tokio-util` dependency (or a version-coupling to it). Put a clone in
+// `DownsyncOptions`/`GetOptions::cancel` and call `.cancel()` to stop: in-flight
+// blocks finish, the partial target and its `.lrb` block cache stay valid, and
+// the op returns `LongtailError::Cancelled`. This is also the pause primitive —
+// "pause" = cancel and keep the target folder; "resume" = call `get`/`downsync`
+// again (delta-only; already-fetched blocks come from the cache, not the store,
+// though resume does re-scan the target); "cancel" = the same, then delete the
+// target. Cancellation is block-granular: it stops launching the next block but
+// cannot abort an already-in-flight fetch.
+pub use tokio_util::sync::CancellationToken;
+// Re-exported so a facade-only consumer can match on the store-error classes
+// (`StoreError::NotAuthorized` / `Network` / `NotFound`) reachable through
+// `LongtailError::Store(_)` without a direct `longtail-store` dependency.
+pub use longtail_store::StoreError;
+// The S3 configuration surface is re-exported so a crate that depends only on
+// `longtail` can name the type it must construct for `DownsyncOptions`/
+// `GetOptions::s3_options` without adding a direct `longtail-store` dependency.
+// Rides the same `default = ["s3"]` flag. (Credential/provider types are not
+// re-exported: a caller builds the provider via its own aws-config/aws-sdk-s3.)
+#[cfg(feature = "s3")]
+pub use longtail_store::S3Options;
 pub use prune::{
     PruneStoreBlocksOptions, PruneStoreIndexOptions, PruneStoreOptions, prune_store,
     prune_store_blocks, prune_store_index,

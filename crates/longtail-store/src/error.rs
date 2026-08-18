@@ -1,9 +1,9 @@
 //! `StoreError` — the store-layer error tree.
 //!
-//! Follows Stage 3's sibling-per-crate error pattern (`rust-port-4.md`
-//! Preconditions): a single `StoreError` for `longtail-store`, with source
-//! chaining where real I/O is involved. [`FormatError`] (Stage 2) and
-//! [`CompressError`] (Stage 3) are wrapped rather than flattened, so the caller
+//! Follows the sibling-per-crate error pattern: a single `StoreError` for
+//! `longtail-store`, with source chaining where real I/O is involved.
+//! [`FormatError`] and [`CompressError`] are wrapped rather than flattened, so
+//! the caller
 //! keeps the precise codec/format diagnosis.
 
 use longtail_core::{CompressError, FormatError};
@@ -39,7 +39,7 @@ pub enum StoreError {
     AccessViolation,
 
     /// A feature intentionally not carried into the pure-Rust port: `gs://`
-    /// blob stores (planning §6), Azure, or `prune_blocks` (Stage 7).
+    /// blob stores, Azure, or `prune_blocks`.
     #[error("not supported: {0}")]
     NotSupported(String),
 
@@ -67,6 +67,19 @@ pub enum StoreError {
         #[source]
         source: std::io::Error,
     },
+
+    /// The store rejected our credentials (HTTP 401/403, or an S3
+    /// `AccessDenied`/`InvalidAccessKeyId`/`SignatureDoesNotMatch` code). Split
+    /// out of `Backend` so a consumer can distinguish "credentials rejected"
+    /// from a transport failure without string-matching.
+    #[error("not authorized: {0}")]
+    NotAuthorized(String),
+
+    /// A transport/timeout failure reaching the store (dispatch failure,
+    /// request timeout, malformed response). Distinct from `NotAuthorized` so a
+    /// consumer can render "check your connection" vs "credentials rejected".
+    #[error("network error: {0}")]
+    Network(String),
 
     /// A backend-specific error (S3 SDK, etc.) that has no more specific variant.
     #[error("backend error: {0}")]

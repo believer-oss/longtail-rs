@@ -4,7 +4,10 @@
 
 #![forbid(unsafe_code)]
 
+mod progress;
+
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
 use longtail::{
@@ -12,6 +15,8 @@ use longtail::{
     read_version_index_from_uri, validate_version,
 };
 use longtail_core::VersionIndex;
+
+use crate::progress::CliProgress;
 
 #[derive(Parser)]
 #[command(
@@ -26,7 +31,9 @@ struct Cli {
     /// Remote block-I/O worker count; 0 = scheme default.
     #[arg(long, global = true, default_value_t = 0)]
     remote_worker_count: usize,
-    /// Log level (accepted for parity; the CLI logs to stderr on error).
+    /// Default log level (`error`/`warn`/`info`/`debug`/`trace`, or an
+    /// `EnvFilter` directive). Overridden by `RUST_LOG` when set. Logs go to
+    /// stderr.
     #[arg(long, global = true, default_value = "warn")]
     log_level: String,
     /// Print store/time stats after the operation.
@@ -80,6 +87,11 @@ struct DownsyncArgs {
     storage_uri: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     source_path: Option<String>,
     #[arg(long, value_delimiter = '|')]
@@ -90,6 +102,9 @@ struct DownsyncArgs {
     target_index_path: Option<String>,
     #[arg(long)]
     cache_path: Option<String>,
+    /// Cap the local block cache; LRU-evict after the download (e.g. `2GiB`, `500MB`).
+    #[arg(long, value_parser = parse_size)]
+    cache_size_limit: Option<u64>,
     #[arg(long, default_value_t = false)]
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
@@ -126,12 +141,20 @@ struct GetArgs {
     source_paths: Vec<String>,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     target_path: Option<String>,
     #[arg(long)]
     target_index_path: Option<String>,
     #[arg(long)]
     cache_path: Option<String>,
+    /// Cap the local block cache; LRU-evict after the download (e.g. `2GiB`, `500MB`).
+    #[arg(long, value_parser = parse_size)]
+    cache_size_limit: Option<u64>,
     #[arg(long, default_value_t = false)]
     retain_permissions: bool,
     #[arg(long, default_value_t = false)]
@@ -177,6 +200,11 @@ struct ValidateArgs {
     version_index_path: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
 }
 
 #[derive(Args)]
@@ -195,6 +223,11 @@ struct UpsyncArgs {
     storage_uri: String,
     #[arg(long)]
     s3_endpoint_resolver_uri: Option<String>,
+    /// Turn OFF S3 stalled-stream protection (on by default). Off rides out a
+    /// slow GET stream instead of aborting + re-fetching the whole object — no
+    /// infinite-hang guard, but avoids restart amplification on flaky links.
+    #[arg(long, default_value_t = false)]
+    no_stalled_stream_protection: bool,
     #[arg(long)]
     source_path: String,
     #[arg(long)]
@@ -439,8 +472,23 @@ struct CpArgs {
     target_path: String,
 }
 
+/// Install a stderr `tracing` subscriber so library logs (e.g. cache-eviction
+/// summaries, retries) surface. `RUST_LOG` wins when set; otherwise the
+/// `--log-level` default applies. `try_init` so tests/repeat calls don't panic.
+fn init_tracing(default_level: &str) {
+    use tracing_subscriber::EnvFilter;
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .try_init();
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    init_tracing(&cli.log_level);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -453,11 +501,45 @@ fn main() -> ExitCode {
     };
     match runtime.block_on(run(&cli)) {
         Ok(()) => ExitCode::SUCCESS,
+        // A ctrl-c cancel is a clean stop, not an error: the partial target is
+        // left resumable (re-run the same command to continue). Exit 130 (SIGINT).
+        // User-facing terminal output (like `error:`/stats below) → eprintln, not
+        // a RUST_LOG-gated tracing log, so it always shows.
+        Err(longtail::LongtailError::Cancelled) => {
+            eprintln!("cancelled — partial download left in place; run the same command to resume");
+            ExitCode::from(130)
+        }
         Err(e) => {
-            eprintln!("error: {e}");
+            // Render the full source chain: LongtailError's top-level Display is
+            // a category (e.g. "store error"); the cause hangs off `#[source]`.
+            eprintln!("error: {}", e.full_chain());
             ExitCode::FAILURE
         }
     }
+}
+
+/// Build a cancellation token and spawn a ctrl-c watcher that triggers it on the
+/// first SIGINT (in-flight blocks finish, the store flushes/closes, the target is
+/// left resumable) and force-quits on a second. The returned token goes into
+/// `opts.cancel` for the long-running download/upload ops.
+fn install_cancel_handler() -> longtail::CancellationToken {
+    let token = longtail::CancellationToken::new();
+    let watch = token.clone();
+    tokio::spawn(async move {
+        let mut n = 0u32;
+        while tokio::signal::ctrl_c().await.is_ok() {
+            n += 1;
+            if n == 1 {
+                // Interactive feedback in response to the user's signal → eprintln
+                // (must show regardless of RUST_LOG), consistent with the bar.
+                eprintln!("\nCancelling… finishing in-flight blocks (ctrl-c again to force quit)");
+                watch.cancel();
+            } else {
+                std::process::exit(130);
+            }
+        }
+    });
+    token
 }
 
 async fn run(cli: &Cli) -> Result<(), longtail::LongtailError> {
@@ -507,12 +589,19 @@ fn merge_paths(single: &Option<String>, multi: &[String]) -> Vec<String> {
     out
 }
 
+/// clap value parser for `--cache-size-limit`: a human-readable byte size
+/// (`2GiB`, `500MB`, `1.5GiB`, or a bare byte count) parsed to bytes.
+fn parse_size(s: &str) -> Result<u64, String> {
+    s.parse::<bytesize::ByteSize>().map(|b| b.as_u64())
+}
+
 async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::LongtailError> {
     let sources = merge_paths(&a.source_path, &a.source_paths);
     let mut opts = DownsyncOptions::new(sources, a.storage_uri.clone(), String::new());
     opts.target_path = a.target_path.clone();
     opts.target_index_path = a.target_index_path.clone();
     opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.validate = a.validate;
     opts.version_local_store_index_paths = merge_paths(
@@ -531,7 +620,16 @@ async fn run_downsync(cli: &Cli, a: &DownsyncArgs) -> Result<(), longtail::Longt
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = downsync(opts).await?;
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
+    }
+    opts.cancel = Some(install_cancel_handler());
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = downsync(opts).await;
+    progress.finish(result.is_ok());
+    let report = result?;
     if cli.show_stats {
         print_stats(&report);
     }
@@ -544,6 +642,7 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     opts.target_path = a.target_path.clone();
     opts.target_index_path = a.target_index_path.clone();
     opts.cache_path = a.cache_path.clone().map(Into::into);
+    opts.cache_size_limit = a.cache_size_limit;
     opts.retain_permissions = !a.no_retain_permissions;
     opts.validate = a.validate;
     opts.include_filter_regex = a.include_filter_regex.clone();
@@ -558,7 +657,16 @@ async fn run_get(cli: &Cli, a: &GetArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = get(opts).await?;
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
+    }
+    opts.cancel = Some(install_cancel_handler());
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = get(opts).await;
+    progress.finish(result.is_ok());
+    let report = result?;
     if cli.show_stats {
         print_stats(&report);
     }
@@ -583,6 +691,10 @@ async fn run_validate(cli: &Cli, a: &ValidateArgs) -> Result<(), longtail::Longt
     #[cfg(feature = "s3")]
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
+    }
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
     }
     validate_version(opts).await?;
     println!("Version index `{}` is valid", a.version_index_path);
@@ -619,7 +731,16 @@ async fn run_upsync(cli: &Cli, a: &UpsyncArgs) -> Result<(), longtail::LongtailE
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = longtail::upsync(opts).await?;
+    #[cfg(feature = "s3")]
+    if a.no_stalled_stream_protection {
+        opts.s3_options.stalled_stream_protection = false;
+    }
+    opts.cancel = Some(install_cancel_handler());
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::upsync(opts).await;
+    progress.finish(result.is_ok());
+    let report = result?;
     if cli.show_stats {
         eprintln!(
             "upsync complete: {} blocks written, {} bytes, target {}",
@@ -652,7 +773,11 @@ async fn run_put(cli: &Cli, a: &PutArgs) -> Result<(), longtail::LongtailError> 
     if let Some(u) = &a.s3_endpoint_resolver_uri {
         opts.s3_options.endpoint_url = Some(u.clone());
     }
-    let report = longtail::put(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::put(opts).await;
+    progress.finish(result.is_ok());
+    let report = result?;
     if cli.show_stats {
         eprintln!(
             "put complete: {} blocks written, get-config {}",
@@ -789,7 +914,11 @@ async fn run_clone_store(cli: &Cli, a: &CloneStoreArgs) -> Result<(), longtail::
             opts.target_s3_options.endpoint_url = Some(u.clone());
         }
     }
-    let cloned = longtail::clone_store(opts).await?;
+    let progress = Arc::new(CliProgress::new());
+    opts.progress = Some(progress.clone());
+    let result = longtail::clone_store(opts).await;
+    progress.finish(result.is_ok());
+    let cloned = result?;
     if cli.show_stats {
         eprintln!("clone-store complete: {cloned} versions cloned");
     }
