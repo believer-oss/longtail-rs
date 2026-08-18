@@ -17,8 +17,7 @@
 //! ⚠ The `fs_store_index_sync_with_locking` spec-stub doc-comment attributes the
 //! fs lock to `store.lsi.sync`; that is **C's FSBlockStore** lock, a different
 //! component. The Go mechanism the cited test actually uses is the
-//! `store.lsi._lck`/`store.lsi.gen` blob-object scheme implemented here
-//! (correction recorded in `rust-port-4-results.md`).
+//! `store.lsi._lck`/`store.lsi.gen` blob-object scheme implemented here.
 //!
 //! Shard naming is **byte-defined**: `sha256` over the exact serialized index
 //! bytes (`store_%x.lsi`, remotestore.go:1213). Because [`StoreIndex::merge`] /
@@ -170,7 +169,10 @@ async fn merge_store_index_items(
         *retry_counter += retries;
         acc = Some(match acc {
             None => tmp,
-            Some(existing) => existing.merge(&tmp)?,
+            // Consume the running union in place and append only `tmp`'s new
+            // blocks — at the two-file steady state this holds ~2 shards, not 3,
+            // the single biggest chunk of the read/union peak.
+            Some(existing) => existing.merge_consuming(&tmp)?,
         });
         used.push(item.clone());
     }
@@ -219,16 +221,19 @@ async fn try_add_with_locking(
             Err(e) => return Err(e),
         };
         let remote = StoreIndex::from_bytes(&existing)?;
-        let merged = remote.merge(add)?;
+        drop(existing); // the serialized source bytes are done once parsed
+        // Consume `remote` into the union (it's canonical from `from_bytes`), so
+        // the pre-merge union is never held alongside a separate `merged`.
+        let merged = remote.merge_consuming(add)?;
         let bytes = merged.to_bytes();
-        let ok = obj.write(&bytes).await?;
+        let ok = obj.write(bytes.into()).await?;
         if !ok {
             return Ok((false, None));
         }
         Ok((true, Some(merged)))
     } else {
         let bytes = add.to_bytes();
-        let ok = obj.write(&bytes).await?;
+        let ok = obj.write(bytes.into()).await?;
         Ok((ok, None))
     }
 }
@@ -254,7 +259,7 @@ async fn try_write_shard(
     if obj.exists().await? {
         return Ok(false); // a concurrent writer produced the identical shard
     }
-    let ok = obj.write(&bytes).await?;
+    let ok = obj.write(bytes.into()).await?;
     if !ok {
         return Ok(false);
     }
@@ -282,7 +287,10 @@ async fn try_add(
     let (existing, items, _retries) = read_store_store_index_with_items(client).await?;
     // `read_store_store_index_with_items` always yields a valid (possibly empty)
     // index, so — matching Go's reachable branch — we always merge then write.
-    let merged = existing.merge(add)?;
+    // Consume `existing` (canonical, from the store index read) into the union
+    // in place, so the flush peak is `merged` + the `to_bytes` buffer, never
+    // `existing` + `merged` + buffer.
+    let merged = existing.merge_consuming(add)?;
     let ok = try_write_shard(client, &merged, &items).await?;
     Ok((ok, Some(merged)))
 }
@@ -291,7 +299,8 @@ async fn try_add(
 /// hard errors are tolerated up to 3 times (then propagated). A lost CAS /
 /// shard race retries immediately (no sleep — the lock/CAS serializes writers).
 ///
-/// Public: this is the store-index merge primitive that Stage 5/7 (and the
+/// Public: this is the store-index merge primitive that the download/upload
+/// paths (and the
 /// concurrent-writer chaos test) drive directly. Returns the new consolidated
 /// index when one was produced (`None` for the locking flavor's first write).
 pub async fn add_to_remote_store_index(
@@ -314,7 +323,8 @@ pub async fn add_to_remote_store_index(
 }
 
 /// Read the current merged store index (canonical `store.lsi` + all shards).
-/// Public convenience over [`read_store_store_index_with_items`] for Stage 5/7
+/// Public convenience over [`read_store_store_index_with_items`] for the
+/// download/upload paths
 /// and the chaos test's convergence check.
 pub async fn read_merged_store_index(client: &dyn BlobClient) -> Result<StoreIndex, StoreError> {
     let (index, _used, _retries) = read_store_store_index_with_items(client).await?;
@@ -330,7 +340,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     if client.supports_locking() {
         let mut obj = client.new_object("store.lsi").await?;
         obj.lock_write_version().await?;
-        return obj.write(&index.to_bytes()).await;
+        return obj.write(index.to_bytes().into()).await;
     }
     let items = get_store_store_indexes(client).await?;
     let bytes = index.to_bytes();
@@ -338,7 +348,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
     if !items.iter().any(|i| i == &key) {
         let mut obj = client.new_object(&key).await?;
         if !obj.exists().await? {
-            let ok = obj.write(&bytes).await?;
+            let ok = obj.write(bytes.into()).await?;
             if !ok {
                 return Ok(false);
             }
@@ -357,7 +367,7 @@ async fn try_overwrite(client: &dyn BlobClient, index: &StoreIndex) -> Result<bo
 
 /// `tryOverwriteStoreIndexWithRetry` (remotestore.go:1460): retry [`try_overwrite`]
 /// on a lost CAS; hard errors tolerated up to 3 times. Public: the prune path
-/// (Stage 7) calls this to overwrite the store index BEFORE deleting blocks.
+/// calls this to overwrite the store index BEFORE deleting blocks.
 pub async fn overwrite_remote_store_index(
     client: &dyn BlobClient,
     index: &StoreIndex,
@@ -380,8 +390,8 @@ pub async fn overwrite_remote_store_index(
 /// `getStoreIndexFromBlocks` (remotestore.go:1482): read each `.lsb`, parse its
 /// block index, keep only blocks whose stored hash matches their path, and
 /// build one store index. **Rust-assembled order is sorted by block hash** for
-/// determinism (`rust-port-4.md` — golongtail's order is map/parallel
-/// nondeterminism, so there is no Go order to match).
+/// determinism (golongtail's order is map/parallel nondeterminism, so there is
+/// no Go order to match).
 async fn get_store_index_from_blocks(
     client: &dyn BlobClient,
     block_keys: &[String],
@@ -438,7 +448,7 @@ pub(crate) async fn read_remote_store_index(
     client: &dyn BlobClient,
     access_type: AccessType,
 ) -> Result<StoreIndex, StoreError> {
-    let _ = blob_store; // reserved for the Stage-5 optional-store-index-paths arg
+    let _ = blob_store; // reserved for the optional-store-index-paths arg
     if access_type == AccessType::Init {
         let rebuilt = build_store_index_from_store_blocks(client).await?;
         match add_to_remote_store_index(client, &rebuilt).await {

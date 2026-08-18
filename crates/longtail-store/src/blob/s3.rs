@@ -20,6 +20,8 @@ use aws_credential_types::provider::SharedCredentialsProvider;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::StalledStreamProtectionConfig;
 use aws_sdk_s3::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
+use aws_sdk_s3::primitives::ByteStream;
+use bytes::Bytes;
 
 use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
 use crate::error::StoreError;
@@ -73,7 +75,7 @@ where
 /// How to obtain an S3 client. Highest precedence first: an explicit `client`,
 /// then a `sdk_config`, then piecewise `credentials_provider`/`region`, each
 /// overlaid with `endpoint_url` / `transfer_acceleration` / `force_path_style`.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct S3Options {
     /// A fully-built client (holds its own provider). Used verbatim.
     pub client: Option<Client>,
@@ -93,6 +95,29 @@ pub struct S3Options {
     pub transfer_acceleration: bool,
     /// Force path-style addressing (required by minio and most S3-compatibles).
     pub force_path_style: bool,
+    /// SDK stalled-stream protection. **Defaults to `true`.** When on, a GET
+    /// body stream that delivers ~no data for the SDK grace period (5 s) errors
+    /// out (→ [`StoreError::Network`]) so the read-retry ladder can recover it,
+    /// rather than hanging indefinitely. This was historically disabled to dodge
+    /// a pre-GA SDK bug that false-tripped on slow *consumers* (smithy-rs#3485,
+    /// fixed April 2024, well before our pinned `aws-smithy-runtime`); the escape
+    /// hatch remains so a caller can turn it back off without a code change.
+    pub stalled_stream_protection: bool,
+}
+
+impl Default for S3Options {
+    fn default() -> S3Options {
+        S3Options {
+            client: None,
+            sdk_config: None,
+            credentials_provider: None,
+            region: None,
+            endpoint_url: None,
+            transfer_acceleration: false,
+            force_path_style: false,
+            stalled_stream_protection: true,
+        }
+    }
 }
 
 impl std::fmt::Debug for S3Options {
@@ -105,6 +130,7 @@ impl std::fmt::Debug for S3Options {
             .field("endpoint_url", &self.endpoint_url)
             .field("transfer_acceleration", &self.transfer_acceleration)
             .field("force_path_style", &self.force_path_style)
+            .field("stalled_stream_protection", &self.stalled_stream_protection)
             .finish()
     }
 }
@@ -173,8 +199,7 @@ impl S3BlobStore {
         let sdk_config = match &self.options.sdk_config {
             Some(cfg) => cfg.clone(),
             None => {
-                let mut loader = aws_config::defaults(BehaviorVersion::latest())
-                    .stalled_stream_protection(StalledStreamProtectionConfig::disabled());
+                let mut loader = aws_config::defaults(BehaviorVersion::latest());
                 if let Some(provider) = &self.options.credentials_provider {
                     loader = loader.credentials_provider(provider.clone());
                 }
@@ -203,7 +228,15 @@ impl S3BlobStore {
         if self.options.transfer_acceleration {
             builder = builder.accelerate(true);
         }
-        builder = builder.stalled_stream_protection(StalledStreamProtectionConfig::disabled());
+        // Authoritative regardless of any inherited sdk_config setting: on by
+        // default (a stalled upstream errors → retry ladder), off only when the
+        // caller opts out via `S3Options`.
+        let ssp = if self.options.stalled_stream_protection {
+            StalledStreamProtectionConfig::enabled().build()
+        } else {
+            StalledStreamProtectionConfig::disabled()
+        };
+        builder = builder.stalled_stream_protection(ssp);
         Client::from_conf(builder.build())
     }
 }
@@ -356,15 +389,21 @@ impl BlobObject for S3BlobObject {
                     DisplayErrorContext(&e)
                 ))
             })?;
-        Ok(data.into_bytes().to_vec())
+        // `AggregatedBytes::to_vec` collects the segments in a single copy;
+        // `into_bytes().to_vec()` would concatenate to a `Bytes` first, then copy
+        // again — one buffer-sized allocation saved per shard/block read.
+        Ok(data.to_vec())
     }
 
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {
         self.client
             .put_object()
             .bucket(&self.bucket)
             .key(&self.key)
-            .body(data.to_vec().into())
+            // `ByteStream::from(Bytes)` takes ownership with no copy (the old
+            // `&[u8]` signature forced a `to_vec()` of the whole body here — a
+            // full extra copy of the serialized store index on every flush).
+            .body(ByteStream::from(data))
             .send()
             .await
             .map_err(|e| map_sdk_err(format_args!("put_object {}", self.key), e))?;

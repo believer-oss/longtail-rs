@@ -1,6 +1,6 @@
 //! `cp` (`cmd_cp.go`): extract a single asset from a version by fetching only
 //! the blocks that cover its chunks and assembling the file. No
-//! blockstorestorage port (planning §6) — a targeted block fetch + assemble.
+//! blockstorestorage port — a targeted block fetch + assemble.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -154,6 +154,6 @@ pub async fn cp(opts: CpOptions) -> Result<(), LongtailError> {
     }
     store.close().await?;
 
-    fs_util::write_to_uri(&opts.target_path, &out, &s3).await?;
+    fs_util::write_to_uri(&opts.target_path, out.into(), &s3).await?;
     Ok(())
 }

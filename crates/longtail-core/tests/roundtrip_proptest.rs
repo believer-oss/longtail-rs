@@ -119,6 +119,16 @@ fn si_strategy() -> impl Strategy<Value = StoreIndex> {
     })
 }
 
+/// A **canonical** store index (offsets cumulative, arrays consistent), built
+/// the way every real writer builds one — from a block list. Random block
+/// hashes may collide (giving internal duplicates) and the per-block identifiers
+/// may differ, so this also reaches `merge_consuming`'s fallback and
+/// conflict-error paths, not just the fast path.
+fn canonical_si_strategy() -> impl Strategy<Value = StoreIndex> {
+    vec(bi_strategy(), 0usize..6)
+        .prop_map(|blocks| StoreIndex::from_block_indexes(&blocks).expect("small block set"))
+}
+
 fn bi_strategy() -> impl Strategy<Value = BlockIndex> {
     (0usize..8).prop_flat_map(|n| {
         (
@@ -181,9 +191,34 @@ proptest! {
         prop_assert_eq!(&parsed, &x);
         prop_assert_eq!(parsed.to_bytes(), bytes);
     }
+
+    /// `merge_consuming` is byte-for-byte equal to `merge` on canonical inputs
+    /// (the fast path — plus the fallback whenever random hashes collide or the
+    /// per-block identifiers conflict). Load-bearing: the S3 shard name is the
+    /// sha256 of these bytes.
+    #[test]
+    fn merge_consuming_matches_merge_canonical(a in canonical_si_strategy(), b in canonical_si_strategy()) {
+        match (a.merge(&b), a.clone().merge_consuming(&b)) {
+            (Ok(m), Ok(c)) => prop_assert_eq!(m.to_bytes(), c.to_bytes()),
+            (Err(_), Err(_)) => {}
+            (m, c) => prop_assert!(false, "Ok/Err mismatch: merge.is_ok()={} consuming.is_ok()={}", m.is_ok(), c.is_ok()),
+        }
+    }
+
+    /// Same equivalence over *arbitrary* (often non-canonical / inconsistent)
+    /// indexes — this stresses the fallback to the allocating `merge`, including
+    /// the error paths, which must match exactly.
+    #[test]
+    fn merge_consuming_matches_merge_arbitrary(a in si_strategy(), b in si_strategy()) {
+        match (a.merge(&b), a.clone().merge_consuming(&b)) {
+            (Ok(m), Ok(c)) => prop_assert_eq!(m.to_bytes(), c.to_bytes()),
+            (Err(_), Err(_)) => {}
+            (m, c) => prop_assert!(false, "Ok/Err mismatch: merge.is_ok()={} consuming.is_ok()={}", m.is_ok(), c.is_ok()),
+        }
+    }
 }
 
-/// Explicit non-canonical name-offsets buffer (work-order requirement): a
+/// Explicit non-canonical name-offsets buffer: a
 /// VersionIndex whose `name_offsets` are internally consistent but NOT the
 /// cumulative-ordered offsets a fresh build would produce must still round-trip
 /// byte-identically — proof that we preserve offsets/blob verbatim rather than

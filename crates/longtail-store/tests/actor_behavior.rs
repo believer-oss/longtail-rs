@@ -1,4 +1,4 @@
-//! Stage 4: RemoteBlockStore actor internals — the read retry ladder (under
+//! RemoteBlockStore actor internals — the read retry ladder (under
 //! tokio paused time), prefetch get-coalescing, read-only enforcement, and
 //! stats counters.
 
@@ -31,7 +31,7 @@ async fn seed_block(store: &MemBlobStore, block: &StoredBlock) {
     let client = store.new_client().await.unwrap();
     let key = block_path("chunks", block.block_index.block_hash);
     let mut obj = client.new_object(&key).await.unwrap();
-    obj.write(&block.to_bytes()).await.unwrap();
+    obj.write(block.to_bytes().into()).await.unwrap();
 }
 
 // --- a flaky blob store that fails the first N reads with a transient error ---
@@ -115,7 +115,7 @@ impl BlobObject for FlakyObject {
         }
         self.inner.read().await
     }
-    async fn write(&mut self, data: &[u8]) -> Result<bool, longtail_store::StoreError> {
+    async fn write(&mut self, data: bytes::Bytes) -> Result<bool, longtail_store::StoreError> {
         self.inner.write(data).await
     }
     async fn delete(&mut self) -> Result<(), longtail_store::StoreError> {
@@ -213,7 +213,7 @@ async fn read_only_rejects_put() {
     store.close().await.unwrap();
 }
 
-/// `prune_blocks` (Stage 7): keeps the requested blocks, deletes the rest, and
+/// `prune_blocks`: keeps the requested blocks, deletes the rest, and
 /// rewrites the store index. A ReadOnly store rejects it with AccessViolation.
 #[tokio::test]
 async fn prune_blocks_keeps_and_deletes() {

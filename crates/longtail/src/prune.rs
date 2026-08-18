@@ -105,7 +105,7 @@ where
         && g.write_version_local_store_index
         && !g.dry_run
     {
-        fs_util::write_to_uri(lsi, &existing.to_bytes(), s3).await?;
+        fs_util::write_to_uri(lsi, existing.to_bytes().into(), s3).await?;
     }
 
     Ok(Some(existing.block_hashes.clone()))
@@ -330,7 +330,7 @@ pub async fn prune_store_index(
     let new_block_count = pruned.block_count();
 
     if !opts.dry_run {
-        fs_util::write_to_uri(&opts.store_index_path, &pruned.to_bytes(), &s3).await?;
+        fs_util::write_to_uri(&opts.store_index_path, pruned.to_bytes().into(), &s3).await?;
     }
 
     Ok(PruneStoreIndexResult {

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 
 use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
 use crate::error::StoreError;
@@ -132,7 +133,7 @@ impl BlobObject for MemBlobObject {
         }
     }
 
-    async fn write(&mut self, data: &[u8]) -> Result<bool, StoreError> {
+    async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {
         let mut state = self.state.lock().unwrap();
         let exists = state.blobs.contains_key(&self.path);
 

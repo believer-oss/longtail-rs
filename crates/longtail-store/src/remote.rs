@@ -1,24 +1,57 @@
 //! The [`RemoteBlockStore`] actor — a tokio-native reshape of golongtail's
-//! `remoteStore` (`remotestore.go`).
+//! `remoteStore` (`remotestore.go` @49a20e1).
 //!
-//! Topology (plan §2, `rust-port-4.md` Task 4):
+//! Topology (the store's concurrency architecture):
 //! - **One index-owner task** owns the in-memory [`StoreIndex`] and the
 //!   accumulated block indexes, serialized behind an `mpsc` command channel — no
 //!   shared-state lock on the index (Go's `contentIndexWorker` guarantee).
 //! - **Block I/O** (`get`/`put`) runs directly on the calling task, sharing one
 //!   cheaply-cloned [`BlobClient`], bounded by a [`Semaphore`] (worker-count
 //!   equivalent — Go's `remoteWorker` pool).
-//! - **Prefetch** is a `Mutex<HashMap<u64, Shared<future>>>`: get-coalescing
-//!   falls out of `Shared` (structurally subsumes shareblockstore), plus a
-//!   byte-denominated [`Semaphore`] for the 512 MiB prefetch budget. The permit
-//!   count for a block is Σ chunk_sizes from the store index (an upper bound on
-//!   the stored payload); oversize blocks clamp to the whole budget rather than
-//!   deadlock. Acquiring an *estimate up front* is a deliberate, safer-than-Go
-//!   divergence (Go debits the actual size post-fetch, remotestore.go:517/:456).
+//! - **Prefetch** is a `Mutex<PrefetchState>` (an in-flight
+//!   `HashMap<u64, Shared<future>>` + an enqueued-but-undispatched `queued` set):
+//!   get-coalescing falls out of `Shared` (structurally subsumes
+//!   shareblockstore), plus a byte-denominated [`Semaphore`] for the 512 MiB
+//!   prefetch budget.
+//!
+//!   **The budget gates BACKGROUND PREFETCH only — demand fetches always
+//!   proceed**. This mirrors golongtail exactly:
+//!   `PreflightGet` merely enqueues prefetch requests, touching no budget
+//!   (remotestore.go:613-614/:1038-1041); background `remoteWorker`s pull a
+//!   prefetch **only while** `prefetchMemory < maxPrefetchMemory` (:517/:535),
+//!   while a demand `fetchBlock` has NO budget check and runs in every worker
+//!   branch, including over budget (:504-506/:533-534/:560-561). Forward
+//!   progress therefore never depends on budget availability — the budget bounds
+//!   *memory held by not-yet-consumed prefetches*, never *progress* (the liveness
+//!   invariant; any working set completes with any budget ≥ 1 permit).
+//!
+//!   Concretely: [`RemoteBlockStore::preflight_get`] records the wanted set into
+//!   `queued` and spawns one background dispatch task per block **without**
+//!   acquiring budget. Each task acquires its permit only when the prefetch is
+//!   *dispatched* — and the in-flight map entry is created **only then**, after
+//!   acquisition. A demand [`RemoteBlockStore::get_stored_block`] for a block
+//!   whose prefetch is still parked on budget finds no map entry, so it fetches
+//!   inline (bounded by the worker semaphore, exactly like Go) and **claims the
+//!   hash** with a permit-less entry so a later-dispatched prefetch skips it
+//!   (cf. Go's placeholder insert :283-284 / later-prefetch no-op :361-366).
+//!   ⚠ Acquire-**at-dispatch** is a deliberate, stricter-than-Go divergence: Go
+//!   debits the budget at fetch *completion* and only when no waiter claimed the
+//!   block (remotestore.go:387-389; credit-back :270-271/:455-456; the pull-site
+//!   check is a soft atomic read that can overshoot, :517). Dispatch-time
+//!   acquisition is the same safer-accounting family as the
+//!   estimate-not-actual-size divergence this module already documents (permit
+//!   count = Σ chunk_sizes, an upper bound on the stored payload); oversize
+//!   blocks clamp to the whole budget so a single block is always acquirable.
 //! - **Flush** drains accumulated block indexes into the remote index via the
-//!   sync module; **close** flushes then stops the owner task.
+//!   sync module AND drains the prefetch backlog: the enqueued-but-undispatched
+//!   `queued` set is cleared first, then unconsumed entries are dropped (Go's
+//!   flushPrefetch drains the channel first, remotestore.go:433-440, then
+//!   evicts, :442-462). Dropping the entries releases their budget permits,
+//!   which wakes any budget-parked dispatch tasks; each finds its `queued`
+//!   claim gone and abandons, releasing its permit. **close** flushes then
+//!   stops the owner task.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -51,8 +84,29 @@ type SharedFetch = Shared<BoxFuture<'static, FetchResult>>;
 
 struct PrefetchEntry {
     fut: SharedFetch,
+    /// The budget permit held by a *dispatched background prefetch*; `None` for
+    /// a demand-claimed entry (demand fetches never touch the budget — Fix 1).
     /// Released when this entry is dropped (consumed by a get, or flushed).
-    _permit: OwnedSemaphorePermit,
+    _permit: Option<OwnedSemaphorePermit>,
+}
+
+/// Prefetch bookkeeping. Invariants (all transitions happen
+/// under the one mutex, and a hash is never in both sets at once):
+///
+/// - `entries[h]` exists ⇔ a fetch for `h` is actively running or completed
+///   awaiting consumption. Entries are created ONLY (a) at background dispatch,
+///   *after* the budget permit is acquired, or (b) by a demand get claiming the
+///   hash (permit-less). A demand get may therefore always safely await an
+///   entry's future — it can never be budget-parked.
+/// - `queued` holds enqueued-but-undispatched background prefetches (budget not
+///   yet acquired). A demand get must NOT wait on these: it removes the claim
+///   and fetches inline; the parked dispatch task later finds its claim gone
+///   and abandons. This pending-vs-dispatched split is what avoids the
+///   whole-working-set budget deadlock.
+#[derive(Default)]
+struct PrefetchState {
+    entries: HashMap<u64, PrefetchEntry>,
+    queued: HashSet<u64>,
 }
 
 enum IndexCommand {
@@ -64,6 +118,12 @@ enum IndexCommand {
     },
     GetIndex {
         reply: oneshot::Sender<Result<StoreIndex, StoreError>>,
+    },
+    /// Σ chunk sizes for just the requested block hashes — the download prefetch
+    /// wants permit sizes without cloning the whole union (unlike `GetIndex`).
+    GetBlockSizes {
+        block_hashes: Vec<u64>,
+        reply: oneshot::Sender<Result<HashMap<u64, u64>, StoreError>>,
     },
     Flush {
         reply: oneshot::Sender<Result<(), StoreError>>,
@@ -78,7 +138,7 @@ pub struct RemoteBlockStore {
     access_type: AccessType,
     client: Arc<dyn crate::blob::BlobClient>,
     worker_sem: Arc<Semaphore>,
-    prefetch: Arc<Mutex<HashMap<u64, PrefetchEntry>>>,
+    prefetch: Arc<Mutex<PrefetchState>>,
     prefetch_sem: Arc<Semaphore>,
     max_prefetch_bytes: usize,
     stats: Arc<BlockStoreStats>,
@@ -159,14 +219,17 @@ impl RemoteBlockStore {
             index_owner(owner_store, access_type, seed, index_rx).await;
         });
 
-        // Semaphore permits are u32-bounded; clamp the byte budget.
-        let budget = max_prefetch_bytes.min(Semaphore::MAX_PERMITS);
+        // Per-acquire permit counts are u32-bounded; clamp the byte budget so a
+        // whole-budget (oversize) clamp always fits one `acquire_many` call.
+        let budget = max_prefetch_bytes
+            .min(Semaphore::MAX_PERMITS)
+            .min(u32::MAX as usize);
 
         Ok(RemoteBlockStore {
             access_type,
             client,
             worker_sem: Arc::new(Semaphore::new(worker_count)),
-            prefetch: Arc::new(Mutex::new(HashMap::new())),
+            prefetch: Arc::new(Mutex::new(PrefetchState::default())),
             prefetch_sem: Arc::new(Semaphore::new(budget)),
             max_prefetch_bytes: budget,
             stats,
@@ -183,6 +246,86 @@ impl RemoteBlockStore {
             .map_err(|_| StoreError::WorkerGone)?;
         rx.await.map_err(|_| StoreError::WorkerGone)?
     }
+
+    /// Σ chunk sizes for the requested block hashes only — the download prefetch
+    /// permit sizes, without cloning the union index (cf. `get_index_snapshot`).
+    async fn block_sizes(&self, block_hashes: &[u64]) -> Result<HashMap<u64, u64>, StoreError> {
+        let (reply, rx) = oneshot::channel();
+        self.index_tx
+            .send(IndexCommand::GetBlockSizes {
+                block_hashes: block_hashes.to_vec(),
+                reply,
+            })
+            .await
+            .map_err(|_| StoreError::WorkerGone)?;
+        rx.await.map_err(|_| StoreError::WorkerGone)?
+    }
+}
+
+/// Dispatch one enqueued background prefetch. Acquires the
+/// block's budget permits FIRST (this is the only place the prefetch budget is
+/// awaited — the pull-site backpressure, Go's `remoteWorker` prefetch branch,
+/// remotestore.go:516-517/:535-536), then — only if the `queued` claim is still
+/// present — registers the in-flight entry and drives the fetch. Liveness never
+/// depends on this task making progress: a demand get claims the hash out of
+/// `queued` and fetches inline, after which this task wakes (when budget
+/// frees), finds its claim gone, and abandons, releasing its permit.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_prefetch(
+    prefetch: Arc<Mutex<PrefetchState>>,
+    prefetch_sem: Arc<Semaphore>,
+    client: Arc<dyn crate::blob::BlobClient>,
+    worker_sem: Arc<Semaphore>,
+    stats: Arc<BlockStoreStats>,
+    hash: u64,
+    permits: u32,
+) {
+    // Budget acquired at dispatch, not enqueue. Parks under budget pressure;
+    // nothing awaits this task (map entries are created only below, after
+    // acquisition), so parking here can never block a demand fetch.
+    let permit = match prefetch_sem.acquire_many_owned(permits).await {
+        Ok(p) => p,
+        Err(_) => return, // semaphore closed — store torn down
+    };
+    let tx = {
+        let mut st = prefetch.lock().await;
+        // The claim may be gone: consumed by a demand get, or drained by
+        // flush/close. Abandon; dropping `permit` releases the budget.
+        if !st.queued.remove(&hash) {
+            return;
+        }
+        // `queued` and `entries` are mutually exclusive (all transitions hold
+        // the lock), so the claim's presence implies no entry exists.
+        debug_assert!(!st.entries.contains_key(&hash));
+        // The entry's Shared wraps a oneshot rather than the fetch itself so
+        // this task drives the fetch WITHOUT holding a Shared handle: when the
+        // (typical) single consumer awaits + removes the entry, it holds the
+        // last reference and takes the block via `Arc::try_unwrap` copy-free.
+        let (tx, rx) = oneshot::channel::<FetchResult>();
+        let fut: SharedFetch = async move {
+            match rx.await {
+                Ok(r) => r,
+                Err(_) => Err(Arc::new(StoreError::Backend(
+                    "prefetch task dropped before completing".into(),
+                ))),
+            }
+        }
+        .boxed()
+        .shared();
+        st.entries.insert(
+            hash,
+            PrefetchEntry {
+                fut,
+                _permit: Some(permit),
+            },
+        );
+        tx
+    };
+    // Drive the fetch to completion; the result stays in the entry — holding
+    // the budget permit — until consumed or flushed. A failed send means the
+    // entry was flushed away with no consumer waiting: drop the block.
+    let res = fetch_stored_block(client, worker_sem, stats, hash).await;
+    let _ = tx.send(res.map(Arc::new).map_err(Arc::new));
 }
 
 /// Fetch + parse + validate a stored block by hash, bounded by `worker_sem`.
@@ -250,10 +393,12 @@ impl BlockStore for RemoteBlockStore {
         let mut obj = self.client.new_object(&key).await?;
         // Skip-if-exists (remotestore.go:145).
         if !obj.exists().await? {
-            let bytes = block.to_bytes();
+            // `Bytes` so each retry reclones for O(1) (a refcount bump) instead
+            // of copying the block payload every attempt.
+            let bytes: bytes::Bytes = block.to_bytes().into();
             // Unconditional write; the {100ms,500ms,2s} ladder only triggers on a
             // conditional-write conflict (ok == false, no error).
-            let mut ok = match obj.write(&bytes).await {
+            let mut ok = match obj.write(bytes.clone()).await {
                 Ok(ok) => ok,
                 Err(e) => {
                     self.stats.add(&self.stats.put_fail_count, 1);
@@ -264,7 +409,7 @@ impl BlockStore for RemoteBlockStore {
                 for delay in PUT_RETRY_DELAYS {
                     self.stats.add(&self.stats.put_retry_count, 1);
                     tokio::time::sleep(delay).await;
-                    ok = match obj.write(&bytes).await {
+                    ok = match obj.write(bytes.clone()).await {
                         Ok(ok) => ok,
                         Err(e) => {
                             self.stats.add(&self.stats.put_fail_count, 1);
@@ -297,81 +442,91 @@ impl BlockStore for RemoteBlockStore {
     }
 
     async fn get_stored_block(&self, block_hash: u64) -> Result<StoredBlock, StoreError> {
-        // Coalesce with an in-flight prefetch if present (Shared future).
-        let prefetched = {
-            let map = self.prefetch.lock().await;
-            map.get(&block_hash).map(|e| e.fut.clone())
+        // Coalesce with an in-flight (dispatched or demand-claimed) fetch if an
+        // entry exists; otherwise claim the hash and fetch inline. A demand get
+        // NEVER waits on a budget-parked (queued, undispatched) prefetch —
+        // demand fetches always proceed, budget or not (Go's `fetchBlock` has
+        // no budget check and runs in every worker branch including
+        // over-budget, remotestore.go:504-506/:533-534/:560-561). Demand-fetch
+        // memory is bounded by the worker semaphore, exactly like Go.
+        let fut = {
+            let mut st = self.prefetch.lock().await;
+            if let Some(e) = st.entries.get(&block_hash) {
+                e.fut.clone()
+            } else {
+                // Claim the hash (Go's placeholder insert, remotestore.go:
+                // 283-284): remove any undispatched claim so its parked
+                // dispatch task abandons, and register a permit-less entry so
+                // a later-dispatched background prefetch skips it (Go's
+                // later-prefetch no-op, :361-366). Concurrent demand gets for
+                // the same block coalesce on this entry.
+                st.queued.remove(&block_hash);
+                let fut: SharedFetch = fetch_stored_block(
+                    self.client.clone(),
+                    self.worker_sem.clone(),
+                    self.stats.clone(),
+                    block_hash,
+                )
+                .map(|r| r.map(Arc::new).map_err(Arc::new))
+                .boxed()
+                .shared();
+                st.entries.insert(
+                    block_hash,
+                    PrefetchEntry {
+                        fut: fut.clone(),
+                        _permit: None,
+                    },
+                );
+                fut
+            }
         };
-        if let Some(fut) = prefetched {
-            let result = fut.await;
-            // Consume the entry (releases its budget permit).
-            self.prefetch.lock().await.remove(&block_hash);
-            return match result {
-                Ok(block) => Ok((*block).clone()),
-                Err(e) => Err(clone_store_error(&e)),
-            };
+        // The await consumes our Shared clone; removing the entry then drops
+        // the map's clone (releasing a dispatched prefetch's budget permit).
+        let result = fut.await;
+        self.prefetch.lock().await.entries.remove(&block_hash);
+        match result {
+            // Sole holder (the common demand case) → move the block out copy-free.
+            Ok(block) => Ok(Arc::try_unwrap(block).unwrap_or_else(|arc| (*arc).clone())),
+            Err(e) => Err(clone_store_error(&e)),
         }
-        fetch_stored_block(
-            self.client.clone(),
-            self.worker_sem.clone(),
-            self.stats.clone(),
-            block_hash,
-        )
-        .await
     }
 
     async fn preflight_get(&self, block_hashes: &[u64]) -> Result<(), StoreError> {
         if block_hashes.is_empty() {
             return Ok(());
         }
-        // Size prefetch permits from the store index (Σ chunk_sizes per block).
-        let index = self.get_index_snapshot().await?;
-        let mut size_by_hash: HashMap<u64, usize> = HashMap::new();
-        for b in 0..index.block_count() as usize {
-            if let Some(bi) = index.block_index_at(b) {
-                let sz: usize = bi.chunk_sizes.iter().map(|&s| s as usize).sum();
-                size_by_hash.insert(bi.block_hash, sz);
-            }
-        }
+        // Prefetch permit sizes (Σ chunk_sizes per block) for **only** the
+        // requested blocks. A targeted owner query, not `get_index_snapshot`:
+        // the old path cloned the whole union store index (>1 GB at Fellowship
+        // scale, on end-user machines) and mapped every block in the store just
+        // to read sizes for this working set.
+        let size_by_hash = self.block_sizes(block_hashes).await?;
 
+        // Enqueue WITHOUT acquiring budget (Go's PreflightGet/onPreflightMessage
+        // only posts prefetch messages, remotestore.go:613-614/:1038-1041) —
+        // acquiring the whole working set's budget here is exactly the
+        // deadlock this split avoids. Budget is acquired per block at
+        // background *dispatch*, in
+        // the spawned task below.
+        let mut st = self.prefetch.lock().await;
         for &hash in block_hashes {
-            {
-                let map = self.prefetch.lock().await;
-                if map.contains_key(&hash) {
-                    continue; // already prefetching
-                }
+            if st.entries.contains_key(&hash) || !st.queued.insert(hash) {
+                continue; // already fetching, or already enqueued
             }
-            // Estimate; unknown blocks get 1 permit; oversize clamps to budget.
-            let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1);
+            // Estimate; unknown blocks get 1 permit; oversize clamps to the
+            // whole budget so a single block is always
+            // acquirable → any working set completes with any budget ≥ 1.
+            let estimate = size_by_hash.get(&hash).copied().unwrap_or(1).max(1) as usize;
             let permits = estimate.min(self.max_prefetch_bytes).max(1) as u32;
-            let permit = self
-                .prefetch_sem
-                .clone()
-                .acquire_many_owned(permits)
-                .await
-                .map_err(|_| StoreError::WorkerGone)?;
-
-            let fut: SharedFetch = fetch_stored_block(
+            tokio::spawn(dispatch_prefetch(
+                self.prefetch.clone(),
+                self.prefetch_sem.clone(),
                 self.client.clone(),
                 self.worker_sem.clone(),
                 self.stats.clone(),
                 hash,
-            )
-            .map(|r| r.map(Arc::new).map_err(Arc::new))
-            .boxed()
-            .shared();
-
-            // Drive the fetch eagerly (Shared futures are lazy).
-            let driver = fut.clone();
-            tokio::spawn(async move {
-                let _ = driver.await;
-            });
-
-            let mut map = self.prefetch.lock().await;
-            map.entry(hash).or_insert(PrefetchEntry {
-                fut,
-                _permit: permit,
-            });
+                permits,
+            ));
         }
         Ok(())
     }
@@ -424,8 +579,7 @@ impl BlockStore for RemoteBlockStore {
     }
 
     async fn flush(&self) -> Result<(), StoreError> {
-        // Drop all prefetched-but-unconsumed blocks (releases their budget).
-        self.prefetch.lock().await.clear();
+        drain_prefetch(&self.prefetch).await;
         let (reply, rx) = oneshot::channel();
         self.index_tx
             .send(IndexCommand::Flush { reply })
@@ -438,7 +592,7 @@ impl BlockStore for RemoteBlockStore {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
-        self.prefetch.lock().await.clear();
+        drain_prefetch(&self.prefetch).await;
         let (reply, rx) = oneshot::channel();
         if self
             .index_tx
@@ -454,6 +608,17 @@ impl BlockStore for RemoteBlockStore {
     fn stats(&self) -> StatsSnapshot {
         self.stats.snapshot()
     }
+}
+
+/// Drain the prefetch machinery (Go's `flushPrefetch`, remotestore.go:433-462):
+/// clear the enqueued-but-undispatched backlog FIRST (Go drains the channel
+/// first, :433-440), then drop unconsumed entries (:442-462). Dropping the
+/// entries releases their budget permits, which wakes budget-parked dispatch
+/// tasks; each finds its `queued` claim gone and abandons.
+async fn drain_prefetch(prefetch: &Mutex<PrefetchState>) {
+    let mut st = prefetch.lock().await;
+    st.queued.clear();
+    st.entries.clear();
 }
 
 /// A best-effort clone of a `StoreError` behind an `Arc` (for the coalesced
@@ -502,17 +667,46 @@ async fn index_owner(
                 let r = merged_index(&mut index, &added, &blob_store, &*client, access_type).await;
                 let _ = reply.send(r);
             }
+            IndexCommand::GetBlockSizes {
+                block_hashes,
+                reply,
+            } => {
+                let r = block_sizes(
+                    &mut index,
+                    &added,
+                    &blob_store,
+                    &*client,
+                    access_type,
+                    &block_hashes,
+                )
+                .await;
+                let _ = reply.send(r);
+            }
             IndexCommand::GetExistingContent {
                 chunk_hashes,
                 min_block_usage_percent,
                 reply,
             } => {
-                let r = merged_index(&mut index, &added, &blob_store, &*client, access_type)
-                    .await
-                    .map(|idx| {
-                        idx.get_existing_store_index(&chunk_hashes, min_block_usage_percent)
-                    });
+                let r = existing_content(
+                    &mut index,
+                    &added,
+                    &blob_store,
+                    &*client,
+                    access_type,
+                    &chunk_hashes,
+                    min_block_usage_percent,
+                )
+                .await;
                 let _ = reply.send(r);
+                // ReadWrite stores (upsync / clone-store re-upload) query the
+                // union exactly once, before any puts; the retained union is not
+                // needed for the block writes or the flush (`persist` re-reads
+                // from the backend), so drop it to free ~union-sized memory during
+                // the write path. ReadOnly stores reuse the loaded index across
+                // many gets — keep it.
+                if access_type != AccessType::ReadOnly {
+                    index = None;
+                }
             }
             IndexCommand::Flush { reply } => {
                 let r = persist(&mut index, &mut added, &*client, access_type, false).await;
@@ -531,6 +725,9 @@ fn fail_command(cmd: IndexCommand, err: impl Fn() -> StoreError) {
     match cmd {
         IndexCommand::AddBlock(_) => {}
         IndexCommand::GetIndex { reply } => {
+            let _ = reply.send(Err(err()));
+        }
+        IndexCommand::GetBlockSizes { reply, .. } => {
             let _ = reply.send(Err(err()));
         }
         IndexCommand::GetExistingContent { reply, .. } => {
@@ -563,8 +760,72 @@ async fn merged_index(
     base.merge(&added_idx).map_err(StoreError::from)
 }
 
+/// Σ chunk sizes for just the requested `block_hashes`, loading the store index
+/// if needed (like [`merged_index`]) but **never cloning or merging the whole
+/// union** — the download prefetch only needs permit sizes for its working set.
+/// Any accumulated (`added`) blocks not yet on the store are folded in so a
+/// just-written block still sizes correctly.
+async fn block_sizes(
+    index: &mut Option<StoreIndex>,
+    added: &[BlockIndex],
+    blob_store: &Arc<dyn BlobStore>,
+    client: &dyn crate::blob::BlobClient,
+    access_type: AccessType,
+    block_hashes: &[u64],
+) -> Result<HashMap<u64, u64>, StoreError> {
+    if index.is_none() {
+        let loaded = sync::read_remote_store_index(&**blob_store, client, access_type).await?;
+        *index = Some(loaded);
+    }
+    let base = index.as_ref().unwrap();
+    let mut out = base.block_payload_sizes(block_hashes);
+    if !added.is_empty() {
+        let want: HashSet<u64> = block_hashes.iter().copied().collect();
+        for bi in added {
+            if want.contains(&bi.block_hash) {
+                out.entry(bi.block_hash)
+                    .or_insert_with(|| bi.chunk_sizes.iter().map(|&s| s as u64).sum());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `GetExistingStoreIndex(chunk_hashes)` **without cloning the full union**.
+///
+/// The subset returned by `get_existing_store_index` covers only the blocks that
+/// carry `chunk_hashes` — typically a tiny fraction of the store. The old path
+/// materialized a full copy of the union first (`merged_index` → `base.clone()`),
+/// which at Fellowship scale doubles a >1 GB allocation per query. Here, in the
+/// common case (`added` empty — the query happens before any puts), the subset is
+/// derived directly from the loaded `base`; only once block indexes have
+/// accumulated is a merged view built (rare on this path).
+async fn existing_content(
+    index: &mut Option<StoreIndex>,
+    added: &[BlockIndex],
+    blob_store: &Arc<dyn BlobStore>,
+    client: &dyn crate::blob::BlobClient,
+    access_type: AccessType,
+    chunk_hashes: &[u64],
+    min_block_usage_percent: u32,
+) -> Result<StoreIndex, StoreError> {
+    if index.is_none() {
+        let loaded = sync::read_remote_store_index(&**blob_store, client, access_type).await?;
+        *index = Some(loaded);
+    }
+    let base = index.as_ref().unwrap();
+    if added.is_empty() {
+        Ok(base.get_existing_store_index(chunk_hashes, min_block_usage_percent))
+    } else {
+        let added_idx = store_index_from_added(added)?;
+        Ok(base
+            .merge(&added_idx)?
+            .get_existing_store_index(chunk_hashes, min_block_usage_percent))
+    }
+}
+
 /// Build a store index from accumulated block indexes, in a deterministic
-/// (block-hash-sorted) order (`rust-port-4.md`).
+/// (block-hash-sorted) order.
 fn store_index_from_added(added: &[BlockIndex]) -> Result<StoreIndex, StoreError> {
     let mut sorted: Vec<BlockIndex> = added.to_vec();
     sorted.sort_by_key(|b| b.block_hash);

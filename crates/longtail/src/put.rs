@@ -191,7 +191,7 @@ pub async fn put(opts: PutOptions) -> Result<UpsyncReport, LongtailError> {
     let s3: S3OptionsArg = opts.s3_options.clone();
     #[cfg(not(feature = "s3"))]
     let s3: S3OptionsArg = ();
-    fs_util::write_to_uri(&opts.get_config_uri, &bytes, &s3).await?;
+    fs_util::write_to_uri(&opts.get_config_uri, bytes.into(), &s3).await?;
 
     Ok(report)
 }

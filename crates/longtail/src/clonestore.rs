@@ -188,13 +188,13 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
         store.close().await?;
 
         // 3. Write the target .lvi (= the source version index).
-        fs_util::write_to_uri(&target_lvi, &source_version.to_bytes(), &tgt_s3).await?;
+        fs_util::write_to_uri(&target_lvi, source_version.to_bytes().into(), &tgt_s3).await?;
 
         // 4. Optional version-local .lsi (target .lvi path with .lvi→.lsi).
         if opts.create_version_local_store_index {
             let lsi_path = target_lvi.replace(".lvi", ".lsi");
             let version_local = existing.merge(&missing)?;
-            fs_util::write_to_uri(&lsi_path, &version_local.to_bytes(), &tgt_s3).await?;
+            fs_util::write_to_uri(&lsi_path, version_local.to_bytes().into(), &tgt_s3).await?;
         }
 
         cloned += 1;
