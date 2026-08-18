@@ -169,6 +169,55 @@ pub(crate) fn build_pool(worker_count: usize) -> Result<rayon::ThreadPool, Longt
     };
     rayon::ThreadPoolBuilder::new()
         .num_threads(n)
+        // Without a handler rayon aborts the process on a panicking job, which
+        // is the wrong failure mode for work driven by store contents: the same
+        // malformed block that surfaces as an error on the apply pool (tokio
+        // catches that unwind) would kill the whole process here, and inside a
+        // GUI that means the app closes with nothing to report. The job's
+        // result channel is dropped by the unwind, which the caller turns into a
+        // typed error; this handler exists so the process survives to do it.
+        .panic_handler(|payload| {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic payload".to_string());
+            tracing::error!(panic = %msg, "a worker-pool job panicked");
+        })
         .build()
         .map_err(|e| LongtailError::InvalidArgument(format!("failed to build rayon pool: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A panicking job must not take the process with it.
+    ///
+    /// Rayon's default for a panicking `spawn` is to abort, so without the
+    /// handler this test does not fail — the whole test binary dies. Reaching
+    /// the assertion is the result. The work these pools run is driven by store
+    /// contents, so a malformed block has to stay a failed operation rather than
+    /// becoming a dead process, which inside a GUI means closing with nothing to
+    /// report.
+    #[test]
+    fn a_panicking_job_does_not_abort_the_process() {
+        let pool = build_pool(1).expect("pool");
+        let (tx, rx) = std::sync::mpsc::channel::<u32>();
+        pool.spawn(move || {
+            // Moved in, so the unwind drops it without sending — which is how
+            // the caller learns the job died.
+            let _sender = tx;
+            panic!("job exploded");
+        });
+        assert!(
+            rx.recv().is_err(),
+            "the sender should have been dropped by the unwind"
+        );
+
+        // The pool is still usable afterwards.
+        let (tx2, rx2) = std::sync::mpsc::channel::<u32>();
+        pool.spawn(move || tx2.send(7).unwrap());
+        assert_eq!(rx2.recv().unwrap(), 7, "pool must survive a panicking job");
+    }
 }

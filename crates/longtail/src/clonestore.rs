@@ -23,6 +23,7 @@ use crate::progress::{NullProgress, ProgressSink, RateLimited};
 use crate::upsync::write_content;
 
 /// Options for [`clone_store`].
+#[non_exhaustive]
 pub struct CloneStoreOptions {
     pub source_storage_uri: String,
     pub target_storage_uri: String,
@@ -162,30 +163,35 @@ pub async fn clone_store(opts: CloneStoreOptions) -> Result<u32, LongtailError> 
         )
         .await?;
 
-        let hasher = make_hasher(source_version.hash_identifier)?;
-        let existing = store
-            .get_existing_content(&source_version.chunk_hashes, opts.min_block_usage_percent)
-            .await?;
-        let missing = create_missing_content(
-            hasher.as_ref(),
-            &existing,
-            &source_version,
-            opts.target_block_size,
-            opts.max_chunks_per_block,
-        )?;
-        if missing.block_count() > 0 {
-            write_content(
-                &store,
-                Path::new(&opts.target_path),
+        // Fallible work inside the block so the flush + close below run on a
+        // cancel or failure too: a partial re-upload still owes its write-backs.
+        let uploaded = async {
+            let hasher = make_hasher(source_version.hash_identifier)?;
+            let existing = store
+                .get_existing_content(&source_version.chunk_hashes, opts.min_block_usage_percent)
+                .await?;
+            let missing = create_missing_content(
+                hasher.as_ref(),
+                &existing,
                 &source_version,
-                &missing,
-                &progress,
-                &cancel,
-            )
-            .await?;
+                opts.target_block_size,
+                opts.max_chunks_per_block,
+            )?;
+            if missing.block_count() > 0 {
+                write_content(
+                    &store,
+                    Path::new(&opts.target_path),
+                    &source_version,
+                    &missing,
+                    &progress,
+                    &cancel,
+                )
+                .await?;
+            }
+            Ok::<_, LongtailError>((existing, missing))
         }
-        store.flush().await?;
-        store.close().await?;
+        .await;
+        let (existing, missing) = crate::store_lifecycle::finish_store(&store, uploaded).await?;
 
         // 3. Write the target .lvi (= the source version index).
         fs_util::write_to_uri(&target_lvi, source_version.to_bytes().into(), &tgt_s3).await?;
@@ -236,10 +242,11 @@ async fn validate_target_covers(
         },
     )
     .await?;
-    let existing = store
+    let fetched = store
         .get_existing_content(&target_version.chunk_hashes, 0)
-        .await?;
-    store.close().await?;
+        .await
+        .map_err(LongtailError::from);
+    let existing = crate::store_lifecycle::finish_store(&store, fetched).await?;
     validate_store(&existing, target_version).map_err(LongtailError::from)
 }
 

@@ -13,6 +13,7 @@ use thiserror::Error;
 /// adds (rejecting `ACI < C` and trailing bytes, and returning
 /// `Err` where C would silently wrap 32-bit arithmetic).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum FormatError {
     /// The format's version field did not match the single supported constant.
     /// Readers reject any other value (longtail.c:2633 / :9004).
@@ -62,8 +63,8 @@ pub enum FormatError {
     NameOffsetOutOfBounds { offset: usize, len: usize },
 
     /// A VersionIndex asset's chunk range `[start, start+count)` falls outside
-    /// `m_AssetChunkIndexes`. Checked at parse time because six consumers index
-    /// that map with plain `[]`; C reads out of bounds here instead.
+    /// `m_AssetChunkIndexes`. Checked at parse time because consumers index that
+    /// map directly; C reads out of bounds here instead.
     #[error(
         "asset {asset} chunk range [{start}, {start}+{count}) exceeds \
          asset_chunk_index_count {len}"

@@ -9,6 +9,7 @@ use crate::version_index::VersionIndex;
 /// Why a store index fails to satisfy a version index. `EINVAL` (size mismatch)
 /// takes precedence over `ENOENT` (missing chunk) — longtail.c:9487-9500.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ValidateError {
     /// One or more non-directory assets have Σ(chunk sizes) ≠ asset size
     /// (`EINVAL`-equivalent). Wins over [`ValidateError::MissingChunks`].
