@@ -37,6 +37,16 @@ pub const DEFAULT_MIN_BLOCK_USAGE_PERCENT: u32 = 80;
 
 /// Upsync a source folder into a store, writing the target `.lvi` and (if a
 /// path is set) the version-local `.lsi`.
+#[tracing::instrument(
+    name = "upsync",
+    skip_all,
+    fields(
+        storage_uri = %opts.storage_uri,
+        source_path = %opts.source_path,
+        worker_count = opts.worker_count,
+        remote_worker_count = opts.remote_worker_count,
+    )
+)]
 pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> {
     if opts.use_legacy_write {
         return Err(LongtailError::LegacyWriteUnsupported);
@@ -122,6 +132,7 @@ pub async fn upsync(opts: UpsyncOptions) -> Result<UpsyncReport, LongtailError> 
         cache_dir: None,
         pool: pool.clone(),
         version_local_store_index: None,
+        max_block_bytes: None,
         #[cfg(feature = "s3")]
         s3_options: opts.s3_options.clone(),
     };
