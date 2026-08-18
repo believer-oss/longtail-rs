@@ -173,6 +173,7 @@ pub fn create_version_index<H: Hash + ?Sized>(
 
 /// Errors from [`merge_version_index`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum MergeVersionError {
     /// The two indexes disagree on `hash_identifier` or `target_chunk_size`
     /// (longtail.c:3072-3073 precondition).

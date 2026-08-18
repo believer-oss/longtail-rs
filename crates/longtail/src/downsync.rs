@@ -163,38 +163,46 @@ pub async fn downsync(opts: DownsyncOptions) -> Result<DownsyncReport, LongtailE
     .await?;
     phases.push(phase.lap("open_store"));
 
-    // Diff (from = current target, to = desired source), required chunks,
-    // retargetted store index (min_block_usage_percent = 0, cmd_downsync.go:266).
-    let diff = create_version_diff(&target_index, &source_version);
-    let required = get_required_chunk_hashes(&source_version, &diff);
-    let store_index = store.get_existing_content(&required, 0).await?;
-    phases.push(phase.lap("diff_and_retarget"));
+    // Everything that can fail between opening the store and closing it runs
+    // inside this block, so the flush + close below happen on a cancel or a
+    // failure too — the store's write-backs and the cache-budget sweep both hang
+    // off `close()`, and cancelling is a routine way to end a download.
+    let applied = async {
+        // Diff (from = current target, to = desired source), required chunks,
+        // retargetted store index (min_block_usage_percent = 0,
+        // cmd_downsync.go:266).
+        let diff = create_version_diff(&target_index, &source_version);
+        let required = get_required_chunk_hashes(&source_version, &diff);
+        let store_index = store.get_existing_content(&required, 0).await?;
+        phases.push(phase.lap("diff_and_retarget"));
 
-    // Delete the cache index before mutating the target (cmd_downsync.go:274).
-    if cache_target_index {
-        fs_util::delete_local(&cache_index_path)?;
+        // Delete the cache index before mutating the target (cmd_downsync.go:274).
+        if cache_target_index {
+            fs_util::delete_local(&cache_index_path)?;
+        }
+
+        // Apply.
+        let apply_stats = change_version2(
+            &store,
+            &target_root,
+            &source_version,
+            &target_index,
+            &diff,
+            &store_index,
+            opts.retain_permissions,
+            apply_concurrency,
+            &progress,
+            &cancel,
+        )
+        .await?;
+        phases.push(phase.lap("apply"));
+        Ok::<_, LongtailError>(apply_stats)
     }
-
-    // Apply.
-    let apply_stats = change_version2(
-        &store,
-        &target_root,
-        &source_version,
-        &target_index,
-        &diff,
-        &store_index,
-        opts.retain_permissions,
-        apply_concurrency,
-        &progress,
-        &cancel,
-    )
-    .await?;
-    phases.push(phase.lap("apply"));
+    .await;
 
     // Flush + close the store chain before resolving (obligation #6; warm-cache
     // write-backs must complete — cmd_downsync.go:324).
-    store.flush().await?;
-    store.close().await?;
+    let apply_stats = crate::store_lifecycle::finish_store(&store, applied).await?;
     let store_stats = store.stats();
     phases.push(phase.lap("flush"));
 

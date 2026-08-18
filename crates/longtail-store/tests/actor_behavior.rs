@@ -280,3 +280,119 @@ async fn prune_blocks_read_only_rejected() {
     assert!(matches!(err, longtail_store::StoreError::AccessViolation));
     store.close().await.unwrap();
 }
+
+// --- error classes must survive the coalescing layer -------------------------
+
+/// A blob store whose every read fails with a caller-actionable class.
+#[derive(Debug)]
+struct DenyingStore {
+    inner: MemBlobStore,
+}
+
+#[async_trait]
+impl BlobStore for DenyingStore {
+    async fn new_client(&self) -> Result<Box<dyn BlobClient>, longtail_store::StoreError> {
+        Ok(Box::new(DenyingClient {
+            inner: self.inner.new_client().await?,
+        }))
+    }
+    fn name(&self) -> String {
+        "denying".into()
+    }
+}
+
+struct DenyingClient {
+    inner: Box<dyn BlobClient>,
+}
+
+#[async_trait]
+impl BlobClient for DenyingClient {
+    async fn new_object(
+        &self,
+        path: &str,
+    ) -> Result<Box<dyn BlobObject>, longtail_store::StoreError> {
+        Ok(Box::new(DenyingObject {
+            inner: self.inner.new_object(path).await?,
+        }))
+    }
+    async fn get_objects(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<BlobProperties>, longtail_store::StoreError> {
+        self.inner.get_objects(prefix).await
+    }
+    fn supports_locking(&self) -> bool {
+        self.inner.supports_locking()
+    }
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+}
+
+struct DenyingObject {
+    inner: Box<dyn BlobObject>,
+}
+
+#[async_trait]
+impl BlobObject for DenyingObject {
+    async fn exists(&self) -> Result<bool, longtail_store::StoreError> {
+        self.inner.exists().await
+    }
+    async fn lock_write_version(&mut self) -> Result<bool, longtail_store::StoreError> {
+        self.inner.lock_write_version().await
+    }
+    async fn read(&self) -> Result<Vec<u8>, longtail_store::StoreError> {
+        Err(longtail_store::StoreError::NotAuthorized(
+            "credentials rejected".into(),
+        ))
+    }
+    async fn write(&mut self, data: bytes::Bytes) -> Result<bool, longtail_store::StoreError> {
+        self.inner.write(data).await
+    }
+    async fn delete(&mut self) -> Result<(), longtail_store::StoreError> {
+        self.inner.delete().await
+    }
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+}
+
+/// A caller must be able to tell "re-authenticate" from "retry later", which is
+/// the one decision the error split exists to support.
+///
+/// Both paths are checked because they differ: a single get returns its own
+/// error, while concurrent gets for one block are coalesced through a `Shared`
+/// future that hands every waiter an `&Arc<StoreError>`, so the error has to be
+/// rebuilt. Rebuilding it by formatting into a string is what erased the class.
+#[tokio::test(start_paused = true)]
+async fn not_authorized_survives_both_the_direct_and_the_coalesced_path() {
+    let mem = MemBlobStore::new("", true);
+    let block = make_block(1);
+    seed_block(&mem, &block).await;
+    let hash = block.block_index.block_hash;
+
+    let store = RemoteBlockStore::new(
+        Arc::new(DenyingStore { inner: mem }),
+        AccessType::ReadOnly,
+        4,
+    )
+    .await
+    .unwrap();
+
+    let direct = store.get_stored_block(hash).await.expect_err("must fail");
+    assert!(
+        matches!(direct, longtail_store::StoreError::NotAuthorized(_)),
+        "direct get lost the error class: {direct:?}"
+    );
+
+    // Two concurrent waiters on the same block: the second is served by the
+    // shared future rather than its own request.
+    let (a, b) = tokio::join!(store.get_stored_block(hash), store.get_stored_block(hash));
+    for (label, r) in [("first waiter", a), ("second waiter", b)] {
+        let e = r.expect_err("must fail");
+        assert!(
+            matches!(e, longtail_store::StoreError::NotAuthorized(_)),
+            "{label} lost the error class: {e:?}"
+        );
+    }
+}

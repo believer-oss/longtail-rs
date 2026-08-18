@@ -11,6 +11,7 @@ use longtail_core::{CompressError, FormatError};
 /// Errors surfaced by the blob layer, store-index sync, block stores, and URI
 /// dispatch.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StoreError {
     /// The requested blob / block object does not exist. This is the retry
     /// short-circuit signal (`longtaillib.IsNotExist`): reads never retry a

@@ -16,6 +16,7 @@ use longtail_store::S3Options;
 /// Construct with [`DownsyncOptions::new`] (source paths + storage URI + target)
 /// then set the optional fields. All flag defaults match golongtail v0.4.5:
 /// `retain_permissions`/`scan_target`/`cache_target_index` default **true**.
+#[non_exhaustive]
 pub struct DownsyncOptions {
     /// Source version-index URIs (`.lvi`). Multiple are merged
     /// (`MergeVersionIndex`); at least one is required.
@@ -115,6 +116,7 @@ impl DownsyncOptions {
 
 /// One phase's wall-clock timing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct PhaseTiming {
     pub phase: String,
     pub millis: u64,
@@ -123,6 +125,7 @@ pub struct PhaseTiming {
 /// Store I/O counters, mirroring `longtail_store::StatsSnapshot` but
 /// serializable for the launcher/CLI.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DownsyncStoreStats {
     pub get_count: u64,
     pub get_byte_count: u64,
@@ -157,6 +160,7 @@ impl From<longtail_store::StatsSnapshot> for DownsyncStoreStats {
 /// counters, and the change summary. Serializable so the CLI can print it and
 /// the launcher can log it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DownsyncReport {
     /// Resolved target folder path.
     pub target_path: String,
@@ -175,6 +179,7 @@ pub struct DownsyncReport {
 }
 
 /// Options for [`crate::get`] / [`crate::get_blocking`].
+#[non_exhaustive]
 pub struct GetOptions {
     /// Get-config JSON URIs. Multiple configs are merged (their `source-path`s
     /// are read + merged; all `storage-uri`s must agree).
@@ -208,6 +213,7 @@ pub struct GetOptions {
 /// (source folder + storage URI + target `.lvi` URI); block-packing defaults
 /// match golongtail v0.4.5 (`options.go`): 32 KiB target chunk, 8 MiB target
 /// block, 1024 max chunks/block, 80 min block usage percent, `zstd`/`blake3`.
+#[non_exhaustive]
 pub struct UpsyncOptions {
     /// Source folder to upload.
     pub source_path: String,
@@ -275,6 +281,7 @@ impl UpsyncOptions {
 
 /// The result of a successful [`crate::upsync`] / [`crate::put`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct UpsyncReport {
     /// The written target `.lvi` URI.
     pub target_path: String,
