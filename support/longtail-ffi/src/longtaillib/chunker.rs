@@ -160,8 +160,23 @@ impl ChunkerAPI {
                     &mut range,
                 )
             };
-            // NextChunk returns ESPIPE (non-zero) once the stream is exhausted.
-            if r != 0 || range.len == 0 {
+            // `Longtail_Chunker_NextChunk` returns `ESPIPE` as the exhaustion
+            // sentinel (hpcdcchunker.c:420-423): it maps a zero-length chunk
+            // range to `ESPIPE` and everything else to `0`. Match `ESPIPE`
+            // explicitly so any OTHER non-zero return becomes a real error
+            // instead of a silently truncated boundary table. (Upstream conflates
+            // feeder errors into `ESPIPE` too, so this mainly hardens Rust-side
+            // error paths — a healthy in-memory feed never errors.)
+            if r == libc::ESPIPE {
+                break;
+            }
+            if r != 0 {
+                unsafe { Longtail_Chunker_DisposeChunker(self.chunker_api, chunker) };
+                return Err(r);
+            }
+            if range.len == 0 {
+                // Defensive: a 0-return with an empty range should not occur, but
+                // treat it as end-of-stream rather than pushing a zero chunk.
                 break;
             }
             out.push(ChunkSpan {

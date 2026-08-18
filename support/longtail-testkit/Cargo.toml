@@ -24,8 +24,14 @@ longtail-ffi = { path = "../longtail-ffi", optional = true }
 
 [features]
 # Enables the C-backed differential helpers (boundary generation, round-trip,
-# downsync reproduction). Off by default.
-differential = ["dep:longtail-ffi"]
+# downsync reproduction) and compiles the HPCDC discriminator shim via `cc`
+# (build.rs). Off by default — the pure lane needs no C toolchain.
+differential = ["dep:longtail-ffi", "dep:cc"]
+
+# `cc` is only needed to compile the discriminator shim in the differential
+# lane; optional + activated by the `differential` feature above.
+[build-dependencies]
+cc = { version = "1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

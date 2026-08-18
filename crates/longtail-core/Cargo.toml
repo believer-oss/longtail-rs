@@ -6,5 +6,29 @@ edition.workspace = true
 [dependencies]
 thiserror = "2"
 
+# Algorithm layer.
+# - blake3: production/default longtail hash (first 8 bytes of the 32-byte digest).
+# - blake2: BLAKE2s parameterized to an 8-byte digest via Blake2sVar::new(8)
+#   (NOT truncation of a 32-byte digest — digest length is part of the parameter
+#   block; see docs/format-spec.md §5 and lib/blake2/longtail_blake2.c:43,111).
+# - zstd: libzstd bindings (user decision 2026-07-05; the pluggable Compressor
+#   trait keeps a pure-Rust swap cheap later). The only C in longtail-core.
+# - lz4_flex: pure-Rust raw LZ4 *block* codec (block::{compress,decompress}).
+# - brotli: pure-Rust brotli.
+blake3 = "1"
+blake2 = "0.10"
+zstd = "0.13"
+lz4_flex = "0.13"
+brotli = "8"
+
+# FastCDC is benchmarking-only: same Chunker trait, no compat gates.
+fastcdc = { version = "4", optional = true }
+
+[features]
+# Alternative content-defined chunker for benchmarking against HPCDC. Not held
+# to HPCDC's constants; no differential/golden gates.
+fastcdc = ["dep:fastcdc"]
+
 [dev-dependencies]
 proptest = "1"
+hex = "0.4"

@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use longtail_ffi::{ChunkerAPI, HashAPI, HashRegistry, HashType, StoreIndex, VersionIndex};
+use longtail_ffi::{
+    ChunkerAPI, CompressionRegistry, HashAPI, HashRegistry, HashType, StoreIndex, VersionIndex,
+};
 
 use crate::boundary::{
     BoundaryTable, ChunkEntry, PATH_BUFFER, PATH_STREAMING, chunker_params_for_target,
@@ -21,6 +23,28 @@ pub fn blake3_hash() -> (HashRegistry, HashAPI) {
         .get_hash_api(HashType::Blake3)
         .expect("blake3 hash api");
     (registry, hash)
+}
+
+/// The 64-bit longtail hash of `data` computed by the reference C library for a
+/// given [`HashType`] (the `HashBuffer` call used everywhere in CreateVersionIndex).
+pub fn c_hash(hash_type: HashType, data: &[u8]) -> u64 {
+    let registry = HashRegistry::new();
+    let hash = registry.get_hash_api(hash_type).expect("hash api");
+    hash.hash_buffer(data).expect("c hash_buffer")
+}
+
+/// Compress `data` through the reference C codec registry for compression ID
+/// `id` (raw codec bytes, no framing header).
+pub fn c_compress(id: u32, data: &[u8]) -> Result<Vec<u8>, i32> {
+    let registry = CompressionRegistry::new();
+    registry.compress_buffer(id, data)
+}
+
+/// Decompress `compressed` (raw codec bytes) through the reference C codec
+/// registry for compression ID `id` into a buffer of `uncompressed_size` bytes.
+pub fn c_decompress(id: u32, compressed: &[u8], uncompressed_size: usize) -> Result<Vec<u8>, i32> {
+    let registry = CompressionRegistry::new();
+    registry.decompress_buffer(id, compressed, uncompressed_size)
 }
 
 fn hash_hex(hash: &HashAPI, bytes: &[u8]) -> String {

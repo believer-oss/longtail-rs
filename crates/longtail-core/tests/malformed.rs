@@ -228,6 +228,57 @@ fn version_index_huge_counts_error_not_panic() {
     assert!(VersionIndex::from_bytes(&bytes).is_err());
 }
 
+// --- accessor error paths on wild name blobs ------------------------------
+// version_index.rs:88-114 is bounds-checked but the error paths were untested.
+// A parsed-but-wild index (or a hand-built struct) can carry name offsets/blobs
+// that trip each accessor error without panicking.
+
+#[test]
+fn path_accessor_name_offset_out_of_bounds() {
+    let mut vi = sample_vi();
+    // Offset past the end of the name blob.
+    vi.name_offsets = vec![vi.name_data.len() as u32 + 1];
+    assert_eq!(
+        vi.path_bytes(0),
+        Err(FormatError::NameOffsetOutOfBounds {
+            offset: vi.name_data.len() + 1,
+            len: vi.name_data.len(),
+        })
+    );
+}
+
+#[test]
+fn path_accessor_unterminated_name() {
+    let mut vi = sample_vi();
+    // A blob with no NUL terminator from the offset onward.
+    vi.name_data = b"no-terminator-here".to_vec();
+    vi.name_offsets = vec![0];
+    assert_eq!(
+        vi.path_bytes(0),
+        Err(FormatError::UnterminatedName { offset: 0 })
+    );
+}
+
+#[test]
+fn path_accessor_invalid_utf8() {
+    let mut vi = sample_vi();
+    // Valid framing (NUL-terminated) but invalid UTF-8 bytes.
+    vi.name_data = vec![0xff, 0xfe, 0x00];
+    vi.name_offsets = vec![0];
+    // path_bytes succeeds (raw bytes); path() (UTF-8 decode) fails.
+    assert_eq!(vi.path_bytes(0).unwrap(), &[0xff, 0xfe]);
+    assert_eq!(vi.path(0), Err(FormatError::InvalidUtf8 { offset: 0 }));
+}
+
+#[test]
+fn path_accessor_index_out_of_bounds() {
+    let vi = sample_vi(); // A = 1
+    assert_eq!(
+        vi.path_bytes(5),
+        Err(FormatError::IndexOutOfBounds { index: 5, count: 1 })
+    );
+}
+
 // --- fuzz-ish: mutating valid buffers never panics -------------------------
 
 proptest! {
