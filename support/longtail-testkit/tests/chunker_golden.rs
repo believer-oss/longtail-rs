@@ -1,4 +1,4 @@
-//! Golden chunker tests (pure lane, ladder 1-2): the pure-Rust streaming HPCDC
+//! Golden chunker tests (no C library, ladder 1-2): the pure-Rust streaming HPCDC
 //! chunker + pure blake3 reproduce **every** committed `*.streaming.json`
 //! boundary table exactly (offset, size, hash_hex), and the labeled
 //! [`SeedMode::Buffer`] variant reproduces every `*.buffer.json`.
@@ -100,9 +100,11 @@ fn streaming_boundary_tables_reproduced_by_pure_rust() {
         );
         checked += 1;
     }
-    assert!(
-        checked >= 12,
-        "expected many streaming tables, checked {checked}"
+    // Advisory: assert the exact count so a silently-shrunk
+    // fixture set is a red test, not a passing one.
+    assert_eq!(
+        checked, 14,
+        "expected exactly 14 streaming boundary tables, checked {checked}"
     );
     eprintln!("pure Rust reproduced {checked} streaming boundary tables");
 }
@@ -129,9 +131,10 @@ fn buffer_boundary_tables_reproduced_by_pure_rust() {
         );
         checked += 1;
     }
-    assert!(
-        checked >= 12,
-        "expected many buffer tables, checked {checked}"
+    // Advisory: assert the exact count (14) per seed mode.
+    assert_eq!(
+        checked, 14,
+        "expected exactly 14 buffer boundary tables, checked {checked}"
     );
     eprintln!("pure Rust reproduced {checked} buffer boundary tables");
 }
