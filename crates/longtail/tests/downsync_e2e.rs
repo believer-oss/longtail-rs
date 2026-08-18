@@ -2,7 +2,6 @@
 //! compared to the committed tree manifests. Linux-only; skipped under miri.
 
 #![cfg(unix)]
-#![cfg_attr(miri, ignore)]
 
 use std::path::PathBuf;
 

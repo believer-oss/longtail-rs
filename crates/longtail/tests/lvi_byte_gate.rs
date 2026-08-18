@@ -5,7 +5,6 @@
 //! Linux-only (POSIX permission generation); skipped under miri (fs/fixture).
 
 #![cfg(unix)]
-#![cfg_attr(miri, ignore)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

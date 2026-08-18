@@ -20,3 +20,14 @@ pub fn make_hasher(id: u32) -> Result<SyncHasher, HashError> {
         other => Err(HashError::UnknownHashId { id: other }),
     }
 }
+
+/// Map a golongtail `--hash-algorithm` name to its identifier
+/// (`hashIdentifierMap`, remotestore.go:474-478). Unknown names error.
+pub fn hash_identifier_for_name(name: &str) -> Result<u32, HashError> {
+    match name {
+        "blake3" => Ok(BLAKE3_ID),
+        "blake2" => Ok(BLAKE2S_ID),
+        "meow" => Ok(MEOW_ID),
+        _ => Err(HashError::UnknownHashId { id: 0 }),
+    }
+}

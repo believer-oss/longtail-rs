@@ -62,3 +62,17 @@ pub fn create_version_index_from_folder<H: Hash + Sync + ?Sized>(
         Some(&tags),
     ))
 }
+
+/// Build a rayon pool sized by `worker_count` (`0` = logical CPUs). Shared by
+/// the download and upload orchestration.
+pub(crate) fn build_pool(worker_count: usize) -> Result<rayon::ThreadPool, LongtailError> {
+    let n = if worker_count == 0 {
+        num_cpus::get().max(1)
+    } else {
+        worker_count
+    };
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build()
+        .map_err(|e| LongtailError::InvalidArgument(format!("failed to build rayon pool: {e}")))
+}
