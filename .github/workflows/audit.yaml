@@ -9,7 +9,12 @@ on:
       - "**/Cargo.lock"
       - "**/audit.toml"
       - "deny.toml"
+  # `main` only. Without the branch filter this also fires on every branch push,
+  # so a pull request was audited twice on the same commit — once for the push,
+  # once for the pull_request event.
   push:
+    branches:
+      - "main"
     paths:
       # Run if workflow changes
       - ".github/workflows/audit.yaml"
@@ -24,6 +29,13 @@ on:
     - cron: "0 0 * * *"
   # Run manually
   workflow_dispatch:
+
+# A new push supersedes the run in flight; the advisory database is a moving
+# target, so only the result for the current commit is worth anything. Keyed by
+# ref so the scheduled run on `main` cannot cancel a pull request's.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   audit:

@@ -1,0 +1,165 @@
+name: "Release"
+
+# Builds the shipped CLI for every platform we build on and publishes it to
+# GitHub Releases.
+#
+# A tag publishes; a manual run rehearses. `workflow_dispatch` performs the whole
+# build and packaging and leaves the archives as run artifacts without creating a
+# release, so the packaging can be exercised before a version is cut.
+#
+# `release-readiness.yaml` already proves the release profile builds and passes
+# its tests. This workflow is about producing and shipping the artifact, so it
+# repeats only the cheap smoke test — a binary that cannot answer `--version` must
+# not reach a release page.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: package - ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux }
+          - { os: windows-latest, platform: windows }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
+
+      # A tag that disagrees with the version in the tree would publish an
+      # artifact whose `--version` contradicts its own filename. Checked before
+      # the build so the failure is immediate and obvious.
+      #
+      # The comparison is exact, so cutting `v0.1.0-rc1` means setting the crate
+      # version to `0.1.0-rc1` as well. That is the point: a release page saying
+      # `rc1` over a binary reporting `0.1.0` is the confusion this prevents.
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(cargo metadata --format-version 1 --no-deps --locked \
+            | jq -r '.packages[] | select(.name == "longtail-cli") | .version')
+          echo "tag=$tag crate=$crate"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match longtail-cli $crate"
+            exit 1
+          fi
+
+      # `--locked` so a release cannot quietly resolve something other than what
+      # the lockfile records and CI tested.
+      - name: Build
+        run: cargo build --release --locked -p longtail-cli
+
+      - name: Smoke the binary
+        shell: bash
+        run: |
+          BIN=target/release/longtail-rs
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+
+      # Named by the target triple rather than by the matrix label, so the
+      # filename says exactly what the binary will run on. `.tar.gz` on unix and
+      # `.zip` on Windows, which is what each platform's tooling expects.
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          version=$(cargo metadata --format-version 1 --no-deps --locked \
+            | jq -r '.packages[] | select(.name == "longtail-cli") | .version')
+          name="longtail-rs-v${version}-${triple}"
+          mkdir -p dist
+          case "${{ matrix.platform }}" in
+            windows)
+              7z a -tzip "dist/${name}.zip" ./target/release/longtail-rs.exe > /dev/null
+              archive="dist/${name}.zip"
+              ;;
+            *)
+              tar czf "dist/${name}.tar.gz" -C target/release longtail-rs
+              archive="dist/${name}.tar.gz"
+              ;;
+          esac
+          sha256sum "$archive" | sed "s|dist/||" > "${archive}.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish - github releases
+    needs: build
+    # Only a tag publishes. A manual run stops after `build`, leaving the
+    # archives downloadable from the run.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # The only place in this repository that writes to the repository itself.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          # Full history so the generated notes can reach the previous tag.
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      # One checksum file for the whole release rather than one per archive: it
+      # is what a `sha256sum -c` after downloading several expects.
+      - name: Collect checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat dist/*.sha256 > dist/SHA256SUMS
+          rm -f dist/*.sha256
+          cat dist/SHA256SUMS
+          ls -l dist
+
+      # `gh` ships on the runner, so publishing needs no third-party action —
+      # one less thing pinned and trusted on the path that produces artifacts.
+      # A tag carrying a pre-release suffix (`v0.2.0-rc1`) is marked as such.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            $prerelease \
+            dist/*

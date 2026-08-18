@@ -114,6 +114,12 @@ them. `audit.yaml` runs `rustsec/audit-check`. `fixture-freshness.yaml` is sched
 off the PR gate because release-mode test compilation is slow, and opts in per PR via the
 `release-tests` label.
 
+`release.yaml` publishes the CLI. A `v*` tag builds `longtail-rs` for Linux and Windows, packages
+each with its target triple in the filename, and creates the GitHub Release with the archives and
+a `SHA256SUMS`. The tag must equal the `longtail-cli` version or the run fails before building. A
+manual `workflow_dispatch` does everything except publish, leaving the archives on the run, so the
+packaging can be rehearsed without cutting a version.
+
 Both differential jobs need the `longtail-sys` submodule checked out and a C toolchain; every
 other job sets `submodules: false` and must keep working without one.
 
