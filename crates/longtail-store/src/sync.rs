@@ -138,15 +138,44 @@ async fn get_store_store_indexes(client: &dyn BlobClient) -> Result<Vec<String>,
 }
 
 /// `readStoreStoreIndexFromPath` (remotestore.go:1637): read + parse one shard.
+///
+/// The parse is **inside** the retry ladder, unlike [`read_blob_with_retry`]'s
+/// callers elsewhere. golongtail replaces `store.lsi` in place (`ioutil.WriteFile`,
+/// fsstore.go:266 — no temp+rename), and a Rust `ReadOnly` reader has locking
+/// disabled (`uri.rs:166-168`), so a half-written index is observable and is
+/// valid again a millisecond later. Treating that `FormatError` as terminal
+/// turns a routine mixed-writer race into a failed download that succeeds on
+/// the next invocation — indistinguishable from a flake. A genuinely corrupt
+/// index still fails, after the same ladder, with the same error.
 async fn read_store_index_from_path(
     client: &dyn BlobClient,
     key: &str,
 ) -> Result<(StoreIndex, u32), StoreError> {
-    let (data, retries) = read_blob_with_retry(client, key).await?;
-    if data.is_empty() {
+    let obj = client.new_object(key).await?;
+    if !obj.exists().await? {
         return Err(StoreError::NotFound(key.to_string()));
     }
-    Ok((StoreIndex::from_bytes(&data)?, retries))
+    let mut retry_count: u32 = 0;
+    loop {
+        let attempt = match obj.read().await {
+            // Empty stays terminal-as-not-found: the caller rescans the listing
+            // for that (`merge_store_index_items`), which is the better recovery.
+            Ok(data) if data.is_empty() => Err(StoreError::NotFound(key.to_string())),
+            Ok(data) => StoreIndex::from_bytes(&data).map_err(StoreError::from),
+            Err(e) => Err(e),
+        };
+        match attempt {
+            Ok(index) => return Ok((index, retry_count)),
+            Err(e) if e.is_not_found() => return Err(e),
+            Err(e) => {
+                if retry_count as usize == READ_RETRY_DELAYS.len() {
+                    return Err(e);
+                }
+                sleep(READ_RETRY_DELAYS[retry_count as usize]).await;
+                retry_count += 1;
+            }
+        }
+    }
 }
 
 /// `mergeStoreIndexItems` (remotestore.go:1707). Returns `(index, used_items)`;

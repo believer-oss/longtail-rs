@@ -15,6 +15,10 @@ use crate::error::LongtailError;
 use crate::path_filter::RegexPathFilter;
 
 /// The low-9-bit POSIX permission mask (`st_mode & 0x1FF`, longtail_platform.c:2162).
+///
+/// Both users are unix-only, so on Windows the constant would be dead code — an
+/// error under the `-D warnings` the build runs with.
+#[cfg(unix)]
 const PERM_MASK: u32 = 0x1FF;
 
 /// Join an untrusted asset path under `root`, rejecting anything that could
@@ -73,13 +77,12 @@ fn safe_join(root: &Path, rel_path: &str) -> Result<PathBuf, LongtailError> {
     Ok(root.join(rel))
 }
 
-/// Windows-only restrictions on one path component, factored out so it can be
-/// unit-tested on any host (Windows is the primary target but is rarely the
-/// development machine).
+/// Windows-only restrictions on one path component, kept as a separate function
+/// so it can be unit-tested from any host.
 ///
-/// [`safe_join`] applies this **only** when compiling for Windows: `aux`,
-/// `a:b`, and `x ` are all legal POSIX filenames, so rejecting them on unix
-/// would refuse legitimate assets and break stores that already contain them.
+/// [`safe_join`] applies it **only** when compiling for Windows: `aux`, `a:b`
+/// and `x ` are all legal POSIX filenames, so rejecting them on unix would
+/// refuse legitimate assets and break stores that already contain them.
 fn windows_unsafe_component(part: &OsStr) -> Option<&'static str> {
     /// `CON`/`PRN`/`AUX`/`NUL` plus the numbered device families. Reserved with
     /// or without an extension: `NUL.txt` still names the device.
@@ -297,25 +300,78 @@ pub fn set_permissions(
     }
 }
 
-/// Add the user-write bit if missing (so a removal can proceed;
-/// CleanUpRemoveAssets, longtail.c:7845).
+/// The mode a path carried before [`ensure_user_writable`] relaxed it. Opaque
+/// and platform-shaped so callers can put a mode back without knowing whether
+/// that means a POSIX mode word or the Windows read-only attribute. Holds the
+/// raw mode rather than a [`Permissions`], so bits outside the low 9 (setuid and
+/// friends) survive the round trip that [`set_permissions`] would mask away.
 #[cfg(unix)]
-fn ensure_user_writable(path: &Path) {
+#[derive(Clone, Copy, Debug)]
+pub struct PriorMode(u32);
+
+#[cfg(not(unix))]
+#[derive(Clone, Copy, Debug)]
+pub struct PriorMode(bool);
+
+/// Add the user-write bit if missing (so a removal or an in-place rewrite can
+/// proceed; CleanUpRemoveAssets, longtail.c:7845). Returns the prior mode only
+/// when it actually changed one — `None` means the caller has nothing to put
+/// back, either because the path was already writable or because its mode could
+/// not be read.
+#[cfg(unix)]
+fn ensure_user_writable(path: &Path) -> Option<PriorMode> {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = fs::metadata(path) {
-        let mode = meta.permissions().mode();
-        if mode & 0o200 == 0 {
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o200));
-        }
+    let meta = fs::metadata(path).ok()?;
+    let mode = meta.permissions().mode();
+    if mode & 0o200 != 0 {
+        return None;
     }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o200)).ok()?;
+    Some(PriorMode(mode))
 }
 
 #[cfg(not(unix))]
-fn ensure_user_writable(path: &Path) {
-    if let Ok(meta) = fs::metadata(path) {
-        let mut p = meta.permissions();
-        p.set_readonly(false);
-        let _ = fs::set_permissions(path, p);
+fn ensure_user_writable(path: &Path) -> Option<PriorMode> {
+    let meta = fs::metadata(path).ok()?;
+    let mut p = meta.permissions();
+    if !p.readonly() {
+        return None;
+    }
+    // The hazard the lint names — `set_readonly(false)` granting world write —
+    // is a unix one, and this branch only compiles off unix. There the read-only
+    // attribute is the whole of the permission model, so clearing it is the only
+    // way to make the file writable; the unix branch above sets an explicit mode
+    // and never goes through `set_readonly`.
+    #[allow(clippy::permissions_set_readonly_false)]
+    p.set_readonly(false);
+    fs::set_permissions(path, p).ok()?;
+    Some(PriorMode(true))
+}
+
+/// Relax `root/rel_path` enough that an existing asset can be rewritten in
+/// place, returning what to put back. A missing path yields `None` — creating a
+/// new asset needs nothing relaxed.
+pub fn unlock_for_rewrite(root: &Path, rel_path: &str) -> Result<Option<PriorMode>, LongtailError> {
+    let path = safe_join(root, rel_path)?;
+    Ok(ensure_user_writable(&path))
+}
+
+/// Put back a mode captured by [`unlock_for_rewrite`].
+pub fn restore_mode(root: &Path, rel_path: &str, prior: PriorMode) -> Result<(), LongtailError> {
+    let path = safe_join(root, rel_path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(prior.0))
+            .map_err(|e| LongtailError::io(format!("chmod {path:?}"), e))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut p = fs::metadata(&path)
+            .map_err(|e| LongtailError::io(format!("stat {path:?}"), e))?
+            .permissions();
+        p.set_readonly(prior.0);
+        fs::set_permissions(&path, p).map_err(|e| LongtailError::io(format!("chmod {path:?}"), e))
     }
 }
 
@@ -333,7 +389,7 @@ pub fn remove_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<bool, L
             // Replaced by a non-dir since the source scan; not our job.
             return Ok(true);
         }
-        ensure_user_writable(&path);
+        let _ = ensure_user_writable(&path);
         match fs::remove_dir(&path) {
             Ok(()) => Ok(true),
             Err(_) if !path.exists() => Ok(true),
@@ -346,7 +402,7 @@ pub fn remove_asset(root: &Path, rel_path: &str, is_dir: bool) -> Result<bool, L
         if !path.is_file() {
             return Ok(true);
         }
-        ensure_user_writable(&path);
+        let _ = ensure_user_writable(&path);
         match fs::remove_file(&path) {
             Ok(()) => Ok(true),
             Err(_) if !path.exists() => Ok(true),
@@ -417,6 +473,26 @@ fn split_scheme(uri: &str) -> Option<(&str, &str)> {
 pub type S3OptionsArg = longtail_store::S3Options;
 #[cfg(not(feature = "s3"))]
 pub type S3OptionsArg = ();
+
+/// The [`S3OptionsArg`] an options struct carries, or `()` when the feature is
+/// off — for the call sites that pass one to a `read_*_from_uri`.
+///
+/// The `s3_options` fields are themselves `#[cfg(feature = "s3")]`, so reading one
+/// unconditionally compiles on a default build and breaks
+/// `--no-default-features`. That is a real configuration (`longtail-testkit`
+/// resolves it, so the differential tests build it) and one no default-feature
+/// test run exercises. Written once here so a new call site cannot get it wrong.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! s3_arg {
+    ($opts:expr) => {{
+        #[cfg(feature = "s3")]
+        let arg: $crate::S3OptionsArg = $opts.s3_options.clone();
+        #[cfg(not(feature = "s3"))]
+        let arg: $crate::S3OptionsArg = ();
+        arg
+    }};
+}
 
 #[cfg(feature = "s3")]
 async fn read_s3(uri: &str, options: &longtail_store::S3Options) -> Result<Vec<u8>, LongtailError> {
@@ -651,13 +727,12 @@ mod tests {
         }
     }
 
-    /// `Path::join` discarding the root is the actual mechanism being defended
+    /// `Path::join` discarding the root is the mechanism [`safe_join`] defends
     /// against; pin it so the guard is never mistaken for redundant.
     ///
-    /// The `join_absolute_paths` lint exists for exactly this footgun, and
-    /// demonstrating it is the point of the test. Note the lint could never have
-    /// caught the real defect: it only fires on a literal, and the production
-    /// sites joined a runtime `&str` from the version index.
+    /// `clippy::join_absolute_paths` covers this footgun but cannot help here:
+    /// it only fires on a literal, and the guarded call sites join a runtime
+    /// `&str` from the version index.
     #[test]
     #[allow(clippy::join_absolute_paths)]
     fn documents_why_the_guard_exists() {

@@ -127,8 +127,23 @@ async fn fake_expiry_credentials_refresh() {
 
 // --- env-gated minio tests ------------------------------------------------
 
+/// Skipping is the default, so these stay inert wherever no endpoint is
+/// configured. Where they are *meant* to run, `LONGTAIL_TEST_S3_REQUIRED` makes
+/// a missing endpoint a hard failure instead — without it, one mis-set variable
+/// reports success without executing a single S3 assertion.
+fn require_s3_if_demanded() {
+    assert!(
+        std::env::var_os("LONGTAIL_TEST_S3_REQUIRED").is_none(),
+        "LONGTAIL_TEST_S3_REQUIRED is set but LONGTAIL_TEST_S3_ENDPOINT is not — \
+         every S3 test would have skipped and reported success"
+    );
+}
+
 fn minio_options() -> Option<(String, S3Options)> {
-    let endpoint = std::env::var("LONGTAIL_TEST_S3_ENDPOINT").ok()?;
+    let Ok(endpoint) = std::env::var("LONGTAIL_TEST_S3_ENDPOINT") else {
+        require_s3_if_demanded();
+        return None;
+    };
     let bucket =
         std::env::var("LONGTAIL_TEST_S3_BUCKET").unwrap_or_else(|_| "longtail-test".into());
     let access =
@@ -229,4 +244,69 @@ async fn s3_store_index_sync() {
     assert_eq!(index.block_hashes.len(), expected);
     let unique: std::collections::HashSet<u64> = index.block_hashes.iter().copied().collect();
     assert_eq!(unique.len(), expected);
+}
+
+/// A truncated listing with no continuation token must be a hard error, never a
+/// short list.
+///
+/// The S3 contract says `IsTruncated=true` always carries a
+/// `NextContinuationToken`, so this needs a non-conformant S3-compatible
+/// endpoint — which `--s3-endpoint-resolver-uri` makes reachable. It matters
+/// because the listing feeds `get_store_store_indexes`: a short list of
+/// `store_*.lsi` shards is a narrowed store index, and blocks that exist become
+/// invisible. Uses a replay client, so it needs no live endpoint.
+#[tokio::test]
+async fn truncated_listing_without_a_continuation_token_is_an_error() {
+    let body = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>bucket</Name>
+  <Prefix>prefix/store</Prefix>
+  <KeyCount>1</KeyCount>
+  <MaxKeys>1000</MaxKeys>
+  <IsTruncated>true</IsTruncated>
+  <Contents>
+    <Key>prefix/store_0000.lsi</Key>
+    <Size>10</Size>
+  </Contents>
+</ListBucketResult>"#;
+
+    let replay = StaticReplayClient::new(vec![ReplayEvent::new(
+        http::Request::builder()
+            .uri("http://s3.local/bucket?list-type=2&prefix=prefix%2Fstore")
+            .body(SdkBody::empty())
+            .unwrap(),
+        http::Response::builder()
+            .status(200)
+            .body(SdkBody::from(body))
+            .unwrap(),
+    )]);
+
+    let conf = aws_sdk_s3::config::Builder::new()
+        .behavior_version(BehaviorVersion::latest())
+        .region(Region::new("us-east-1"))
+        .credentials_provider(SharedCredentialsProvider::new(Credentials::for_tests()))
+        .http_client(replay.clone())
+        .endpoint_url("http://s3.local")
+        .force_path_style(true)
+        .build();
+
+    let store = S3BlobStore::new(
+        "bucket",
+        "prefix",
+        S3Options {
+            client: Some(aws_sdk_s3::Client::from_conf(conf)),
+            ..Default::default()
+        },
+    );
+    let client = store.new_client().await.unwrap();
+
+    let err = client
+        .get_objects("store")
+        .await
+        .expect_err("a truncated listing with no continuation token must not return Ok");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("truncation") && msg.contains("partial listing"),
+        "expected the partial-listing refusal, got: {msg}"
+    );
 }
