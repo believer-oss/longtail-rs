@@ -13,6 +13,10 @@ sha2 = "0.10"
 hex = "0.4"
 walkdir = "2"
 
+# The pure-Rust format layer under test. Always available (the golden fixture
+# tests in the pure lane parse/serialize via longtail-core, no native lib).
+longtail-core = { path = "../../crates/longtail-core" }
+
 # Only pulled in for the `differential` feature: drives the C library via the
 # ffi wrapper to produce/reproduce goldens. Never a default dependency, so the
 # pure test lane needs no native lib.

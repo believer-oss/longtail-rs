@@ -2,3 +2,9 @@
 name = "longtail-core"
 version.workspace = true
 edition.workspace = true
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1"
