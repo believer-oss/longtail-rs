@@ -61,6 +61,29 @@ pub enum FormatError {
     #[error("name offset {offset} out of bounds (name_data len {len})")]
     NameOffsetOutOfBounds { offset: usize, len: usize },
 
+    /// A VersionIndex asset's chunk range `[start, start+count)` falls outside
+    /// `m_AssetChunkIndexes`. Checked at parse time because six consumers index
+    /// that map with plain `[]`; C reads out of bounds here instead.
+    #[error(
+        "asset {asset} chunk range [{start}, {start}+{count}) exceeds \
+         asset_chunk_index_count {len}"
+    )]
+    AssetChunkRangeOutOfBounds {
+        asset: usize,
+        start: u32,
+        count: u32,
+        len: usize,
+    },
+
+    /// An entry of `m_AssetChunkIndexes` points past the chunk arrays. Same
+    /// rationale as [`FormatError::AssetChunkRangeOutOfBounds`].
+    #[error("asset_chunk_indexes[{position}] = {index} exceeds chunk_count {chunk_count}")]
+    AssetChunkIndexOutOfBounds {
+        position: usize,
+        index: u32,
+        chunk_count: usize,
+    },
+
     /// A name string starting at `offset` has no NUL terminator before the end
     /// of the name-data blob.
     #[error("name at offset {offset} is not NUL-terminated")]

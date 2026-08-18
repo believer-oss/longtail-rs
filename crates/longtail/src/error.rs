@@ -74,6 +74,12 @@ pub enum LongtailError {
     #[error("unsupported uri `{uri}`: {reason}")]
     UnsupportedUri { uri: String, reason: String },
 
+    /// An asset path from a version index could not be materialised under the
+    /// target root without escaping it. The path is reported verbatim so the
+    /// offending store can be identified; see `fs_util::safe_join`.
+    #[error("unsafe asset path `{path}`: {reason}")]
+    UnsafeAssetPath { path: String, reason: &'static str },
+
     /// A filesystem I/O error, with the operation/path for context.
     #[error("io error ({context})")]
     Io {
