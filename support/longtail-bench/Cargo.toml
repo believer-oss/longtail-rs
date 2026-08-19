@@ -21,7 +21,7 @@ longtail-testkit = { path = "../longtail-testkit" }
 # corpus seeding.
 blake3 = "1"
 rand_chacha = "0.9"
-rand_core = "0.9"
+rand_core = "0.10"
 
 # wait4 / rusage / kill for the e2e harness (per-child CPU + peak RSS, Linux).
 libc = "0.2"
