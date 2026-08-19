@@ -102,7 +102,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
           ls -l dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
           path: dist/*
@@ -127,7 +127,7 @@ jobs:
           # Full history so the generated notes can reach the previous tag.
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
