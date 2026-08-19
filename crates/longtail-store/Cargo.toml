@@ -31,7 +31,7 @@ async-trait = "0.1"
 bytes = "1"
 futures-util = "0.3"
 fs4 = { version = "0.13.1", features = ["sync"] }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
 tracing = "0.1"
 num_cpus = "1.17"
@@ -62,7 +62,7 @@ tokio = { version = "1.49", features = ["full", "test-util"] }
 tempfile = "3"
 rand = "0.9"
 rand_chacha = "0.9"
-sha2 = "0.10"
+sha2 = "0.11"
 # Credential-refresh proof: inject a fake HTTP layer + custom credentials
 # provider without touching the network.
 aws-smithy-http-client = { version = "1.1", features = ["test-util"] }
