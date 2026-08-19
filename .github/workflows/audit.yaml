@@ -50,7 +50,7 @@ jobs:
       issues: write
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: rustsec/audit-check@3ae01282e2311f82d96cc2181b31c4fbe3dd00c0
         name: audit - linux
         with:

@@ -36,7 +36,7 @@ jobs:
           - { os: ubuntu-latest, platform: linux }
           - { os: windows-latest, platform: windows }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: false
 
@@ -121,7 +121,7 @@ jobs:
       # The only place in this repository that writes to the repository itself.
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: false
           # Full history so the generated notes can reach the previous tag.
