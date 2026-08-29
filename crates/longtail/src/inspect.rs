@@ -109,27 +109,48 @@ pub struct StoreIndexStats {
     pub chunk_count: u32,
     /// Σ of every chunk size across all blocks (with duplicates).
     pub stored_chunks_size: u64,
-    /// Σ of chunk sizes over the unique chunk-hash set.
-    pub unique_stored_chunks_size: u64,
 }
 
-/// Compute `print-store`'s numbers (`--details` sizes are always computed here;
-/// the CLI decides whether to show them).
+/// Compute `print-store`'s cheap numbers: counts and the total stored bytes,
+/// all a single pass or less.
+///
+/// The deduplicated total is [`unique_stored_chunks_size`], kept separate
+/// because it is the expensive one and only `--details` shows it.
 pub fn store_index_stats(si: &StoreIndex) -> StoreIndexStats {
-    let stored: u64 = si.chunk_sizes.iter().map(|&s| s as u64).sum();
-    let mut seen: HashMap<u64, u32> = HashMap::with_capacity(si.chunk_hashes.len());
-    for (i, &h) in si.chunk_hashes.iter().enumerate() {
-        seen.entry(h).or_insert(si.chunk_sizes[i]);
-    }
-    let unique: u64 = seen.values().map(|&s| s as u64).sum();
     StoreIndexStats {
         version: longtail_core::STORE_INDEX_VERSION,
         hash_identifier: si.hash_identifier,
         block_count: si.block_count(),
         chunk_count: si.chunk_count(),
-        stored_chunks_size: stored,
-        unique_stored_chunks_size: unique,
+        stored_chunks_size: si.chunk_sizes.iter().map(|&s| s as u64).sum(),
     }
+}
+
+/// Σ of chunk sizes counted once per distinct chunk hash.
+///
+/// Separate from [`store_index_stats`] because deduplicating is the expensive
+/// part and only `--details` prints the result — a `print-store` without it was
+/// paying for a number nobody saw.
+///
+/// A `HashMap<u64, u32>` reserved to the chunk count cost more than the index it
+/// summarised: at ~143M chunks it took ~2.7 GB before a single entry went in.
+/// Sorting an index permutation is bounded at four bytes per chunk whatever the
+/// store's deduplication ratio, and since a chunk hash identifies its content,
+/// equal hashes carry equal sizes — so summing the first of each run is the same
+/// answer.
+pub fn unique_stored_chunks_size(si: &StoreIndex) -> u64 {
+    let mut order: Vec<u32> = (0..si.chunk_hashes.len() as u32).collect();
+    order.sort_unstable_by_key(|&i| si.chunk_hashes[i as usize]);
+    let mut unique: u64 = 0;
+    let mut prev: Option<u64> = None;
+    for &i in &order {
+        let h = si.chunk_hashes[i as usize];
+        if prev != Some(h) {
+            unique += si.chunk_sizes[i as usize] as u64;
+            prev = Some(h);
+        }
+    }
+    unique
 }
 
 /// Options for [`init_remote_store`].
@@ -354,4 +375,54 @@ pub async fn print_version_usage_stats(
         block_usage_percent: block_usage,
         asset_fragmentation_percent: fragmentation,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use longtail_core::StoreIndex;
+
+    use super::{store_index_stats, unique_stored_chunks_size};
+
+    /// A chunk stored in more than one block counts once. The permutation sort
+    /// replaced a hash map here, so the dedup itself needs holding to the answer
+    /// rather than to the implementation.
+    #[test]
+    fn unique_size_counts_a_repeated_chunk_once() {
+        let si = StoreIndex {
+            hash_identifier: 1,
+            block_hashes: vec![10, 11],
+            // Chunk `7` appears in both blocks; `8` and `9` once each.
+            chunk_hashes: vec![7, 8, 7, 9],
+            block_chunks_offsets: vec![0, 2],
+            block_chunk_counts: vec![2, 2],
+            block_tags: vec![0, 0],
+            chunk_sizes: vec![100, 200, 100, 300],
+        };
+        assert_eq!(store_index_stats(&si).stored_chunks_size, 700);
+        assert_eq!(unique_stored_chunks_size(&si), 600);
+    }
+
+    /// Every chunk distinct — unique equals stored.
+    #[test]
+    fn unique_size_equals_stored_when_nothing_repeats() {
+        let si = StoreIndex {
+            hash_identifier: 1,
+            block_hashes: vec![10],
+            chunk_hashes: vec![1, 2, 3],
+            block_chunks_offsets: vec![0],
+            block_chunk_counts: vec![3],
+            block_tags: vec![0],
+            chunk_sizes: vec![5, 6, 7],
+        };
+        assert_eq!(store_index_stats(&si).stored_chunks_size, 18);
+        assert_eq!(unique_stored_chunks_size(&si), 18);
+    }
+
+    /// An empty index must not panic or report anything.
+    #[test]
+    fn unique_size_of_an_empty_index_is_zero() {
+        let si = StoreIndex::empty(1);
+        assert_eq!(store_index_stats(&si).stored_chunks_size, 0);
+        assert_eq!(unique_stored_chunks_size(&si), 0);
+    }
 }
