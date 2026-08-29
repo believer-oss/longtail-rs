@@ -167,13 +167,11 @@ async fn read_store_index_from_path(
     }
     let mut retry_count: u32 = 0;
     loop {
-        let attempt = match obj.read().await {
-            // Empty stays terminal-as-not-found: the caller rescans the listing
-            // for that (`merge_store_index_items`), which is the better recovery.
-            Ok(data) if data.is_empty() => Err(StoreError::NotFound(key.to_string())),
-            Ok(data) => StoreIndex::from_bytes(&data).map_err(StoreError::from),
-            Err(e) => Err(e),
-        };
+        // Streamed rather than buffered: a production store index reaches
+        // gigabytes, and `from_bytes` would hold the encoding beside the decoded
+        // arrays. An empty shard still reads as not-found — the backends agree on
+        // that — and the caller rescans the listing.
+        let attempt = obj.read_store_index().await;
         match attempt {
             Ok(index) => return Ok((index, retry_count)),
             Err(e) if e.is_not_found() => return Err(e),
@@ -253,15 +251,14 @@ async fn try_add_with_locking(
     let mut obj = client.new_object(key).await?;
     let exists = obj.lock_write_version().await?;
     if exists {
-        let existing = obj.read().await;
-        let existing = match existing {
-            Ok(d) => d,
+        // Streamed, so the upload path never holds the encoded index beside the
+        // decoded one — this is the read that a gigabyte-scale store made fail.
+        let remote = match obj.read_store_index().await {
+            Ok(index) => index,
             Err(e) if e.is_not_found() => return Ok((false, None)),
             Err(e) => return Err(e),
         };
-        let remote = StoreIndex::from_bytes(&existing)?;
-        drop(existing); // the serialized source bytes are done once parsed
-        // Consume `remote` into the union (it's canonical from `from_bytes`), so
+        // Consume `remote` into the union (it is canonical from the decoder), so
         // the pre-merge union is never held alongside a separate `merged`.
         let merged = remote.merge_consuming(add)?;
         let bytes = merged.to_bytes();

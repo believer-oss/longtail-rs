@@ -23,6 +23,8 @@ use aws_sdk_s3::error::{DisplayErrorContext, ProvideErrorMetadata, SdkError};
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 
+use longtail_core::{StoreIndex, StoreIndexReader};
+
 use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
 use crate::error::StoreError;
 
@@ -437,6 +439,48 @@ impl BlobObject for S3BlobObject {
             )));
         }
         Ok(out)
+    }
+
+    /// Streamed: `Content-Length` is the bound and the body is fed to the decoder
+    /// chunk by chunk, so a gigabyte-scale store index never exists twice. No
+    /// read ceiling — see the trait method.
+    async fn read_store_index(&self) -> Result<StoreIndex, StoreError> {
+        let resp = match self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(&self.key)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                if let Some(svc) = e.as_service_error()
+                    && svc.is_no_such_key()
+                {
+                    return Err(StoreError::NotFound(self.key.clone()));
+                }
+                return Err(map_sdk_err(format_args!("get_object {}", self.key), e));
+            }
+        };
+        // The length the decoder is held to. A body that then delivers more or
+        // fewer bytes than this fails in the decoder rather than being trusted.
+        let len = resp.content_length().unwrap_or_default().max(0) as u64;
+        if len == 0 {
+            return Err(StoreError::NotFound(self.key.clone()));
+        }
+        let mut reader = StoreIndexReader::new(len);
+        let mut body = resp.body;
+        while let Some(chunk) = body.try_next().await.map_err(|e| {
+            StoreError::Network(format!(
+                "read body {}: {}",
+                self.key,
+                DisplayErrorContext(&e)
+            ))
+        })? {
+            reader.feed(&chunk)?;
+        }
+        Ok(reader.finish()?)
     }
 
     async fn write(&mut self, data: Bytes) -> Result<bool, StoreError> {
