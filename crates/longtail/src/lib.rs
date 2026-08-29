@@ -61,7 +61,7 @@ pub use inspect::{
     CreateVersionStoreIndexOptions, InitRemoteStoreOptions, PrintVersionUsageOptions,
     StoreIndexStats, ValidateVersionOptions, VersionUsageStats, create_version_store_index,
     init_remote_store, print_version_usage_stats, read_store_index_from_uri,
-    read_version_index_from_uri, store_index_stats, validate_version,
+    read_version_index_from_uri, store_index_stats, unique_stored_chunks_size, validate_version,
 };
 pub use options::{
     DownsyncOptions, DownsyncReport, DownsyncStoreStats, GetOptions, PhaseTiming, UpsyncOptions,

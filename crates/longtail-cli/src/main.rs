@@ -1131,7 +1131,8 @@ async fn run_print_store(a: &PrintStoreArgs) -> Result<(), longtail::LongtailErr
         if a.details {
             line.push_str(&format!(
                 "\t{}\t{}",
-                s.stored_chunks_size, s.unique_stored_chunks_size
+                s.stored_chunks_size,
+                longtail::unique_stored_chunks_size(&si)
             ));
         }
         println!("{line}");
@@ -1154,10 +1155,11 @@ async fn run_print_store(a: &PrintStoreArgs) -> Result<(), longtail::LongtailErr
                 s.stored_chunks_size,
                 byte_count_binary(s.stored_chunks_size)
             );
+            let unique = longtail::unique_stored_chunks_size(&si);
             println!(
                 "Unique Data size:    {}   ({})",
-                s.unique_stored_chunks_size,
-                byte_count_binary(s.unique_stored_chunks_size)
+                unique,
+                byte_count_binary(unique)
             );
         }
     }
