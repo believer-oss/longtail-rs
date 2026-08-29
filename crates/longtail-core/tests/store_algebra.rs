@@ -3,7 +3,7 @@
 //! `StoreIndex::get_existing_store_index` (GetExistingStoreIndex). The byte-level
 //! agreement with C is proved by the testkit's differential tests.
 
-use longtail_core::{BlockIndex, StoreIndex};
+use longtail_core::{BlockIndex, StoreIndex, StoreIndexReader};
 
 fn block(hash: u64, id: u32, tag: u32, chunks: &[(u64, u32)]) -> BlockIndex {
     BlockIndex {
@@ -234,4 +234,78 @@ fn merge_consuming_conflicting_identifier_errors_like_merge() {
     // Both non-empty with differing hash identifiers → both must Err.
     assert!(a.merge(&b).is_err());
     assert!(a.clone().merge_consuming(&b).is_err());
+}
+
+// ---- incremental reader ----------------------------------------------------
+
+/// Feeding an index one byte at a time must produce what `from_bytes` produces.
+/// One byte is the worst case for the carry: every element spans a boundary.
+#[test]
+fn incremental_reader_matches_from_bytes_at_every_chunk_size() {
+    let si = StoreIndex {
+        hash_identifier: 0xd1e3_5d09,
+        block_hashes: vec![0x1111_1111_1111_1111, 0x2222_2222_2222_2222, 3],
+        chunk_hashes: vec![10, 20, 30, 40, 50],
+        block_chunks_offsets: vec![0, 2, 4],
+        block_chunk_counts: vec![2, 2, 1],
+        block_tags: vec![0, 1, 2],
+        chunk_sizes: vec![100, 200, 300, 400, 500],
+    };
+    let bytes = si.to_bytes();
+    let expected = StoreIndex::from_bytes(&bytes).expect("baseline parse");
+
+    for chunk in [1usize, 2, 3, 5, 7, 8, 16, 17, 64, bytes.len()] {
+        let mut r = StoreIndexReader::new(bytes.len() as u64);
+        for part in bytes.chunks(chunk) {
+            r.feed(part)
+                .unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        }
+        let got = r.finish().unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        assert_eq!(got, expected, "chunk size {chunk}");
+    }
+}
+
+/// The declared length is the bound: a header describing far more than the
+/// object holds is refused, and refused before any array is reserved.
+#[test]
+fn incremental_reader_refuses_a_header_that_overstates_the_object() {
+    let mut bytes = StoreIndex::empty(0).to_bytes();
+    // Claim four billion chunks inside a 16-byte object.
+    bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+    let mut r = StoreIndexReader::new(bytes.len() as u64);
+    let err = r.feed(&bytes).expect_err("must refuse");
+    assert!(
+        matches!(err, longtail_core::FormatError::Truncated { .. }),
+        "expected Truncated, got {err:?}"
+    );
+}
+
+/// A stream that stops early is an error, not a short index.
+#[test]
+fn incremental_reader_refuses_a_truncated_stream() {
+    let si = StoreIndex {
+        hash_identifier: 7,
+        block_hashes: vec![1, 2],
+        chunk_hashes: vec![9, 9, 9],
+        block_chunks_offsets: vec![0, 2],
+        block_chunk_counts: vec![2, 1],
+        block_tags: vec![0, 0],
+        chunk_sizes: vec![1, 2, 3],
+    };
+    let bytes = si.to_bytes();
+    let mut r = StoreIndexReader::new(bytes.len() as u64);
+    r.feed(&bytes[..bytes.len() - 4]).unwrap();
+    assert!(
+        r.finish().is_err(),
+        "a short stream must not yield an index"
+    );
+}
+
+/// More bytes than declared is refused rather than silently ignored.
+#[test]
+fn incremental_reader_refuses_a_stream_longer_than_declared() {
+    let bytes = StoreIndex::empty(0).to_bytes();
+    let mut r = StoreIndexReader::new(bytes.len() as u64);
+    r.feed(&bytes).unwrap();
+    assert!(r.feed(&[0u8; 4]).is_err(), "overrun must be refused");
 }

@@ -9,7 +9,8 @@
 //! GCS and Azure backends are intentionally omitted (out of scope for this port).
 
 use bytes::Bytes;
-use longtail_store::blob::{BlobStore, MemBlobStore};
+use longtail_core::StoreIndex;
+use longtail_store::blob::{BlobStore, FsBlobStore, MemBlobStore};
 use longtail_store::create_blob_store_for_uri;
 
 // --- longtailstorelib/blobStore_test.go (mem/fs/uri) ---
@@ -295,4 +296,103 @@ async fn fs_get_objects() {
     assert_eq!(blobs.len(), files.len());
     let nested = client.get_objects("nest").await.unwrap();
     assert_eq!(nested.len(), 2);
+}
+
+// --- store-index reads are bounded differently from block reads --------------
+
+fn sample_index() -> StoreIndex {
+    StoreIndex {
+        hash_identifier: 0xd1e3_5d09,
+        block_hashes: vec![0xaaaa_0000_0000_0001, 0xbbbb_0000_0000_0002],
+        chunk_hashes: vec![1, 2, 3, 4],
+        block_chunks_offsets: vec![0, 2],
+        block_chunk_counts: vec![2, 2],
+        block_tags: vec![0, 0],
+        chunk_sizes: vec![10, 20, 30, 40],
+    }
+}
+
+/// The regression this guards: the read ceiling is a *block* bound and must not
+/// apply to a store index. Production store indexes run to gigabytes, and a
+/// ceiling sized for 8 MiB blocks refused every read against such a store —
+/// upload, validate, prune, and a download without a version-local override.
+///
+/// Asserted at a tiny ceiling rather than a real one so the test stays fast: the
+/// same object must be refused as a blob and accepted as an index.
+#[tokio::test]
+async fn a_store_index_read_is_not_subject_to_the_block_ceiling() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = sample_index().to_bytes();
+    assert!(bytes.len() > 32, "index must exceed the ceiling used below");
+
+    let store = FsBlobStore::new(dir.path().to_str().unwrap(), false).with_max_read_bytes(32);
+    let client = store.new_client().await.expect("client");
+    let mut obj = client.new_object("store.lsi").await.expect("object");
+    obj.write(Bytes::from(bytes)).await.expect("write");
+
+    let as_blob = obj.read().await;
+    assert!(
+        as_blob.is_err(),
+        "a blob read must still honour the ceiling, or this proves nothing"
+    );
+
+    let index = obj
+        .read_store_index()
+        .await
+        .expect("an index read must not be capped by the block ceiling");
+    assert_eq!(index, sample_index());
+}
+
+/// Streaming must produce exactly what buffering produced.
+#[tokio::test]
+async fn a_streamed_store_index_matches_the_buffered_parse() {
+    let dir = tempfile::tempdir().unwrap();
+    let expected = sample_index();
+    let store = FsBlobStore::new(dir.path().to_str().unwrap(), false);
+    let client = store.new_client().await.expect("client");
+    let mut obj = client.new_object("store.lsi").await.expect("object");
+    obj.write(Bytes::from(expected.to_bytes()))
+        .await
+        .expect("write");
+
+    assert_eq!(obj.read_store_index().await.expect("read"), expected);
+}
+
+/// A zero-length shard is a partially-written one. Every backend reports it as
+/// not-found so the caller rescans the listing instead of failing the run.
+#[tokio::test]
+async fn an_empty_store_index_object_reads_as_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = FsBlobStore::new(dir.path().to_str().unwrap(), false);
+    let client = store.new_client().await.expect("client");
+    let mut obj = client.new_object("store.lsi").await.expect("object");
+    obj.write(Bytes::new()).await.expect("write");
+    let err = obj.read_store_index().await.expect_err("must be not-found");
+    assert!(err.is_not_found(), "expected NotFound, got {err:?}");
+
+    // The in-memory backend goes through the default trait method; it must agree.
+    let mem = MemBlobStore::new("p", true);
+    let mc = mem.new_client().await.expect("client");
+    let mut mo = mc.new_object("store.lsi").await.expect("object");
+    mo.write(Bytes::new()).await.expect("write");
+    let err = mo.read_store_index().await.expect_err("must be not-found");
+    assert!(err.is_not_found(), "expected NotFound, got {err:?}");
+}
+
+/// A header describing more than the object holds is refused before anything is
+/// allocated — which is what removes the need for a byte ceiling here.
+#[tokio::test]
+async fn a_store_index_header_that_overstates_the_object_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut bytes = sample_index().to_bytes();
+    bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes()); // chunk_count
+    let store = FsBlobStore::new(dir.path().to_str().unwrap(), false);
+    let client = store.new_client().await.expect("client");
+    let mut obj = client.new_object("store.lsi").await.expect("object");
+    obj.write(Bytes::from(bytes)).await.expect("write");
+
+    assert!(
+        obj.read_store_index().await.is_err(),
+        "a header claiming four billion chunks in a small object must be refused"
+    );
 }
