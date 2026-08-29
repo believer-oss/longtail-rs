@@ -48,6 +48,20 @@ pub enum FormatError {
     #[error("size computation overflowed")]
     SizeOverflow,
 
+    /// The index does not fit in this process's memory. Raised by the
+    /// incremental reader, which reserves through `try_reserve` rather than
+    /// letting the allocator abort: a store index larger than the machine can
+    /// hold has to reach the caller as an error it can report, not as a dead
+    /// process. `bytes` is the reservation that failed.
+    #[error(
+        "cannot allocate {bytes} bytes for a store index of {blocks} blocks and {chunks} chunks"
+    )]
+    AllocationFailed {
+        bytes: usize,
+        blocks: u32,
+        chunks: u32,
+    },
+
     /// `merge` was called with two non-empty StoreIndexes that carry different
     /// hash identifiers (`Longtail_MergeStoreIndex` returns `EINVAL`,
     /// longtail.c:9184).

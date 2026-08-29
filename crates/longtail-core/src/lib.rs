@@ -71,7 +71,7 @@ pub use file_infos::{FileEntry, FileInfos};
 pub use hash::{Blake2s, Blake3, Hash, HashError};
 pub use pack::{block_hash, create_missing_content, create_store_index};
 pub use perms::Permissions;
-pub use store_index::StoreIndex;
+pub use store_index::{StoreIndex, StoreIndexReader};
 pub use validate::{ValidateError, validate_store};
 pub use version_index::VersionIndex;
 

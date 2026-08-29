@@ -29,7 +29,9 @@ use bytes::Bytes;
 use async_trait::async_trait;
 use fs4::fs_std::FileExt;
 
-use super::{BlobClient, BlobObject, BlobProperties, BlobStore};
+use longtail_core::{StoreIndex, StoreIndexReader};
+
+use super::{BlobClient, BlobObject, BlobProperties, BlobStore, STORE_INDEX_CHUNK_BYTES};
 use crate::error::StoreError;
 
 /// A filesystem-backed blob store rooted at `prefix`.
@@ -412,6 +414,50 @@ impl BlobObject for FsBlobObject {
                 )));
             }
             Ok(buf)
+        })
+        .await
+        .map_err(|e| StoreError::Backend(format!("join error: {e}")))?
+    }
+
+    /// Streamed: the file's own length is the bound, and the decoded arrays are
+    /// filled a chunk at a time, so a gigabyte-scale store index costs its own
+    /// size rather than twice it. No read ceiling — see the trait method.
+    async fn read_store_index(&self) -> Result<StoreIndex, StoreError> {
+        let path = self.path.clone();
+        let lock_path = self.lock_path();
+        let enable_locking = self.enable_locking;
+        tokio::task::spawn_blocking(move || -> Result<StoreIndex, StoreError> {
+            let _guard = if enable_locking {
+                Some(lock_file(&path, &lock_path)?)
+            } else {
+                None
+            };
+            let mut f = match File::open(&path) {
+                Ok(f) => f,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(StoreError::NotFound(path.display().to_string()));
+                }
+                Err(e) => return Err(StoreError::io(format!("open {}", path.display()), e)),
+            };
+            let len = f
+                .metadata()
+                .map_err(|e| StoreError::io(format!("stat {}", path.display()), e))?
+                .len();
+            if len == 0 {
+                return Err(StoreError::NotFound(path.display().to_string()));
+            }
+            let mut reader = StoreIndexReader::new(len);
+            let mut buf = vec![0u8; STORE_INDEX_CHUNK_BYTES];
+            loop {
+                let n = f
+                    .read(&mut buf)
+                    .map_err(|e| StoreError::io(format!("read {}", path.display()), e))?;
+                if n == 0 {
+                    break;
+                }
+                reader.feed(&buf[..n])?;
+            }
+            Ok(reader.finish()?)
         })
         .await
         .map_err(|e| StoreError::Backend(format!("join error: {e}")))?

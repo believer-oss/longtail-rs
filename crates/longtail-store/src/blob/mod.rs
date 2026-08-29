@@ -14,6 +14,7 @@
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use longtail_core::{StoreIndex, StoreIndexReader};
 
 use crate::error::StoreError;
 
@@ -47,6 +48,11 @@ pub struct BlobProperties {
 /// refuses nothing a normal store contains. A deployment that genuinely writes
 /// larger blocks can raise it — see `BlockStoreOpts::max_block_bytes`.
 pub const DEFAULT_MAX_BLOB_BYTES: u64 = 256 << 20;
+
+/// Chunk size for streaming a store index off a backend. Large enough that the
+/// per-chunk overhead disappears against a gigabyte-scale index, small enough
+/// that it is noise next to the arrays being filled.
+pub const STORE_INDEX_CHUNK_BYTES: usize = 4 << 20;
 
 /// A blob store: a factory for [`BlobClient`]s. Cheap to clone/share (`Arc`ed by
 /// the block store).
@@ -98,7 +104,38 @@ pub trait BlobObject: Send + Sync {
     async fn lock_write_version(&mut self) -> Result<bool, StoreError>;
 
     /// Read the object's bytes. Missing object → [`StoreError::NotFound`].
+    ///
+    /// Bounded by the backend's read ceiling; see [`DEFAULT_MAX_BLOB_BYTES`].
     async fn read(&self) -> Result<Vec<u8>, StoreError>;
+
+    /// Read the object as a store index, without holding the encoded bytes
+    /// beside the decoded arrays.
+    ///
+    /// Separate from [`read`](Self::read) because the two objects have different
+    /// bounds. A block is bounded from outside — the store index says how many
+    /// chunks it holds and how big they are — so a byte ceiling costs nothing and
+    /// catches a backend serving something absurd. A store index has no such
+    /// oracle: it is legitimately gigabytes in a production store, so any ceiling
+    /// is a number that eventually refuses real data. What bounds this instead is
+    /// the object's own length, which the caller knows before reading: the
+    /// header's counts must describe exactly that many bytes, and the arrays are
+    /// reserved through `try_reserve`, so an index too large for the machine is an
+    /// error rather than an abort.
+    ///
+    /// The default implementation buffers and parses, which is correct but costs
+    /// twice the index. Backends that can stream override it.
+    /// An empty object reads as [`StoreError::NotFound`] rather than as a parse
+    /// error: a zero-length shard is a partially-written one, and the caller
+    /// recovers by rescanning the listing.
+    async fn read_store_index(&self) -> Result<StoreIndex, StoreError> {
+        let bytes = self.read().await?;
+        if bytes.is_empty() {
+            return Err(StoreError::NotFound(self.name()));
+        }
+        let mut reader = StoreIndexReader::new(bytes.len() as u64);
+        reader.feed(&bytes)?;
+        Ok(reader.finish()?)
+    }
 
     /// Write bytes. Returns `true` on success, `false` if a generation-locked
     /// write was prevented by a concurrent change (no error). Unlocked handles

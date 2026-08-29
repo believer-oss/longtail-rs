@@ -658,3 +658,209 @@ impl StoreIndex {
         StoreIndex::from_block_indexes(&blocks).unwrap_or_else(|_| StoreIndex::empty(0))
     }
 }
+
+/// Incremental `.lsi` reader: decodes a store index from a byte stream without
+/// ever holding the encoded bytes beside the decoded arrays.
+///
+/// `StoreIndex::from_bytes` needs the whole object resident first, and the
+/// decoded arrays are the same size as the encoding — `data_size` is exactly
+/// their sum — so parsing a 1.5 GiB index that way costs 3 GiB. Production store
+/// indexes reach that size, and the peak is paid on every read, including the
+/// download path's.
+///
+/// Feeding the object in chunks costs the arrays plus whatever the caller's
+/// chunk is, which is the irreducible price of holding the index at all.
+///
+/// **The declared length is the bound.** The caller knows the object's real size
+/// before reading it (`metadata()` on a file, `Content-Length` on S3) and passes
+/// it here; the header's counts must describe exactly that many bytes. A header
+/// claiming four billion chunks inside a small object is refused before anything
+/// is allocated, so no ceiling on the size is needed to keep a malformed header
+/// from choosing this process's memory use. What a hostile store can still do is
+/// serve an object that really is enormous, and the reservations below use
+/// `try_reserve` so that ends the operation with an error rather than aborting
+/// the process on an allocation failure.
+pub struct StoreIndexReader {
+    declared_len: u64,
+    seen: u64,
+    header: [u8; HEADER_SIZE],
+    header_len: usize,
+    /// Set once the header is parsed and the arrays are reserved.
+    index: Option<StoreIndex>,
+    /// Remaining element counts, in wire order.
+    stage: usize,
+    remaining: [u64; 6],
+    /// Bytes of a partially-received element, carried across chunk boundaries.
+    carry: [u8; 8],
+    carry_len: usize,
+}
+
+/// Element width in bytes for each wire-order stage.
+const STAGE_WIDTH: [usize; 6] = [8, 8, 4, 4, 4, 4];
+
+impl StoreIndexReader {
+    /// Start a reader for an object of exactly `declared_len` bytes.
+    pub fn new(declared_len: u64) -> StoreIndexReader {
+        StoreIndexReader {
+            declared_len,
+            seen: 0,
+            header: [0; HEADER_SIZE],
+            header_len: 0,
+            index: None,
+            stage: 0,
+            remaining: [0; 6],
+            carry: [0; 8],
+            carry_len: 0,
+        }
+    }
+
+    /// Reserve `count` elements of `T`-width in a vector, as a typed error
+    /// rather than an abort.
+    fn reserve<T>(v: &mut Vec<T>, count: usize, b: u32, c: u32) -> Result<(), FormatError> {
+        v.try_reserve_exact(count)
+            .map_err(|_| FormatError::AllocationFailed {
+                bytes: count.saturating_mul(core::mem::size_of::<T>()),
+                blocks: b,
+                chunks: c,
+            })
+    }
+
+    fn start_body(&mut self) -> Result<(), FormatError> {
+        let mut r = Reader::new(&self.header);
+        let version = r.u32()?;
+        if version != VERSION {
+            return Err(FormatError::UnsupportedVersion {
+                found: version,
+                expected: VERSION,
+            });
+        }
+        let hash_identifier = r.u32()?;
+        let block_count = r.u32()?;
+        let chunk_count = r.u32()?;
+        let b = block_count as usize;
+        let c = chunk_count as usize;
+
+        // The header must account for the object exactly. Short means truncated;
+        // long means trailing bytes, which `from_bytes` also refuses so the
+        // round-trip fixpoint holds.
+        let expected = StoreIndex::data_size(b, c)?;
+        let expected_u64 = expected as u64;
+        if expected_u64 != self.declared_len {
+            return Err(if expected_u64 > self.declared_len {
+                FormatError::Truncated {
+                    expected,
+                    actual: usize::try_from(self.declared_len).unwrap_or(usize::MAX),
+                }
+            } else {
+                FormatError::TrailingBytes {
+                    expected,
+                    actual: usize::try_from(self.declared_len).unwrap_or(usize::MAX),
+                }
+            });
+        }
+
+        let mut index = StoreIndex::empty(hash_identifier);
+        Self::reserve(&mut index.block_hashes, b, block_count, chunk_count)?;
+        Self::reserve(&mut index.chunk_hashes, c, block_count, chunk_count)?;
+        Self::reserve(&mut index.block_chunks_offsets, b, block_count, chunk_count)?;
+        Self::reserve(&mut index.block_chunk_counts, b, block_count, chunk_count)?;
+        Self::reserve(&mut index.block_tags, b, block_count, chunk_count)?;
+        Self::reserve(&mut index.chunk_sizes, c, block_count, chunk_count)?;
+
+        self.remaining = [b as u64, c as u64, b as u64, b as u64, b as u64, c as u64];
+        self.index = Some(index);
+        Ok(())
+    }
+
+    /// Decode one element of the current stage from `buf` (already known to hold
+    /// at least the stage's width).
+    fn push(&mut self, buf: &[u8]) {
+        let index = self.index.as_mut().expect("body started");
+        match self.stage {
+            0 => index
+                .block_hashes
+                .push(u64::from_le_bytes(buf[..8].try_into().unwrap())),
+            1 => index
+                .chunk_hashes
+                .push(u64::from_le_bytes(buf[..8].try_into().unwrap())),
+            2 => index
+                .block_chunks_offsets
+                .push(u32::from_le_bytes(buf[..4].try_into().unwrap())),
+            3 => index
+                .block_chunk_counts
+                .push(u32::from_le_bytes(buf[..4].try_into().unwrap())),
+            4 => index
+                .block_tags
+                .push(u32::from_le_bytes(buf[..4].try_into().unwrap())),
+            _ => index
+                .chunk_sizes
+                .push(u32::from_le_bytes(buf[..4].try_into().unwrap())),
+        }
+        self.remaining[self.stage] -= 1;
+        while self.stage < 5 && self.remaining[self.stage] == 0 {
+            self.stage += 1;
+        }
+    }
+
+    /// Feed the next chunk of the object. Chunks may split an element.
+    pub fn feed(&mut self, mut bytes: &[u8]) -> Result<(), FormatError> {
+        self.seen = self.seen.saturating_add(bytes.len() as u64);
+        if self.seen > self.declared_len {
+            return Err(FormatError::TrailingBytes {
+                expected: usize::try_from(self.declared_len).unwrap_or(usize::MAX),
+                actual: usize::try_from(self.seen).unwrap_or(usize::MAX),
+            });
+        }
+
+        // Header first, accumulated across chunks if need be.
+        if self.header_len < HEADER_SIZE {
+            let want = (HEADER_SIZE - self.header_len).min(bytes.len());
+            self.header[self.header_len..self.header_len + want].copy_from_slice(&bytes[..want]);
+            self.header_len += want;
+            bytes = &bytes[want..];
+            if self.header_len < HEADER_SIZE {
+                return Ok(());
+            }
+            self.start_body()?;
+        }
+
+        while !bytes.is_empty() && self.remaining[self.stage] > 0 {
+            let width = STAGE_WIDTH[self.stage];
+            if self.carry_len > 0 {
+                let want = (width - self.carry_len).min(bytes.len());
+                self.carry[self.carry_len..self.carry_len + want].copy_from_slice(&bytes[..want]);
+                self.carry_len += want;
+                bytes = &bytes[want..];
+                if self.carry_len < width {
+                    return Ok(());
+                }
+                let elem = self.carry;
+                self.carry_len = 0;
+                self.push(&elem);
+                continue;
+            }
+            if bytes.len() < width {
+                self.carry[..bytes.len()].copy_from_slice(bytes);
+                self.carry_len = bytes.len();
+                return Ok(());
+            }
+            self.push(&bytes[..width]);
+            bytes = &bytes[width..];
+        }
+        Ok(())
+    }
+
+    /// Finish, or report what the stream failed to deliver.
+    pub fn finish(self) -> Result<StoreIndex, FormatError> {
+        if self.seen < self.declared_len || self.header_len < HEADER_SIZE {
+            return Err(FormatError::Truncated {
+                expected: usize::try_from(self.declared_len).unwrap_or(usize::MAX),
+                actual: usize::try_from(self.seen).unwrap_or(usize::MAX),
+            });
+        }
+        self.index.ok_or(FormatError::Truncated {
+            expected: HEADER_SIZE,
+            actual: usize::try_from(self.seen).unwrap_or(usize::MAX),
+        })
+    }
+}
