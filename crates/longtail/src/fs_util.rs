@@ -631,6 +631,98 @@ pub fn delete_local(path: &Path) -> Result<(), LongtailError> {
     Ok(())
 }
 
+/// Read a store index (`.lsi`) from a URI, decoded as it arrives.
+///
+/// The buffered equivalent — [`read_from_uri`] followed by
+/// `StoreIndex::from_bytes` — has two problems on a real store. It holds the
+/// encoding beside the decoded arrays, and `data_size` is exactly their sum, so
+/// it costs twice the index; and on `s3://` it goes through the blob layer's
+/// `read()` ceiling, which a production index (~1.5 GB) legitimately exceeds, so
+/// it does not merely cost more, it fails. `BlobObject::read_store_index`
+/// streams against the object's own length and carries no ceiling.
+///
+/// Deliberately not routed through `create_blob_store_for_uri`: that takes a URI
+/// and nothing else, so it drops the S3 endpoint and region overrides that the
+/// bare `read_*_from_uri` readers were taught to honour. The dispatch below
+/// mirrors [`read_from_uri`]'s instead, and the S3 arm builds its store the same
+/// way `read_s3` does.
+pub async fn read_store_index_from_uri(
+    uri: &str,
+    #[allow(unused)] s3_options: &S3OptionsArg,
+) -> Result<longtail_core::StoreIndex, LongtailError> {
+    if let Some(rest) = uri.strip_prefix("file://") {
+        return read_store_index_local(rest).await;
+    }
+    if let Some(rest) = uri.strip_prefix("fsblob://") {
+        return read_store_index_local(rest).await;
+    }
+    if uri.starts_with("s3://") {
+        #[cfg(feature = "s3")]
+        {
+            return read_store_index_s3(uri, s3_options).await;
+        }
+        #[cfg(not(feature = "s3"))]
+        {
+            return Err(LongtailError::UnsupportedUri {
+                uri: uri.to_string(),
+                reason: "s3:// support was compiled out".into(),
+            });
+        }
+    }
+    if let Some((scheme, _)) = split_scheme(uri)
+        && scheme.len() > 1
+    {
+        return Err(LongtailError::UnsupportedUri {
+            uri: uri.to_string(),
+            reason: format!("unsupported uri scheme `{scheme}`"),
+        });
+    }
+    read_store_index_local(uri).await
+}
+
+/// The local arm of [`read_store_index_from_uri`]. Splits into the containing
+/// directory and the object name, as the S3 arm does, and reads with locking off
+/// — matching the plain `fs::read` this replaced.
+async fn read_store_index_local(path: &str) -> Result<longtail_core::StoreIndex, LongtailError> {
+    use longtail_store::{BlobStore, FsBlobStore};
+    let p = Path::new(path);
+    let name =
+        p.file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| LongtailError::UnsupportedUri {
+                uri: path.to_string(),
+                reason: "path has no file name".into(),
+            })?;
+    let parent = p.parent().unwrap_or_else(|| Path::new(""));
+    let store = FsBlobStore::new(parent, false);
+    let client = store.new_client().await?;
+    let obj = client.new_object(name).await?;
+    obj.read_store_index().await.map_err(LongtailError::from)
+}
+
+#[cfg(feature = "s3")]
+async fn read_store_index_s3(
+    uri: &str,
+    options: &longtail_store::S3Options,
+) -> Result<longtail_core::StoreIndex, LongtailError> {
+    use longtail_store::{BlobStore, S3BlobStore};
+    // Split into a parent-directory URI and the object basename, as `read_s3`.
+    let after = &uri["s3://".len()..];
+    let (parent, name) = match after.rfind('/') {
+        Some(pos) => (&uri[..("s3://".len() + pos)], &after[pos + 1..]),
+        None => {
+            return Err(LongtailError::UnsupportedUri {
+                uri: uri.to_string(),
+                reason: "s3 uri missing object key".into(),
+            });
+        }
+    };
+    let store = S3BlobStore::from_uri_with_options(parent, options.clone())?;
+    let client = store.new_client().await?;
+    let obj = client.new_object(name).await?;
+    obj.read_store_index().await.map_err(LongtailError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

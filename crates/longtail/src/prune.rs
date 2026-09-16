@@ -76,8 +76,7 @@ where
     if let Some(lsi) = lsi_path
         && !g.write_version_local_store_index
     {
-        let bytes = fs_util::read_from_uri(lsi, s3).await?;
-        let existing = StoreIndex::from_bytes(&bytes)?;
+        let existing = fs_util::read_store_index_from_uri(lsi, s3).await?;
         // Hard error on validation failure regardless of skip flag (matches
         // readPruneVersion, cmd_prunestore.go:49-55).
         validate_store(&existing, version)?;
@@ -353,8 +352,7 @@ pub async fn prune_store_index(
     };
     check_lsi_len(&g)?;
 
-    let bytes = fs_util::read_from_uri(&opts.store_index_path, &s3).await?;
-    let store_index = StoreIndex::from_bytes(&bytes)?;
+    let store_index = fs_util::read_store_index_from_uri(&opts.store_index_path, &s3).await?;
 
     let mut keep: HashSet<u64> = HashSet::new();
     for (i, path) in opts.source_version_index_paths.iter().enumerate() {
@@ -459,8 +457,7 @@ pub async fn prune_store_blocks(
     #[cfg(not(feature = "s3"))]
     let s3: S3OptionsArg = ();
 
-    let store_index_bytes = fs_util::read_from_uri(&opts.store_index_path, &s3).await?;
-    let store_index = StoreIndex::from_bytes(&store_index_bytes)?;
+    let store_index = fs_util::read_store_index_from_uri(&opts.store_index_path, &s3).await?;
     let used: HashSet<u64> = store_index.block_hashes.iter().copied().collect();
 
     let blob_store = create_blob_store_for_uri(&opts.blocks_root_path)?;

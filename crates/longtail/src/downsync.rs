@@ -487,24 +487,16 @@ async fn load_store_index_override(paths: &[String], s3: &S3OptionsArg) -> Optio
     // wrong" is invisible from the outside.
     let mut acc: Option<StoreIndex> = None;
     for p in paths {
-        let bytes = match fs_util::read_from_uri(p, s3).await {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!(
-                    uri = %p,
-                    error = %e,
-                    "could not read version-local store index; falling back to reading the whole store index"
-                );
-                return None;
-            }
-        };
-        let si = match StoreIndex::from_bytes(&bytes) {
+        // Reading and parsing are one streamed operation now, so the two failures
+        // share a message; `error` still distinguishes them (an I/O or `NotFound`
+        // against a format error).
+        let si = match fs_util::read_store_index_from_uri(p, s3).await {
             Ok(si) => si,
             Err(e) => {
                 tracing::warn!(
                     uri = %p,
                     error = %e,
-                    "version-local store index did not parse; falling back to reading the whole store index"
+                    "could not read version-local store index; falling back to reading the whole store index"
                 );
                 return None;
             }
