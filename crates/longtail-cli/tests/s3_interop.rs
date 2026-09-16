@@ -1,14 +1,15 @@
 //! Interop gate ⑧ — Rust and spawned golongtail **concurrently** upsync
-//! disjoint content to one minio store; the converged store index must contain
+//! disjoint content to one S3 store; the converged store index must contain
 //! every block, and each implementation must then downsync the *other's*
-//! version. Env-gated (skips cleanly without a minio endpoint) and needs the
+//! version. Env-gated (skips cleanly without an S3 endpoint) and needs the
 //! pinned golongtail binary cached (`xtask fetch-golongtail`).
 //!
 //! **Path-style caveat (proven in the manual smoke test):** golongtail never
 //! sets `UsePathStyle`, so its AWS SDK addresses buckets virtual-host style
-//! (`<bucket>.<host>`). Stock minio does not serve that; run minio with
-//! `MINIO_DOMAIN=<host>` and set `LONGTAIL_TEST_S3_ENDPOINT` to a host that
-//! resolves virtual-host names to the minio address (e.g.
+//! (`<bucket>.<host>`). A server only serves that once told its domain —
+//! `RUSTFS_SERVER_DOMAINS=<host>` on rustfs, which is what CI runs, or
+//! `MINIO_DOMAIN=<host>` on minio. Set `LONGTAIL_TEST_S3_ENDPOINT` to a host
+//! that resolves virtual-host names to the server (e.g.
 //! `http://127.0.0.1.nip.io:PORT`).
 
 // Unix-only: this drives a spawned golongtail binary, and the pinned build

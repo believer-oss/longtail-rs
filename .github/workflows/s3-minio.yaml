@@ -4,6 +4,15 @@ name: "S3 integration"
 # golongtail writers against one store). These need a live S3-compatible
 # endpoint, so they are not part of the per-PR suite.
 #
+# The endpoint is rustfs, not minio. MinIO withdrew its community image from
+# Docker Hub — `minio/minio` 404s at the registry API and every tag, `latest`
+# included, is access-denied — so the previous jobs could not pull at all. The
+# quay.io mirror still serves a build, but it is frozen at
+# RELEASE.2025-09-07 and receives nothing further, so it is a dead end rather
+# than a fix. rustfs is Apache-2.0, actively published, and covers what these
+# jobs need: path-style and virtual-hosted-style addressing side by side, a
+# `/health` readiness endpoint, and `server <dir>` as its command.
+#
 # Triggered by dependency changes rather than by a clock: S3 is the production
 # store and both implementations write it concurrently, and the realistic way
 # that breaks is a dependency bump — `aws-sdk-s3` and the stack under it move
@@ -42,25 +51,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
-    # minio is started as a step, not a service container: the official image
-    # needs `server /data` as its command and `services:` cannot supply one.
-    # (bitnami/minio started a server by default and auto-created
-    # MINIO_DEFAULT_BUCKETS, but no longer publishes the tag this used.)
+    # Started as a step, not a service container: the image needs
+    # `server /data` as its command and `services:` cannot supply one.
     env:
       LONGTAIL_TEST_S3_ENDPOINT: http://localhost:9000
       LONGTAIL_TEST_S3_BUCKET: longtail-test
-      LONGTAIL_TEST_S3_ACCESS_KEY: minioadmin
-      LONGTAIL_TEST_S3_SECRET_KEY: minioadmin
+      LONGTAIL_TEST_S3_ACCESS_KEY: longtailtest
+      LONGTAIL_TEST_S3_SECRET_KEY: longtailtestsecret
       LONGTAIL_TEST_S3_REQUIRED: "1"
 
     steps:
       # First, so it boots while the toolchain installs.
-      - name: Start minio
+      #
+      # Pinned by digest, because `latest` here is a rolling build of main.
+      # It is `latest` rather than a release tag because the released tags
+      # (`1.0.0-alpha.N`) ship an image without the entrypoint that provisions
+      # /data and /logs, so `server /data` exits 1 on them. To bump: pull the
+      # new digest, run `s3_spec`, `mixed_writer` and `s3_interop` against it
+      # locally, then edit the digest in BOTH jobs.
+      - name: Start rustfs
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+          docker run -d --name rustfs -p 9000:9000 \
+            -e RUSTFS_ACCESS_KEY=longtailtest \
+            -e RUSTFS_SECRET_KEY=longtailtestsecret \
+            rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff \
+            server /data
 
       - uses: actions/checkout@v4
         with:
@@ -68,33 +83,33 @@ jobs:
 
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
 
-      - name: Wait for minio and create the bucket
+      - name: Wait for rustfs and create the bucket
         env:
-          AWS_ACCESS_KEY_ID: minioadmin
-          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_ACCESS_KEY_ID: longtailtest
+          AWS_SECRET_ACCESS_KEY: longtailtestsecret
           AWS_REGION: us-east-1
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:9000/minio/health/ready; then break; fi
+            if curl -sf http://localhost:9000/health; then break; fi
             sleep 2
           done
-          curl -sf http://localhost:9000/minio/health/ready \
-            || { echo "::error::minio did not become ready"; docker logs minio; exit 1; }
+          curl -sf http://localhost:9000/health \
+            || { echo "::error::rustfs did not become ready"; docker logs rustfs; exit 1; }
           # The tests set force_path_style, so a plain host works here.
           aws --endpoint-url http://localhost:9000 s3 mb s3://longtail-test
 
       # The S3 blob/sync tests live in longtail-store's `s3_spec` integration
-      # test; the env vars above make them execute against minio (they skip when
-      # absent). The mem/fs store suite already runs in the main test job.
-      - name: S3 blob/sync tests against minio
+      # test; the env vars above make them execute against rustfs (they skip
+      # when absent). The mem/fs store suite already runs in the main test job.
+      - name: S3 blob/sync tests against rustfs
         run: cargo test -p longtail-store --test s3_spec
 
   # Interop gate ⑧: Rust CLI + spawned golongtail concurrently upsync
-  # disjoint content to one minio store, then cross-downsync. golongtail's AWS
-  # SDK uses VIRTUAL-HOST addressing (it never sets UsePathStyle), so minio must
-  # run with MINIO_DOMAIN and the endpoint host must resolve `<bucket>.<host>`.
-  # `*.127.0.0.1.nip.io` resolves to 127.0.0.1 via public DNS, so it works on a
-  # runner. Validated locally against podman minio.
+  # disjoint content to one store, then cross-downsync. golongtail's AWS SDK
+  # uses VIRTUAL-HOST addressing (it never sets UsePathStyle), so the server
+  # must be told its domain and the endpoint host must resolve
+  # `<bucket>.<host>`. `*.127.0.0.1.nip.io` resolves to 127.0.0.1 via public
+  # DNS, so it works on a runner. Validated locally against podman rustfs.
   s3-interop-gate8:
     name: s3 mixed-writer interop - linux
     runs-on: ubuntu-latest
@@ -102,35 +117,37 @@ jobs:
     env:
       LONGTAIL_TEST_S3_ENDPOINT: http://127.0.0.1.nip.io:9000
       LONGTAIL_TEST_S3_BUCKET: longtail-interop
-      LONGTAIL_TEST_S3_ACCESS_KEY: minioadmin
-      LONGTAIL_TEST_S3_SECRET_KEY: minioadmin
+      LONGTAIL_TEST_S3_ACCESS_KEY: longtailtest
+      LONGTAIL_TEST_S3_SECRET_KEY: longtailtestsecret
       LONGTAIL_TEST_S3_REQUIRED: "1"
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: longtailtest
+      AWS_SECRET_ACCESS_KEY: longtailtestsecret
       AWS_REGION: us-east-1
     steps:
-      # MINIO_DOMAIN makes minio serve `<bucket>.<host>`, which golongtail's SDK
-      # requires; see the note above.
-      - name: Start minio
+      # RUSTFS_SERVER_DOMAINS is the MINIO_DOMAIN equivalent: it makes rustfs
+      # route `<bucket>.<host>`, which golongtail's SDK requires; see the note
+      # above. Path-style keeps working alongside it, so one server serves both.
+      - name: Start rustfs
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            -e MINIO_DOMAIN=127.0.0.1.nip.io \
-            minio/minio:latest server /data
+          docker run -d --name rustfs -p 9000:9000 \
+            -e RUSTFS_ACCESS_KEY=longtailtest \
+            -e RUSTFS_SECRET_KEY=longtailtestsecret \
+            -e RUSTFS_SERVER_DOMAINS=127.0.0.1.nip.io \
+            rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff \
+            server /data
 
       - uses: actions/checkout@v4
         with:
           submodules: false
       - uses: believer-oss/setup-rust-toolchain@ff4c7a2d9523e22eab355f13c7732a4ea3e7a9b1
-      - name: Wait for minio and create the bucket
+      - name: Wait for rustfs and create the bucket
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:9000/minio/health/ready; then break; fi
+            if curl -sf http://127.0.0.1:9000/health; then break; fi
             sleep 2
           done
-          curl -sf http://127.0.0.1:9000/minio/health/ready \
-            || { echo "::error::minio did not become ready"; docker logs minio; exit 1; }
+          curl -sf http://127.0.0.1:9000/health \
+            || { echo "::error::rustfs did not become ready"; docker logs rustfs; exit 1; }
           # Created through the virtual-host endpoint, so this also proves the
           # `<bucket>.<host>` path works before the interop test depends on it.
           aws --endpoint-url http://127.0.0.1.nip.io:9000 s3 mb s3://longtail-interop

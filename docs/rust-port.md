@@ -252,9 +252,10 @@ deferred:
   hash and compression tags come from the source version index. golongtail ignores them here too.
 - **`clone-store` skips already-cloned versions**, where v0.4.5's swapped arguments meant the skip
   never fired (§Upstream findings). Re-running is cheaper; the end state is identical.
-- **minio and other S3-compatible endpoints** need virtual-host bucket addressing, because
-  golongtail's AWS SDK never sets path-style. Run minio with `MINIO_DOMAIN=<host>` and use an
-  endpoint whose host resolves `<bucket>.<host>` — `127.0.0.1.nip.io` does. Real S3 is unaffected.
+- **S3-compatible endpoints** need virtual-host bucket addressing, because golongtail's AWS SDK
+  never sets path-style. Tell the server its domain — `RUSTFS_SERVER_DOMAINS=<host>` on rustfs,
+  which is what CI runs, or `MINIO_DOMAIN=<host>` on minio — and use an endpoint whose host
+  resolves `<bucket>.<host>`; `127.0.0.1.nip.io` does. Real S3 is unaffected.
 
 ## Trust boundary
 
