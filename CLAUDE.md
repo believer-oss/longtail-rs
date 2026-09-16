@@ -107,7 +107,7 @@ compiled by nothing else.
 
 The heavier suites carry their own triggers so they run when they can tell you something:
 `differential.yaml` (regression against the retained C implementation, Ubuntu + Windows) and
-`s3-minio.yaml` (blob sync and the mixed Rust/Go writer interop, against a minio container) run
+`s3-minio.yaml` (blob sync and the mixed Rust/Go writer interop, against a rustfs container) run
 on a schedule and on PRs that touch what they guard — manifests, lockfile, or the code underneath
 them. `audit.yaml` runs `rustsec/audit-check`. `fixture-freshness.yaml` is schedule-only.
 `release-readiness.yaml` builds and tests the shipped `[profile.release]` on both platforms; it is
