@@ -444,6 +444,14 @@ impl BlobObject for S3BlobObject {
     /// Streamed: `Content-Length` is the bound and the body is fed to the decoder
     /// chunk by chunk, so a gigabyte-scale store index never exists twice. No
     /// read ceiling — see the trait method.
+    ///
+    /// A response without a usable `Content-Length` (chunked, or through a proxy
+    /// that drops it) falls back to buffering the body and decoding what actually
+    /// arrived. It must not be read as a zero-length object: the sync path treats
+    /// `NotFound` on a listed shard as "it vanished mid-scan" and rescans, and
+    /// `read_store_store_index_with_items` rescans in an unbounded loop — so an
+    /// endpoint that never sends the header would spin forever instead of
+    /// failing.
     async fn read_store_index(&self) -> Result<StoreIndex, StoreError> {
         let resp = match self
             .client
@@ -465,12 +473,52 @@ impl BlobObject for S3BlobObject {
         };
         // The length the decoder is held to. A body that then delivers more or
         // fewer bytes than this fails in the decoder rather than being trusted.
-        let len = resp.content_length().unwrap_or_default().max(0) as u64;
-        if len == 0 {
-            return Err(StoreError::NotFound(self.key.clone()));
-        }
-        let mut reader = StoreIndexReader::new(len);
+        // Absent (or negative) is "unknown", which is not the same as zero.
+        let declared = match resp.content_length() {
+            Some(0) => return Err(StoreError::NotFound(self.key.clone())),
+            Some(n) if n > 0 => Some(n as u64),
+            other => {
+                tracing::warn!(
+                    key = %self.key,
+                    content_length = ?other,
+                    "store index served without a usable Content-Length; \
+                     buffering the body instead of streaming it"
+                );
+                None
+            }
+        };
         let mut body = resp.body;
+        let Some(len) = declared else {
+            // No declared length to hold the decoder to, so the body is the only
+            // statement of its own size, and it has to arrive whole before the
+            // header's counts can be checked against anything. The chunks are
+            // dropped as they are fed, but `start_body` reserves all six arrays
+            // on the first one, so the buffer and the arrays overlap: the peak
+            // here is nearer twice the index than once. That is the price of an
+            // endpoint that will not say how big its object is, and it is why
+            // this is the fallback rather than the path.
+            let mut chunks: Vec<Bytes> = Vec::new();
+            let mut total = 0u64;
+            while let Some(chunk) = body.try_next().await.map_err(|e| {
+                StoreError::Network(format!(
+                    "read body {}: {}",
+                    self.key,
+                    DisplayErrorContext(&e)
+                ))
+            })? {
+                total += chunk.len() as u64;
+                chunks.push(chunk);
+            }
+            if total == 0 {
+                return Err(StoreError::NotFound(self.key.clone()));
+            }
+            let mut reader = StoreIndexReader::new(total);
+            for chunk in chunks {
+                reader.feed(&chunk)?;
+            }
+            return Ok(reader.finish()?);
+        };
+        let mut reader = StoreIndexReader::new(len);
         while let Some(chunk) = body.try_next().await.map_err(|e| {
             StoreError::Network(format!(
                 "read body {}: {}",

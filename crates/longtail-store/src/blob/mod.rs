@@ -122,6 +122,13 @@ pub trait BlobObject: Send + Sync {
     /// reserved through `try_reserve`, so an index too large for the machine is an
     /// error rather than an abort.
     ///
+    /// How much that bound is worth depends on the backend. A file's length is
+    /// authoritative; an S3 `Content-Length` is the server's claim, and since no
+    /// ceiling applies here, an endpoint that declares and serves an enormous
+    /// object can still drive this process out of memory — `try_reserve` catches
+    /// the allocation the allocator refuses, not the one that overcommit grants.
+    /// Point this at stores you control.
+    ///
     /// The default implementation buffers and parses, which is correct but costs
     /// twice the index. Backends that can stream override it.
     /// An empty object reads as [`StoreError::NotFound`] rather than as a parse
