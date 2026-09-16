@@ -62,6 +62,15 @@ pub enum FormatError {
         chunks: u32,
     },
 
+    /// The stream delivered every declared byte, but the incremental reader
+    /// finished with elements still outstanding. The two are separate facts and
+    /// only the second says the arrays are whole; since the header's counts are
+    /// checked against the object's length before any body byte is decoded, this
+    /// is the assertion that keeps a decoder bug from returning a short index as
+    /// a complete one rather than a condition malformed input can reach.
+    #[error("store index body ended with {elements} elements and {carry} carried bytes undecoded")]
+    IncompleteBody { elements: u64, carry: usize },
+
     /// `merge` was called with two non-empty StoreIndexes that carry different
     /// hash identifiers (`Longtail_MergeStoreIndex` returns `EINVAL`,
     /// longtail.c:9184).
