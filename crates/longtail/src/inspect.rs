@@ -95,8 +95,7 @@ pub async fn read_store_index_from_uri(
     uri: &str,
     s3_options: &S3OptionsArg,
 ) -> Result<StoreIndex, LongtailError> {
-    let bytes = fs_util::read_from_uri(uri, s3_options).await?;
-    Ok(StoreIndex::from_bytes(&bytes)?)
+    fs_util::read_store_index_from_uri(uri, s3_options).await
 }
 
 /// Summary numbers for `print-store` (cmd_printstore.go).
