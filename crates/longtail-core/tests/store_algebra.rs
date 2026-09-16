@@ -309,3 +309,70 @@ fn incremental_reader_refuses_a_stream_longer_than_declared() {
     r.feed(&bytes).unwrap();
     assert!(r.feed(&[0u8; 4]).is_err(), "overrun must be refused");
 }
+
+/// A stage that is empty *before the first element arrives* must be skipped, not
+/// treated as the whole body being done. `block_count == 0` with a non-zero
+/// `chunk_count` used to decode nothing and finish `Ok` with an empty index,
+/// where `from_bytes` on the same bytes returns the chunks.
+#[test]
+fn incremental_reader_decodes_an_index_whose_first_stage_is_empty() {
+    let si = StoreIndex {
+        hash_identifier: 7,
+        block_hashes: vec![],
+        chunk_hashes: vec![11, 22],
+        block_chunks_offsets: vec![],
+        block_chunk_counts: vec![],
+        block_tags: vec![],
+        chunk_sizes: vec![33, 44],
+    };
+    let bytes = si.to_bytes();
+    let expected = StoreIndex::from_bytes(&bytes).expect("baseline parse");
+
+    for chunk in [1usize, 3, 8, bytes.len()] {
+        let mut r = StoreIndexReader::new(bytes.len() as u64);
+        for part in bytes.chunks(chunk) {
+            r.feed(part)
+                .unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        }
+        let got = r.finish().unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        assert_eq!(got, expected, "chunk size {chunk}");
+    }
+}
+
+/// The wholly empty index is still the one case where every stage is empty at
+/// the start and the reader is right to produce a result.
+#[test]
+fn incremental_reader_accepts_the_empty_index() {
+    let bytes = StoreIndex::empty(0).to_bytes();
+    let mut r = StoreIndexReader::new(bytes.len() as u64);
+    r.feed(&bytes).unwrap();
+    assert_eq!(r.finish().unwrap(), StoreIndex::empty(0));
+}
+
+/// The mirror shape: blocks but no chunks leaves stages 1 and 5 empty, which
+/// `push`'s skip loop handles rather than `start_body`'s. Covered so a change to
+/// either skip cannot regress one direction unnoticed.
+#[test]
+fn incremental_reader_decodes_an_index_with_no_chunks() {
+    let si = StoreIndex {
+        hash_identifier: 7,
+        block_hashes: vec![55, 66],
+        chunk_hashes: vec![],
+        block_chunks_offsets: vec![0, 0],
+        block_chunk_counts: vec![0, 0],
+        block_tags: vec![1, 2],
+        chunk_sizes: vec![],
+    };
+    let bytes = si.to_bytes();
+    let expected = StoreIndex::from_bytes(&bytes).expect("baseline parse");
+
+    for chunk in [1usize, 3, 8, bytes.len()] {
+        let mut r = StoreIndexReader::new(bytes.len() as u64);
+        for part in bytes.chunks(chunk) {
+            r.feed(part)
+                .unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        }
+        let got = r.finish().unwrap_or_else(|e| panic!("chunk {chunk}: {e}"));
+        assert_eq!(got, expected, "chunk size {chunk}");
+    }
+}

@@ -671,15 +671,22 @@ impl StoreIndex {
 /// Feeding the object in chunks costs the arrays plus whatever the caller's
 /// chunk is, which is the irreducible price of holding the index at all.
 ///
-/// **The declared length is the bound.** The caller knows the object's real size
-/// before reading it (`metadata()` on a file, `Content-Length` on S3) and passes
-/// it here; the header's counts must describe exactly that many bytes. A header
-/// claiming four billion chunks inside a small object is refused before anything
-/// is allocated, so no ceiling on the size is needed to keep a malformed header
-/// from choosing this process's memory use. What a hostile store can still do is
-/// serve an object that really is enormous, and the reservations below use
-/// `try_reserve` so that ends the operation with an error rather than aborting
-/// the process on an allocation failure.
+/// **The declared length is the bound** — as strong a bound as the backend can
+/// offer. On a file it is `metadata().len()`, which is authoritative. On S3 it is
+/// the server's `Content-Length`, which is the server's claim about its own
+/// object. Either way the header's counts must describe exactly that many bytes,
+/// so a header claiming four billion chunks inside a small object is refused
+/// before anything is allocated, and no ceiling on the size is needed to stop a
+/// malformed header choosing this process's memory use.
+///
+/// What that does not bound is a backend that declares — and then serves —
+/// something genuinely enormous. The reservations below go through `try_reserve`,
+/// so an allocation the allocator refuses is a typed error rather than an abort;
+/// that is not the same as a guarantee against running out of memory. Under an
+/// overcommitting allocator a reservation larger than the memory actually
+/// available still succeeds, and the process can be killed as the body fills it.
+/// A caller reading from a store it does not control should bound the declared
+/// length itself.
 pub struct StoreIndexReader {
     declared_len: u64,
     seen: u64,
@@ -768,6 +775,14 @@ impl StoreIndexReader {
         Self::reserve(&mut index.chunk_sizes, c, block_count, chunk_count)?;
 
         self.remaining = [b as u64, c as u64, b as u64, b as u64, b as u64, c as u64];
+        // A stage that is empty from the outset has to be skipped here. The
+        // cursor otherwise only advances inside `push`, so `feed`'s loop guard
+        // would find stage 0 already exhausted and decode nothing: an index with
+        // no blocks but some chunks would come back empty, where `from_bytes`
+        // returns the chunks.
+        while self.stage < 5 && self.remaining[self.stage] == 0 {
+            self.stage += 1;
+        }
         self.index = Some(index);
         Ok(())
     }
@@ -856,6 +871,18 @@ impl StoreIndexReader {
             return Err(FormatError::Truncated {
                 expected: usize::try_from(self.declared_len).unwrap_or(usize::MAX),
                 actual: usize::try_from(self.seen).unwrap_or(usize::MAX),
+            });
+        }
+        // The bytes arriving is not the same fact as the elements decoding.
+        // `start_body` proved `data_size == declared_len`, so once every stage is
+        // consumed these are necessarily zero; if they are not, the decoder
+        // dropped part of the body and a short index must not escape as a whole
+        // one.
+        let outstanding: u64 = self.remaining.iter().sum();
+        if outstanding > 0 || self.carry_len > 0 {
+            return Err(FormatError::IncompleteBody {
+                elements: outstanding,
+                carry: self.carry_len,
             });
         }
         self.index.ok_or(FormatError::Truncated {
