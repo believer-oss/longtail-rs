@@ -449,9 +449,15 @@ impl BlobObject for FsBlobObject {
             let mut reader = StoreIndexReader::new(len);
             let mut buf = vec![0u8; STORE_INDEX_CHUNK_BYTES];
             loop {
-                let n = f
-                    .read(&mut buf)
-                    .map_err(|e| StoreError::io(format!("read {}", path.display()), e))?;
+                let n = match f.read(&mut buf) {
+                    Ok(n) => n,
+                    // `read_to_end`, which this replaced, retries on EINTR; an
+                    // interrupted read is not a failed one.
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        return Err(StoreError::io(format!("read {}", path.display()), e));
+                    }
+                };
                 if n == 0 {
                     break;
                 }
