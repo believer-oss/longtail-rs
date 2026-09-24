@@ -18,7 +18,7 @@ thiserror = "2"
 blake3 = "1"
 blake2 = "0.10"
 zstd = "0.13"
-lz4_flex = "0.13"
+lz4_flex = "0.14"
 brotli = "8"
 
 # FastCDC is benchmarking-only: same Chunker trait, no compat gates.
