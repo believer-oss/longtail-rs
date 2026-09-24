@@ -2130,7 +2130,7 @@ dependencies = [
  "longtail-ffi",
  "longtail-testkit",
  "rand_chacha",
- "rand_core 0.9.5",
+ "rand_core 0.10.1",
  "tempfile",
 ]
 
@@ -2243,7 +2243,7 @@ dependencies = [
  "longtail-core",
  "longtail-ffi",
  "rand_chacha",
- "rand_core 0.9.5",
+ "rand_core 0.10.1",
  "serde",
  "serde_json",
  "sha2 0.10.9",
